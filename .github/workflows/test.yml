@@ -67,7 +67,18 @@ jobs:
         run: |
           set -eu
           sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "mkdir -p '$APP_DIR' && if [ ! -d '$APP_DIR/.git' ]; then git clone https://github.com/hsdarestani/apluscard.git '$APP_DIR'; fi"
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          mkdir -p "$APP_DIR"
+          cd "$APP_DIR"
+
+          if [ ! -d .git ]; then
+            git init
+            git remote add origin https://github.com/hsdarestani/apluscard.git
+          else
+            git remote set-url origin https://github.com/hsdarestani/apluscard.git
+          fi
+          REMOTE
 
       - name: Deploy and verify
         run: |
