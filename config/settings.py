@@ -18,6 +18,7 @@ CSRF_TRUSTED_ORIGINS = [
     for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "https://cards.smarbiz.sbs").split(",")
     if origin.strip()
 ]
+DEFAULT_BUSINESS_SLUG = os.getenv("DEFAULT_BUSINESS_SLUG", "shisha-bar")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
