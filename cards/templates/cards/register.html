@@ -1,0 +1,59 @@
+{% extends 'cards/base.html' %}
+{% block title %}Member werden · SAMS Club Lounge{% endblock %}
+{% block content %}
+<section class="auth-wrap">
+  <div class="auth-story">
+    <span class="eyebrow">SAMS Club Lounge Membership</span>
+    <h2>Deine Member Card.<br><span class="gradient-text">In wenigen Sekunden.</span></h2>
+    <p>Registriere dich kostenlos, erhalte deine persönliche digitale Member Card und nutze später Wallet, Bonusaktionen, Angebote und Reservierungen direkt in der App.</p>
+    <div class="hero-badges">
+      <span class="hero-badge">Digitale QR Card</span>
+      <span class="hero-badge">Cashless Wallet</span>
+      <span class="hero-badge">Member Benefits</span>
+    </div>
+  </div>
+
+  <div class="panel auth-panel register-panel">
+    <div class="auth-brand"><span class="brand-emblem">SCL</span><span class="brand-copy"><strong>SAMS CLUB LOUNGE</strong><small>powered by <span class="aplus-signature">A+</span></small></span></div>
+    <span class="eyebrow">Kostenlose Registrierung</span>
+    <h1>Member werden</h1>
+    <p class="muted">Nach der Registrierung wird deine digitale Kundenkarte automatisch erstellt.</p>
+
+    {% if form.non_field_errors %}<div class="message error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+    <form method="post" class="stack-form" novalidate>
+      {% csrf_token %}
+      <div class="two-col">
+        <label>Vorname
+          <input type="text" name="first_name" value="{{ form.first_name.value|default:'' }}" autocomplete="given-name" required>
+          {% for error in form.first_name.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+        </label>
+        <label>Nachname
+          <input type="text" name="last_name" value="{{ form.last_name.value|default:'' }}" autocomplete="family-name" required>
+          {% for error in form.last_name.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+        </label>
+      </div>
+      <label>E-Mail-Adresse
+        <input type="email" name="email" value="{{ form.email.value|default:'' }}" autocomplete="email" inputmode="email" required>
+        {% for error in form.email.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      </label>
+      <label>Mobilnummer
+        <input type="tel" name="phone" value="{{ form.phone.value|default:'' }}" autocomplete="tel" inputmode="tel" required>
+        {% for error in form.phone.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      </label>
+      <div class="two-col">
+        <label>Passwort
+          <input type="password" name="password1" autocomplete="new-password" required>
+          {% for error in form.password1.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+        </label>
+        <label>Passwort wiederholen
+          <input type="password" name="password2" autocomplete="new-password" required>
+          {% for error in form.password2.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+        </label>
+      </div>
+      <p class="form-note">Mit der Registrierung akzeptierst du die Nutzungsbedingungen und Datenschutzhinweise der Lounge.</p>
+      <button class="button primary full" type="submit">Kostenlos registrieren</button>
+    </form>
+    <p class="auth-switch">Schon registriert? <a class="text-link" href="{% url 'login' %}">Zum Member Login</a></p>
+  </div>
+</section>
+{% endblock %}
