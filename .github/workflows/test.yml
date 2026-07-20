@@ -93,23 +93,71 @@ jobs:
           git reset --hard origin/main
 
           if [ ! -f .env ]; then
-            echo "Missing $APP_DIR/.env. Create it once on the server before deployment."
-            exit 1
+            DJANGO_KEY="$(openssl rand -hex 48)"
+            DB_PASSWORD="$(openssl rand -hex 24)"
+
+            cat > .env <<EOF
+          DJANGO_SECRET_KEY=$DJANGO_KEY
+          DJANGO_DEBUG=0
+          DJANGO_ALLOWED_HOSTS=cards.smarbiz.sbs,91.107.145.196,localhost,127.0.0.1
+          DJANGO_CSRF_TRUSTED_ORIGINS=https://cards.smarbiz.sbs
+          DJANGO_TIME_ZONE=Europe/Berlin
+          DJANGO_SECURE_COOKIES=1
+          DJANGO_HSTS_SECONDS=0
+          DATABASE_URL=postgresql://apluscard:$DB_PASSWORD@db:5432/apluscard
+          POSTGRES_DB=apluscard
+          POSTGRES_USER=apluscard
+          POSTGRES_PASSWORD=$DB_PASSWORD
+          EOF
+            chmod 600 .env
+            echo "Created production environment file."
           fi
 
           docker compose up -d --build --remove-orphans
 
-          for attempt in $(seq 1 30); do
+          healthy=0
+          for attempt in $(seq 1 45); do
             if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
-              echo "Deployment is healthy."
-              docker compose ps
-              exit 0
+              healthy=1
+              break
             fi
             sleep 2
           done
 
-          echo "Health check failed."
+          if [ "$healthy" -ne 1 ]; then
+            echo "Application health check failed."
+            docker compose ps
+            docker compose logs --tail=200 web
+            exit 1
+          fi
+
+          cp deploy/nginx/cards.smarbiz.sbs.conf /etc/nginx/sites-available/cards.smarbiz.sbs
+          ln -sfn /etc/nginx/sites-available/cards.smarbiz.sbs /etc/nginx/sites-enabled/cards.smarbiz.sbs
+          nginx -t
+          systemctl reload nginx
+
+          curl --fail --silent --show-error \
+            -H 'Host: cards.smarbiz.sbs' \
+            http://127.0.0.1/health/ >/dev/null
+
+          if getent ahostsv4 cards.smarbiz.sbs | awk '{print $1}' | grep -qx '91.107.145.196'; then
+            if [ ! -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
+              certbot --nginx \
+                --domain cards.smarbiz.sbs \
+                --non-interactive \
+                --agree-tos \
+                --register-unsafely-without-email \
+                --redirect || echo "SSL setup was skipped or failed; HTTP remains available."
+            fi
+          else
+            echo "DNS is not pointing to 91.107.145.196 yet; SSL setup skipped."
+          fi
+
+          if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
+            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=31536000/' .env
+            docker compose restart web
+          fi
+
+          echo "Deployment is healthy."
           docker compose ps
-          docker compose logs --tail=200 web
-          exit 1
           REMOTE
