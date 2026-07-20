@@ -132,6 +132,31 @@ jobs:
             exit 1
           fi
 
+          if [ ! -f .initial-credentials ]; then
+            cat > .initial-credentials <<EOF
+          INITIAL_OWNER_USERNAME=owner
+          INITIAL_OWNER_PASSWORD=$(openssl rand -hex 12)
+          INITIAL_STAFF_USERNAME=staff
+          INITIAL_STAFF_PASSWORD=$(openssl rand -hex 12)
+          INITIAL_CUSTOMER_USERNAME=customer
+          INITIAL_CUSTOMER_PASSWORD=$(openssl rand -hex 12)
+          EOF
+            chmod 600 .initial-credentials
+          fi
+
+          set -a
+          . ./.initial-credentials
+          set +a
+
+          docker compose exec -T \
+            -e INITIAL_OWNER_USERNAME="$INITIAL_OWNER_USERNAME" \
+            -e INITIAL_OWNER_PASSWORD="$INITIAL_OWNER_PASSWORD" \
+            -e INITIAL_STAFF_USERNAME="$INITIAL_STAFF_USERNAME" \
+            -e INITIAL_STAFF_PASSWORD="$INITIAL_STAFF_PASSWORD" \
+            -e INITIAL_CUSTOMER_USERNAME="$INITIAL_CUSTOMER_USERNAME" \
+            -e INITIAL_CUSTOMER_PASSWORD="$INITIAL_CUSTOMER_PASSWORD" \
+            web python manage.py bootstrap_production
+
           cp deploy/nginx/cards.smarbiz.sbs.conf /etc/nginx/sites-available/cards.smarbiz.sbs
           ln -sfn /etc/nginx/sites-available/cards.smarbiz.sbs /etc/nginx/sites-enabled/cards.smarbiz.sbs
           nginx -t
@@ -163,6 +188,15 @@ jobs:
           docker compose ps
           REMOTE
 
+      - name: Inspect production endpoint
+        id: production
+        if: success()
+        run: |
+          set -eu
+          SCHEME="$(sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then echo https; else echo http; fi")"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
       - name: Report deployment result
         if: always()
         uses: actions/github-script@v7
@@ -170,8 +204,9 @@ jobs:
           script: |
             const status = '${{ job.status }}';
             const icon = status === 'success' ? '✅' : '❌';
+            const scheme = '${{ steps.production.outputs.scheme }}' || 'http';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
+            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Site: ${scheme}://cards.smarbiz.sbs\n- Initial credentials: \`/root/apluscard/.initial-credentials\` on the server\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
