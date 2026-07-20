@@ -1,5 +1,25 @@
 {% extends 'cards/base.html' %}
-{% block title %}Anmelden · A+ Card{% endblock %}
+{% block title %}Member Login · SAMS Club Lounge{% endblock %}
 {% block content %}
-<section class="auth-wrap"><div class="panel auth-panel"><span class="eyebrow">Willkommen zurück</span><h1>Anmelden</h1><p class="muted">Zugang für Kunden, Mitarbeiter und Manager.</p>{% if form.errors %}<div class="message error">Benutzername oder Passwort ist nicht korrekt.</div>{% endif %}<form method="post" class="stack-form">{% csrf_token %}<label>Benutzername<input type="text" name="username" autocomplete="username" autofocus required></label><label>Passwort<input type="password" name="password" autocomplete="current-password" required></label><button class="button primary full" type="submit">Anmelden</button></form></div></section>
+<section class="auth-wrap">
+  <div class="auth-story">
+    <span class="eyebrow">SAMS Club Lounge</span>
+    <h2>More than a night.<br><span class="gradient-text">It’s a lifestyle.</span></h2>
+    <p>Dein digitaler Zugang zu Member Wallet, Cashless Payment, Lounge-Vorteilen und allen zukünftigen VIP Services.</p>
+    <div class="hero-badges"><span class="hero-badge">Member Wallet</span><span class="hero-badge">QR Payment</span><span class="hero-badge">VIP Experience</span></div>
+  </div>
+  <div class="panel auth-panel">
+    <div class="auth-brand"><span class="brand-emblem">SCL</span><span class="brand-copy"><strong>SAMS CLUB LOUNGE</strong><small>powered by <span class="aplus-signature">A+</span></small></span></div>
+    <span class="eyebrow">Welcome back</span>
+    <h1>Member Login</h1>
+    <p class="muted">Zugang für Member, Team und Management.</p>
+    {% if form.errors %}<div class="message error">Benutzername oder Passwort ist nicht korrekt.</div>{% endif %}
+    <form method="post" class="stack-form">
+      {% csrf_token %}
+      <label>Benutzername<input type="text" name="username" autocomplete="username" autofocus required></label>
+      <label>Passwort<input type="password" name="password" autocomplete="current-password" required></label>
+      <button class="button primary full" type="submit">In die Lounge App</button>
+    </form>
+  </div>
+</section>
 {% endblock %}
