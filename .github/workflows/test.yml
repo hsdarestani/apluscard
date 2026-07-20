@@ -105,6 +105,7 @@ jobs:
           DJANGO_TIME_ZONE=Europe/Berlin
           DJANGO_SECURE_COOKIES=0
           DJANGO_HSTS_SECONDS=0
+          DEFAULT_BUSINESS_SLUG=shisha-bar
           DATABASE_URL=postgresql://apluscard:$DB_PASSWORD@db:5432/apluscard
           POSTGRES_DB=apluscard
           POSTGRES_USER=apluscard
@@ -114,12 +115,16 @@ jobs:
             echo "Created production environment file."
           fi
 
-          # Keep existing installations compatible with HTTP until a valid
-          # certificate exists. This prevents CSRF failures on the login POST.
           if grep -q '^DJANGO_CSRF_TRUSTED_ORIGINS=' .env; then
             sed -i 's|^DJANGO_CSRF_TRUSTED_ORIGINS=.*|DJANGO_CSRF_TRUSTED_ORIGINS=http://cards.smarbiz.sbs,https://cards.smarbiz.sbs|' .env
           else
             echo 'DJANGO_CSRF_TRUSTED_ORIGINS=http://cards.smarbiz.sbs,https://cards.smarbiz.sbs' >> .env
+          fi
+
+          if grep -q '^DEFAULT_BUSINESS_SLUG=' .env; then
+            sed -i 's/^DEFAULT_BUSINESS_SLUG=.*/DEFAULT_BUSINESS_SLUG=shisha-bar/' .env
+          else
+            echo 'DEFAULT_BUSINESS_SLUG=shisha-bar' >> .env
           fi
 
           if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
@@ -182,39 +187,69 @@ jobs:
             -H 'Host: cards.smarbiz.sbs' \
             http://127.0.0.1/health/ >/dev/null
 
-          if getent ahostsv4 cards.smarbiz.sbs | awk '{print $1}' | grep -qx '91.107.145.196'; then
-            if [ ! -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
-              certbot --nginx \
-                --domain cards.smarbiz.sbs \
-                --non-interactive \
-                --agree-tos \
-                --register-unsafely-without-email \
-                --redirect || echo "SSL setup was skipped or failed; HTTP remains available."
-            fi
-          else
-            echo "DNS is not pointing to 91.107.145.196 yet; SSL setup skipped."
+          if [ ! -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
+            certbot --nginx \
+              --domain cards.smarbiz.sbs \
+              --non-interactive \
+              --agree-tos \
+              --register-unsafely-without-email \
+              --redirect || echo "SSL setup was skipped or failed; HTTP remains available."
           fi
 
           if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
             sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=1/' .env
             sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=31536000/' .env
+            SITE_URL='https://cards.smarbiz.sbs'
           else
             sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=0/' .env
             sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=0/' .env
+            SITE_URL='http://cards.smarbiz.sbs'
           fi
           docker compose restart web
 
-          # Browser-like CSRF/login smoke test using the generated owner account.
-          if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
-            SITE_URL='https://cards.smarbiz.sbs'
-          else
-            SITE_URL='http://cards.smarbiz.sbs'
-          fi
+          healthy=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" -eq 1 || (echo 'Application did not recover after restart.' && exit 1)
 
           COOKIE_JAR="$(mktemp)"
           LOGIN_HTML="$(mktemp)"
           LOGIN_HEADERS="$(mktemp)"
-          trap 'rm -f "$COOKIE_JAR" "$LOGIN_HTML" "$LOGIN_HEADERS"' EXIT
+          SMOKE_USERNAME="deploy-smoke-$(date +%s)-$RANDOM"
+          SMOKE_PASSWORD="$(openssl rand -hex 24)"
+
+          cleanup() {
+            rm -f "$COOKIE_JAR" "$LOGIN_HTML" "$LOGIN_HEADERS"
+            docker compose exec -T -e SMOKE_USERNAME="$SMOKE_USERNAME" web python - <<'PY' >/dev/null 2>&1 || true
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.contrib.auth import get_user_model
+          get_user_model().objects.filter(username=os.environ["SMOKE_USERNAME"]).delete()
+          PY
+          }
+          trap cleanup EXIT
+
+          docker compose exec -T \
+            -e SMOKE_USERNAME="$SMOKE_USERNAME" \
+            -e SMOKE_PASSWORD="$SMOKE_PASSWORD" \
+            web python - <<'PY'
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.contrib.auth import get_user_model
+          User = get_user_model()
+          user, _ = User.objects.get_or_create(username=os.environ["SMOKE_USERNAME"])
+          user.set_password(os.environ["SMOKE_PASSWORD"])
+          user.save()
+          PY
 
           curl --fail --silent --show-error -k \
             -c "$COOKIE_JAR" \
@@ -230,14 +265,14 @@ jobs:
             -b "$COOKIE_JAR" \
             -c "$COOKIE_JAR" \
             -e "$SITE_URL/accounts/login/" \
-            --data-urlencode "username=$INITIAL_OWNER_USERNAME" \
-            --data-urlencode "password=$INITIAL_OWNER_PASSWORD" \
+            --data-urlencode "username=$SMOKE_USERNAME" \
+            --data-urlencode "password=$SMOKE_PASSWORD" \
             --data-urlencode "csrfmiddlewaretoken=$CSRF_TOKEN" \
             "$SITE_URL/accounts/login/")"
 
-          test "$LOGIN_STATUS" = '302' || (echo "Owner login smoke test returned HTTP $LOGIN_STATUS" && exit 1)
+          test "$LOGIN_STATUS" = '302' || (echo "Login smoke test returned HTTP $LOGIN_STATUS" && exit 1)
 
-          echo "Deployment and owner login are healthy."
+          echo "Deployment, migrations, health check and login flow are healthy."
           docker compose ps
           REMOTE
 
@@ -259,7 +294,7 @@ jobs:
             const icon = status === 'success' ? '✅' : '❌';
             const scheme = '${{ steps.production.outputs.scheme }}' || 'http';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Site: ${scheme}://cards.smarbiz.sbs\n- Owner login smoke test: ${status === 'success' ? 'passed' : 'failed'}\n- Initial credentials: \`/root/apluscard/.initial-credentials\` on the server\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
+            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Site: ${scheme}://cards.smarbiz.sbs\n- Migration and login smoke test: ${status === 'success' ? 'passed' : 'failed'}\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
