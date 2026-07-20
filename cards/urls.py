@@ -4,6 +4,7 @@ from . import api, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
+    path("accounts/register/", views.register_customer, name="register"),
     path("health/", views.health, name="health"),
     path("manifest.webmanifest", views.manifest, name="manifest"),
     path("sw.js", views.service_worker, name="service_worker"),
