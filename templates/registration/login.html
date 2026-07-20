@@ -16,10 +16,11 @@
     {% if form.errors %}<div class="message error">Benutzername oder Passwort ist nicht korrekt.</div>{% endif %}
     <form method="post" class="stack-form">
       {% csrf_token %}
-      <label>Benutzername<input type="text" name="username" autocomplete="username" autofocus required></label>
+      <label>E-Mail oder Benutzername<input type="text" name="username" autocomplete="username" autofocus required></label>
       <label>Passwort<input type="password" name="password" autocomplete="current-password" required></label>
       <button class="button primary full" type="submit">In die Lounge App</button>
     </form>
+    <p class="auth-switch">Noch keine Member Card? <a class="text-link" href="{% url 'register' %}">Jetzt kostenlos registrieren</a></p>
   </div>
 </section>
 {% endblock %}
