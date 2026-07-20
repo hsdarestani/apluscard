@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: apluscard-production
@@ -161,3 +162,19 @@ jobs:
           echo "Deployment is healthy."
           docker compose ps
           REMOTE
+
+      - name: Report deployment result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const icon = status === 'success' ? '✅' : '❌';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 2,
+              body,
+            });
