@@ -29,8 +29,12 @@ class Command(BaseCommand):
 
         business, _ = Business.objects.get_or_create(
             slug="shisha-bar",
-            defaults={"name": "Shisha Bar", "currency": "EUR"},
+            defaults={"name": "SAMS CLUB LOUNGE", "currency": "EUR"},
         )
+        if business.name != "SAMS CLUB LOUNGE" or business.currency != "EUR":
+            business.name = "SAMS CLUB LOUNGE"
+            business.currency = "EUR"
+            business.save(update_fields=["name", "currency"])
 
         owner, owner_created = User.objects.get_or_create(
             username=owner_username,

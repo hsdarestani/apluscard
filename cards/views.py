@@ -30,23 +30,31 @@ def health(request):
 
 def manifest(request):
     return JsonResponse({
-        "name": "A+ Card",
-        "short_name": "A+ Card",
-        "description": "Digitale Kundenkarte, Guthaben und Transaktionsverlauf.",
+        "name": "SAMS Club Lounge · powered by A+",
+        "short_name": "SAMS Lounge",
+        "description": "Member Wallet, Cashless Payment und Lounge Experience.",
         "start_url": "/",
+        "scope": "/",
         "display": "standalone",
-        "background_color": "#08131f",
-        "theme_color": "#0c7cff",
+        "orientation": "portrait-primary",
+        "background_color": "#05030b",
+        "theme_color": "#09050f",
+        "categories": ["lifestyle", "finance", "food"],
         "icons": [{"src": "/static/cards/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
     })
 
 
 def service_worker(request):
     content = """
-const CACHE = 'apluscard-v1';
-const CORE = ['/', '/static/cards/app.css', '/static/cards/app.js', '/manifest.webmanifest'];
-self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE))));
-self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+const CACHE = 'sams-lounge-v2';
+const CORE = ['/', '/static/cards/app.css', '/static/cards/app.js', '/static/cards/icon.svg', '/manifest.webmanifest'];
+self.addEventListener('install', event => {
+  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)));
+});
+self.addEventListener('activate', event => event.waitUntil(
+  caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())
+));
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   event.respondWith(fetch(event.request).catch(() => caches.match(event.request).then(response => response || caches.match('/'))));
@@ -54,6 +62,7 @@ self.addEventListener('fetch', event => {
 """.strip()
     response = HttpResponse(content, content_type="application/javascript")
     response["Service-Worker-Allowed"] = "/"
+    response["Cache-Control"] = "no-cache"
     return response
 
 
@@ -81,8 +90,16 @@ def staff_dashboard(request):
     membership = get_active_membership(request.user)
     if not membership or membership.role not in STAFF_ROLES:
         raise PermissionDenied
-    recent_entries = LedgerEntry.objects.filter(business=membership.business, performed_by=request.user, entry_type=LedgerEntry.Type.PURCHASE).select_related("wallet")[:20]
-    return render(request, "cards/staff_dashboard.html", {"membership": membership, "form": MoneyActionForm(), "recent_entries": recent_entries})
+    recent_entries = LedgerEntry.objects.filter(
+        business=membership.business,
+        performed_by=request.user,
+        entry_type=LedgerEntry.Type.PURCHASE,
+    ).select_related("wallet")[:20]
+    return render(request, "cards/staff_dashboard.html", {
+        "membership": membership,
+        "form": MoneyActionForm(),
+        "recent_entries": recent_entries,
+    })
 
 
 @login_required
@@ -95,7 +112,15 @@ def staff_charge(request):
     wallet = get_object_or_404(Wallet.objects.select_related("business"), qr_token=form.cleaned_data["wallet_token"])
     require_role(request.user, wallet.business, STAFF_ROLES)
     try:
-        entry = post_wallet_entry(wallet=wallet, entry_type=LedgerEntry.Type.PURCHASE, amount=form.cleaned_data["amount"], actor=request.user, description=form.cleaned_data["description"], order_reference=form.cleaned_data["order_reference"], ip_address=client_ip(request))
+        entry = post_wallet_entry(
+            wallet=wallet,
+            entry_type=LedgerEntry.Type.PURCHASE,
+            amount=form.cleaned_data["amount"],
+            actor=request.user,
+            description=form.cleaned_data["description"],
+            order_reference=form.cleaned_data["order_reference"],
+            ip_address=client_ip(request),
+        )
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:
@@ -152,7 +177,11 @@ def manager_wallet_detail(request, wallet_id):
     wallet = get_object_or_404(Wallet.objects.select_related("business", "owner"), pk=wallet_id)
     require_role(request.user, wallet.business, MANAGER_ROLES)
     entries = wallet.ledger_entries.select_related("performed_by")[:100]
-    return render(request, "cards/manager_wallet_detail.html", {"wallet": wallet, "entries": entries, "action_form": ManagerMoneyActionForm()})
+    return render(request, "cards/manager_wallet_detail.html", {
+        "wallet": wallet,
+        "entries": entries,
+        "action_form": ManagerMoneyActionForm(),
+    })
 
 
 def _manager_money_action(request, wallet_id, entry_type):
@@ -163,7 +192,15 @@ def _manager_money_action(request, wallet_id, entry_type):
         messages.error(request, "Bitte Betrag und Angaben prüfen.")
         return redirect("manager_wallet_detail", wallet_id=wallet.pk)
     try:
-        entry = post_wallet_entry(wallet=wallet, entry_type=entry_type, amount=form.cleaned_data["amount"], actor=request.user, description=form.cleaned_data["description"], order_reference=form.cleaned_data["order_reference"], ip_address=client_ip(request))
+        entry = post_wallet_entry(
+            wallet=wallet,
+            entry_type=entry_type,
+            amount=form.cleaned_data["amount"],
+            actor=request.user,
+            description=form.cleaned_data["description"],
+            order_reference=form.cleaned_data["order_reference"],
+            ip_address=client_ip(request),
+        )
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:
@@ -190,7 +227,12 @@ def manager_wallet_status(request, wallet_id):
     wallet = get_object_or_404(Wallet.objects.select_related("business"), pk=wallet_id)
     require_role(request.user, wallet.business, MANAGER_ROLES)
     try:
-        set_wallet_status(wallet=wallet, status=request.POST.get("status", ""), actor=request.user, ip_address=client_ip(request))
+        set_wallet_status(
+            wallet=wallet,
+            status=request.POST.get("status", ""),
+            actor=request.user,
+            ip_address=client_ip(request),
+        )
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:
