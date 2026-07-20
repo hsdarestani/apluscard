@@ -101,9 +101,9 @@ jobs:
           DJANGO_SECRET_KEY=$DJANGO_KEY
           DJANGO_DEBUG=0
           DJANGO_ALLOWED_HOSTS=cards.smarbiz.sbs,91.107.145.196,localhost,127.0.0.1
-          DJANGO_CSRF_TRUSTED_ORIGINS=https://cards.smarbiz.sbs
+          DJANGO_CSRF_TRUSTED_ORIGINS=http://cards.smarbiz.sbs,https://cards.smarbiz.sbs
           DJANGO_TIME_ZONE=Europe/Berlin
-          DJANGO_SECURE_COOKIES=1
+          DJANGO_SECURE_COOKIES=0
           DJANGO_HSTS_SECONDS=0
           DATABASE_URL=postgresql://apluscard:$DB_PASSWORD@db:5432/apluscard
           POSTGRES_DB=apluscard
@@ -112,6 +112,22 @@ jobs:
           EOF
             chmod 600 .env
             echo "Created production environment file."
+          fi
+
+          # Keep existing installations compatible with HTTP until a valid
+          # certificate exists. This prevents CSRF failures on the login POST.
+          if grep -q '^DJANGO_CSRF_TRUSTED_ORIGINS=' .env; then
+            sed -i 's|^DJANGO_CSRF_TRUSTED_ORIGINS=.*|DJANGO_CSRF_TRUSTED_ORIGINS=http://cards.smarbiz.sbs,https://cards.smarbiz.sbs|' .env
+          else
+            echo 'DJANGO_CSRF_TRUSTED_ORIGINS=http://cards.smarbiz.sbs,https://cards.smarbiz.sbs' >> .env
+          fi
+
+          if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
+            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=1/' .env
+            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=31536000/' .env
+          else
+            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=0/' .env
+            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=0/' .env
           fi
 
           docker compose up -d --build --remove-orphans
@@ -180,11 +196,48 @@ jobs:
           fi
 
           if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
+            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=1/' .env
             sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=31536000/' .env
-            docker compose restart web
+          else
+            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=0/' .env
+            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=0/' .env
+          fi
+          docker compose restart web
+
+          # Browser-like CSRF/login smoke test using the generated owner account.
+          if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
+            SITE_URL='https://cards.smarbiz.sbs'
+          else
+            SITE_URL='http://cards.smarbiz.sbs'
           fi
 
-          echo "Deployment is healthy."
+          COOKIE_JAR="$(mktemp)"
+          LOGIN_HTML="$(mktemp)"
+          LOGIN_HEADERS="$(mktemp)"
+          trap 'rm -f "$COOKIE_JAR" "$LOGIN_HTML" "$LOGIN_HEADERS"' EXIT
+
+          curl --fail --silent --show-error -k \
+            -c "$COOKIE_JAR" \
+            "$SITE_URL/accounts/login/" > "$LOGIN_HTML"
+
+          CSRF_TOKEN="$(awk '$6 == "csrftoken" {print $7}' "$COOKIE_JAR" | tail -n 1)"
+          test -n "$CSRF_TOKEN" || (echo 'Login CSRF cookie was not issued.' && exit 1)
+
+          LOGIN_STATUS="$(curl --silent --show-error -k \
+            -o /dev/null \
+            -D "$LOGIN_HEADERS" \
+            -w '%{http_code}' \
+            -b "$COOKIE_JAR" \
+            -c "$COOKIE_JAR" \
+            -e "$SITE_URL/accounts/login/" \
+            --data-urlencode "username=$INITIAL_OWNER_USERNAME" \
+            --data-urlencode "password=$INITIAL_OWNER_PASSWORD" \
+            --data-urlencode "csrfmiddlewaretoken=$CSRF_TOKEN" \
+            "$SITE_URL/accounts/login/")"
+
+          test "$LOGIN_STATUS" = '302' || (echo "Owner login smoke test returned HTTP $LOGIN_STATUS" && exit 1)
+
+          echo "Deployment and owner login are healthy."
           docker compose ps
           REMOTE
 
@@ -206,7 +259,7 @@ jobs:
             const icon = status === 'success' ? '✅' : '❌';
             const scheme = '${{ steps.production.outputs.scheme }}' || 'http';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Site: ${scheme}://cards.smarbiz.sbs\n- Initial credentials: \`/root/apluscard/.initial-credentials\` on the server\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
+            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Site: ${scheme}://cards.smarbiz.sbs\n- Owner login smoke test: ${status === 'success' ? 'passed' : 'failed'}\n- Initial credentials: \`/root/apluscard/.initial-credentials\` on the server\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
