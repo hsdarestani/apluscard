@@ -49,7 +49,7 @@ jobs:
 
           if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
             CERTBOT_RESULT="already-active"
-          elif printf '%s' "$DNS_IPS" | tr ',' '\n' | grep -qx '91.107.145.196'; then
+          else
             set +e
             certbot --nginx \
               --domain cards.smarbiz.sbs \
@@ -65,8 +65,6 @@ jobs:
             else
               CERTBOT_RESULT="failed-exit-$CERTBOT_EXIT"
             fi
-          else
-            CERTBOT_RESULT="dns-not-ready"
           fi
 
           if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
@@ -83,7 +81,7 @@ jobs:
             SSL_STATE="inactive"
           fi
 
-          CERTBOT_TAIL="$(tail -n 8 .certbot-last.log 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | cut -c1-700)"
+          CERTBOT_TAIL="$(tail -n 10 .certbot-last.log 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | cut -c1-1000)"
           [ -n "$CERTBOT_TAIL" ] || CERTBOT_TAIL="none"
 
           cat > .ssl-status <<EOF
