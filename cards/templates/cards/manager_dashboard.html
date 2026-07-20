@@ -1,11 +1,78 @@
 {% extends 'cards/base.html' %}
-{% block title %}Manager · A+ Card{% endblock %}
+{% block title %}Management · SAMS Club Lounge{% endblock %}
 {% block content %}
-<section class="dashboard-head"><div><span class="eyebrow">{{ membership.business.name }}</span><h1>Manager Dashboard</h1><p class="muted">Karten, Guthaben und Transaktionen zentral verwalten.</p></div><span class="role-pill">{{ membership.get_role_display }}</span></section>
-<section class="stats-grid"><article class="stat-card"><span>Aktive Kundenkarten</span><strong>{{ wallet_count }}</strong></article><article class="stat-card"><span>Gesamtes Kundenguthaben</span><strong>{{ total_balance|floatformat:2 }} €</strong></article><article class="stat-card"><span>API-Status</span><strong class="online-dot">Online</strong></article></section>
-<section class="manager-grid">
-  <article class="panel"><div class="section-heading"><div><span class="eyebrow">Kunden</span><h2>Karten verwalten</h2></div><button class="button primary small" type="button" data-dialog-open="new-wallet">Neue Karte</button></div><form method="get" class="search-bar"><input type="search" name="q" value="{{ query }}" placeholder="Name, Telefon, E-Mail oder Kartencode"><button class="button secondary small">Suchen</button></form><div class="wallet-table-wrap"><table class="data-table"><thead><tr><th>Kunde</th><th>Status</th><th>Guthaben</th><th></th></tr></thead><tbody>{% for wallet in wallets %}<tr><td><strong>{{ wallet.display_name }}</strong><span>{{ wallet.phone|default:wallet.email|default:"–" }}</span></td><td><span class="status-pill {{ wallet.status|lower }}">{{ wallet.get_status_display }}</span></td><td>{{ wallet.balance|floatformat:2 }} €</td><td><a class="text-link" href="{% url 'manager_wallet_detail' wallet.id %}">Öffnen →</a></td></tr>{% empty %}<tr><td colspan="4" class="empty-state">Keine Karten gefunden.</td></tr>{% endfor %}</tbody></table></div></article>
-  <article class="panel"><div class="section-heading"><div><span class="eyebrow">Live Ledger</span><h2>Letzte Bewegungen</h2></div></div><div class="transaction-list compact">{% for entry in recent_entries %}<div class="transaction-row"><div class="transaction-main"><strong>{{ entry.wallet.display_name }}</strong><span>{{ entry.get_entry_type_display }} · {{ entry.performed_by.username }} · {{ entry.created_at|date:"d.m. H:i" }}</span></div><div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div></div>{% empty %}<div class="empty-state">Noch keine Transaktionen.</div>{% endfor %}</div></article>
+<section class="dashboard-head">
+  <div>
+    <span class="eyebrow">{{ membership.business.name }}</span>
+    <h1>Lounge<br><span class="gradient-text">Control</span></h1>
+    <p class="muted">Member Cards, Guthaben und Live-Transaktionen zentral steuern.</p>
+  </div>
+  <div class="dashboard-context">
+    <span class="vip-chip">A+ Premium Brand App</span>
+    <span class="role-pill">{{ membership.get_role_display }}</span>
+  </div>
 </section>
-<dialog id="new-wallet" class="app-dialog"><form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">{% csrf_token %}<div class="dialog-head"><div><span class="eyebrow">Neue Karte</span><h2>Kunde anlegen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div><label>Name<input name="display_name" required></label><label>Telefon<input name="phone"></label><label>E-Mail<input type="email" name="email"></label><button class="button primary full" type="submit">Karte erstellen</button></form></dialog>
+
+<section class="stats-grid">
+  <article class="stat-card"><div class="stat-accent"></div><span>Member Cards</span><strong>{{ wallet_count }}</strong></article>
+  <article class="stat-card"><div class="stat-accent"></div><span>Gesamtes Kundenguthaben</span><strong>{{ total_balance|floatformat:2 }} €</strong></article>
+  <article class="stat-card"><div class="stat-accent"></div><span>Systemstatus</span><strong class="online-dot">Live</strong></article>
+</section>
+
+<section class="manager-grid">
+  <article class="panel">
+    <div class="section-heading">
+      <div><span class="eyebrow">Members</span><h2>Karten verwalten</h2></div>
+      <button class="button primary small" type="button" data-dialog-open="new-wallet">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+        Neue Karte
+      </button>
+    </div>
+    <form method="get" class="search-bar">
+      <input type="search" name="q" value="{{ query }}" placeholder="Name, Telefon, E-Mail oder Kartencode">
+      <button class="button secondary small">Suchen</button>
+    </form>
+    <div class="wallet-table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Member</th><th>Status</th><th>Guthaben</th><th></th></tr></thead>
+        <tbody>
+          {% for wallet in wallets %}
+            <tr>
+              <td><strong>{{ wallet.display_name }}</strong><span>{{ wallet.phone|default:wallet.email|default:"–" }}</span></td>
+              <td><span class="status-pill {{ wallet.status|lower }}">{{ wallet.get_status_display }}</span></td>
+              <td>{{ wallet.balance|floatformat:2 }} €</td>
+              <td><a class="text-link" href="{% url 'manager_wallet_detail' wallet.id %}">Öffnen →</a></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="empty-state">Noch keine Member Cards vorhanden.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-heading"><div><span class="eyebrow">Live Ledger</span><h2>Letzte Bewegungen</h2></div></div>
+    <div class="transaction-list compact">
+      {% for entry in recent_entries %}
+        <div class="transaction-row">
+          <div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div>
+          <div class="transaction-main"><strong>{{ entry.wallet.display_name }}</strong><span>{{ entry.get_entry_type_display }} · {{ entry.performed_by.username }} · {{ entry.created_at|date:"d.m. H:i" }}</span></div>
+          <div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div>
+        </div>
+      {% empty %}<div class="empty-state">Noch keine Transaktionen.</div>{% endfor %}
+    </div>
+  </article>
+</section>
+
+<dialog id="new-wallet" class="app-dialog">
+  <form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">
+    {% csrf_token %}
+    <div class="dialog-head"><div><span class="eyebrow">New Member</span><h2>Member Card anlegen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div>
+    <label>Name<input name="display_name" required></label>
+    <label>Telefon<input name="phone"></label>
+    <label>E-Mail<input type="email" name="email"></label>
+    <button class="button primary full" type="submit">Member Card erstellen</button>
+  </form>
+</dialog>
 {% endblock %}
