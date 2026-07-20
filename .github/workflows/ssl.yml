@@ -1,0 +1,118 @@
+name: Provision HTTPS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ssl.yml
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: apluscard-production
+  cancel-in-progress: false
+
+jobs:
+  ssl:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+
+    steps:
+      - name: Install SSH client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Provision certificate
+        run: |
+          set -eu
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -u
+          cd "$APP_DIR"
+
+          DNS_IPS="$(getent ahostsv4 cards.smarbiz.sbs 2>/dev/null | awk '{print $1}' | sort -u | paste -sd, -)"
+          [ -n "$DNS_IPS" ] || DNS_IPS="unresolved"
+          CERTBOT_RESULT="not-run"
+
+          if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
+            CERTBOT_RESULT="already-active"
+          elif printf '%s' "$DNS_IPS" | tr ',' '\n' | grep -qx '91.107.145.196'; then
+            set +e
+            certbot --nginx \
+              --domain cards.smarbiz.sbs \
+              --non-interactive \
+              --agree-tos \
+              --register-unsafely-without-email \
+              --redirect > .certbot-last.log 2>&1
+            CERTBOT_EXIT=$?
+            set -e
+
+            if [ "$CERTBOT_EXIT" -eq 0 ]; then
+              CERTBOT_RESULT="issued"
+            else
+              CERTBOT_RESULT="failed-exit-$CERTBOT_EXIT"
+            fi
+          else
+            CERTBOT_RESULT="dns-not-ready"
+          fi
+
+          if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
+            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=1/' .env
+            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=31536000/' .env
+            docker compose restart web >/dev/null
+            HTTPS_CHECK="$(curl -k -sS -o /dev/null -w '%{http_code}' https://cards.smarbiz.sbs/health/ || true)"
+            SSL_STATE="active"
+          else
+            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=0/' .env
+            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=0/' .env
+            docker compose restart web >/dev/null
+            HTTPS_CHECK="not-available"
+            SSL_STATE="inactive"
+          fi
+
+          CERTBOT_TAIL="$(tail -n 8 .certbot-last.log 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | cut -c1-700)"
+          [ -n "$CERTBOT_TAIL" ] || CERTBOT_TAIL="none"
+
+          cat > .ssl-status <<EOF
+          SSL_STATE=$SSL_STATE
+          DNS_IPS=$DNS_IPS
+          CERTBOT_RESULT=$CERTBOT_RESULT
+          HTTPS_CHECK=$HTTPS_CHECK
+          CERTBOT_TAIL=$CERTBOT_TAIL
+          EOF
+          REMOTE
+
+      - name: Read SSL status
+        id: ssl_status
+        run: |
+          set -eu
+          STATUS="$(sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "cat '$APP_DIR/.ssl-status'" | tr '\n' ';' | sed 's/;$//')"
+          echo "summary=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Report SSL result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `${{ steps.ssl_status.outputs.summary }}` || 'No SSL status returned';
+            const body = `🔐 HTTPS provisioning report\n\n- ${summary.split(';').join('\n- ')}\n- Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 2,
+              body,
+            });
