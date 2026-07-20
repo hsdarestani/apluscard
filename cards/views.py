@@ -1,15 +1,18 @@
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.db.models import Q, Sum
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .forms import ManagerMoneyActionForm, MoneyActionForm, WalletCreateForm
-from .models import LedgerEntry, Wallet
+from .forms import CustomerRegistrationForm, ManagerMoneyActionForm, MoneyActionForm, WalletCreateForm
+from .models import Business, LedgerEntry, Wallet
 from .services import MANAGER_ROLES, STAFF_ROLES, get_active_membership, post_wallet_entry, require_role, set_wallet_status
 
 
@@ -22,6 +25,37 @@ def landing(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
     return render(request, "cards/landing.html")
+
+
+@transaction.atomic
+def register_customer(request):
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+
+    business = Business.objects.filter(slug=settings.DEFAULT_BUSINESS_SLUG, is_active=True).first()
+    if business is None:
+        messages.error(request, "Die Registrierung ist momentan nicht verfügbar. Bitte das Lounge-Team kontaktieren.")
+        return redirect("login")
+
+    if request.method == "POST":
+        form = CustomerRegistrationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            display_name = f"{user.first_name} {user.last_name}".strip() or user.email
+            Wallet.objects.create(
+                business=business,
+                owner=user,
+                display_name=display_name,
+                phone=form.cleaned_data["phone"],
+                email=user.email,
+            )
+            auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            messages.success(request, "Willkommen im SAMS Club Lounge. Deine digitale Member Card ist bereit.")
+            return redirect("customer_dashboard")
+    else:
+        form = CustomerRegistrationForm()
+
+    return render(request, "cards/register.html", {"form": form, "business": business})
 
 
 def health(request):
@@ -46,8 +80,8 @@ def manifest(request):
 
 def service_worker(request):
     content = """
-const CACHE = 'sams-lounge-v2';
-const CORE = ['/', '/static/cards/app.css', '/static/cards/app.js', '/static/cards/icon.svg', '/manifest.webmanifest'];
+const CACHE = 'sams-lounge-v3';
+const CORE = ['/', '/accounts/register/', '/static/cards/app.css', '/static/cards/app.js', '/static/cards/icon.svg', '/manifest.webmanifest'];
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)));
