@@ -38,7 +38,8 @@
           <button class="link-button" type="submit">Abmelden</button>
         </form>
       {% else %}
-        <a class="button secondary small" href="{% url 'login' %}">Anmelden</a>
+        <a class="button secondary small header-login" href="{% url 'login' %}">Anmelden</a>
+        <a class="button primary small header-register" href="{% url 'register' %}">Registrieren</a>
       {% endif %}
     </div>
   </header>
