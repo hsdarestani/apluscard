@@ -1,9 +1,17 @@
-name: Test
+name: Test and Deploy
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apluscard-production
+  cancel-in-progress: false
 
 jobs:
   django:
@@ -23,3 +31,86 @@ jobs:
         env:
           DJANGO_DEBUG: "1"
           DJANGO_SECURE_COOKIES: "0"
+
+  deploy:
+    name: Deploy to Hetzner
+    needs: django
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.HETZNER_HOST }}
+      SSH_PORT: ${{ secrets.HETZNER_PORT }}
+      SSH_USER: ${{ secrets.HETZNER_USER }}
+      APP_ENV_B64: ${{ secrets.APP_ENV_B64 }}
+      APP_DIR: apluscard
+
+    steps:
+      - name: Validate deployment secrets
+        run: |
+          set -eu
+          test -n "$SSH_HOST" || (echo "HETZNER_HOST is missing" && exit 1)
+          test -n "$SSH_PORT" || (echo "HETZNER_PORT is missing" && exit 1)
+          test -n "$SSH_USER" || (echo "HETZNER_USER is missing" && exit 1)
+          test -n "$APP_ENV_B64" || (echo "APP_ENV_B64 is missing" && exit 1)
+          test -n "${{ secrets.HETZNER_SSH_KEY }}" || (echo "HETZNER_SSH_KEY is missing" && exit 1)
+          test -n "${{ secrets.HETZNER_KNOWN_HOSTS }}" || (echo "HETZNER_KNOWN_HOSTS is missing" && exit 1)
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Prepare production environment
+        run: |
+          set -eu
+          printf '%s' "$APP_ENV_B64" | base64 --decode > /tmp/apluscard.env
+          chmod 600 /tmp/apluscard.env
+
+      - name: Bootstrap application directory
+        run: |
+          set -eu
+          ssh -p "$SSH_PORT" -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
+            "mkdir -p ~/$APP_DIR && if [ ! -d ~/$APP_DIR/.git ]; then git clone https://github.com/hsdarestani/apluscard.git ~/$APP_DIR; fi"
+
+      - name: Upload production environment
+        run: |
+          set -eu
+          scp -P "$SSH_PORT" -i ~/.ssh/deploy_key /tmp/apluscard.env \
+            "$SSH_USER@$SSH_HOST:$APP_DIR/.env"
+
+      - name: Deploy and verify
+        run: |
+          set -eu
+          ssh -p "$SSH_PORT" -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$HOME/$APP_DIR"
+
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          docker compose up -d --build --remove-orphans
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              echo "Deployment is healthy."
+              docker compose ps
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Health check failed."
+          docker compose ps
+          docker compose logs --tail=200 web
+          exit 1
+          REMOTE
