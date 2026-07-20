@@ -5,8 +5,10 @@ A mobile-first, API-ready customer card and stored-value wallet for cafés, loun
 ## Included in the first draft
 
 - Customer dashboard with balance, QR card and transaction history
+- Unique eight-digit member number for every customer wallet
+- Automatically generated, printable digital bill for every wallet transaction
 - Staff checkout flow with QR scanning and purchase deductions
-- Manager dashboard for customer cards, top-ups, refunds and blocking
+- Manager dashboard for customer cards, QR member lookup, top-ups, refunds and blocking
 - Immutable ledger-style transaction records with before/after balances
 - Audit events for sensitive wallet operations
 - Role-based access: Owner, Manager, Staff and Customer
@@ -46,7 +48,7 @@ Demo accounts created by `seed_demo`:
 - `staff / ChangeMe123!`
 - `customer / ChangeMe123!`
 
-Change these passwords immediately outside a local demo.
+Change these passwords immediately outside a local demo. Production account passwords are not documented in the repository.
 
 ## Production deployment on Hetzner
 
@@ -136,4 +138,4 @@ Session authentication works for the current PWA. Token authentication is enable
 
 ## Important product/legal note
 
-Keep the balance usable only inside the issuing business, non-transferable and normally non-withdrawable until the German legal and tax treatment has been reviewed. POS/tax integration should store the external receipt or order reference in every wallet transaction.
+The generated digital bill is an application transaction receipt. A legally compliant German fiscal receipt or invoice may require additional company, VAT, tax and POS/TSE data. Keep the balance usable only inside the issuing business, non-transferable and normally non-withdrawable until the German legal and tax treatment has been reviewed. POS/tax integration should store the external receipt or order reference in every wallet transaction.
