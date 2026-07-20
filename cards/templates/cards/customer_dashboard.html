@@ -8,7 +8,7 @@
     <p class="muted">Deine Lounge. Deine Night. Dein digitales Member Wallet.</p>
   </div>
   <div class="dashboard-context">
-    <span class="vip-chip">Lounge Member</span>
+    <span class="vip-chip">Member-Nr. {{ wallet.member_number }}</span>
     <span class="status-pill {{ wallet.status|lower }}">{{ wallet.get_status_display }}</span>
   </div>
 </section>
@@ -21,10 +21,10 @@
     </div>
     <div class="wallet-label">Verfügbares Guthaben</div>
     <div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div>
-    <div class="wallet-bonus">Member Guthaben · {{ wallet.business.currency }}</div>
+    <div class="wallet-bonus">Member-Nr. {{ wallet.member_number }} · {{ wallet.business.currency }}</div>
     <div class="qr-frame"><div id="customer-qr" class="qr-box" data-token="{{ wallet.qr_token }}"></div></div>
-    <div class="wallet-code">{{ wallet.qr_token }}</div>
-    <div class="member-line"><span>Digital Member Card</span><span>✦ Active</span></div>
+    <div class="wallet-code">Card ID · {{ wallet.qr_token }}</div>
+    <div class="member-line"><span>Digital Member Card</span><span>✦ {{ wallet.get_status_display }}</span></div>
   </article>
 
   <div>
@@ -49,7 +49,7 @@
 
     <article class="panel" id="transactions">
       <div class="section-heading">
-        <div><span class="eyebrow">Wallet Activity</span><h2>Letzte Transaktionen</h2></div>
+        <div><span class="eyebrow">Wallet Activity</span><h2>Transaktionen & Belege</h2></div>
       </div>
       <div class="transaction-list">
         {% for entry in entries %}
@@ -58,6 +58,7 @@
             <div class="transaction-main">
               <strong>{{ entry.get_entry_type_display }}</strong>
               <span>{{ entry.description|default:"SAMS Club Lounge" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span>
+              <a class="bill-link" href="{% url 'bill_detail' entry.id %}">Beleg {{ entry.bill_number }} öffnen →</a>
             </div>
             <div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div>
           </div>
