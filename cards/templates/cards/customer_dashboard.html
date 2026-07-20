@@ -1,10 +1,75 @@
 {% extends 'cards/base.html' %}
-{% block title %}Meine Karte · A+ Card{% endblock %}
+{% block title %}Meine Member Card · SAMS Club Lounge{% endblock %}
 {% block content %}
-<section class="dashboard-head"><div><span class="eyebrow">{{ wallet.business.name }}</span><h1>Hallo, {{ wallet.display_name }}</h1><p class="muted">Deine digitale Kundenkarte und alle Transaktionen.</p></div><span class="status-pill {{ wallet.status|lower }}">{{ wallet.get_status_display }}</span></section>
+<section class="dashboard-head">
+  <div>
+    <span class="eyebrow">{{ wallet.business.name }}</span>
+    <h1>Willkommen,<br><span class="gradient-text">{{ wallet.display_name }}</span></h1>
+    <p class="muted">Deine Lounge. Deine Night. Dein digitales Member Wallet.</p>
+  </div>
+  <div class="dashboard-context">
+    <span class="vip-chip">Lounge Member</span>
+    <span class="status-pill {{ wallet.status|lower }}">{{ wallet.get_status_display }}</span>
+  </div>
+</section>
+
 <section class="customer-grid">
-  <article class="wallet-card"><div class="wallet-top"><span class="wallet-brand">A+ CARD</span><span>{{ wallet.business.currency }}</span></div><div class="wallet-label">Verfügbares Guthaben</div><div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div><div id="customer-qr" class="qr-box" data-token="{{ wallet.qr_token }}"></div><div class="wallet-code">{{ wallet.qr_token }}</div></article>
-  <article class="panel"><div class="section-heading"><div><span class="eyebrow">Aktivität</span><h2>Letzte Transaktionen</h2></div></div><div class="transaction-list">{% for entry in entries %}<div class="transaction-row"><div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div><div class="transaction-main"><strong>{{ entry.get_entry_type_display }}</strong><span>{{ entry.description|default:"Ohne Beschreibung" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span></div><div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div></div>{% empty %}<div class="empty-state">Noch keine Transaktionen.</div>{% endfor %}</div></article>
+  <article class="wallet-card">
+    <div class="wallet-top">
+      <span class="wallet-brand">SAMS CLUB<br>LOUNGE<small>powered by <span class="aplus-signature">A+</span></small></span>
+      <span>VIP</span>
+    </div>
+    <div class="wallet-label">Verfügbares Guthaben</div>
+    <div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div>
+    <div class="wallet-bonus">Member Guthaben · {{ wallet.business.currency }}</div>
+    <div class="qr-frame"><div id="customer-qr" class="qr-box" data-token="{{ wallet.qr_token }}"></div></div>
+    <div class="wallet-code">{{ wallet.qr_token }}</div>
+    <div class="member-line"><span>Digital Member Card</span><span>✦ Active</span></div>
+  </article>
+
+  <div>
+    <section class="quick-actions" aria-label="Member Services">
+      <a class="quick-action" href="#transactions">
+        <span class="quick-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M7 8l5-5 5 5M7 16l5 5 5-5"/></svg></span>
+        <span><strong>Aufladen</strong><small>Bald online verfügbar</small></span>
+      </a>
+      <a class="quick-action" href="#transactions">
+        <span class="quick-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg></span>
+        <span><strong>Offers</strong><small>Member Deals</small></span>
+      </a>
+      <a class="quick-action" href="#transactions">
+        <span class="quick-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 3v3M17 3v3M4 9h16"/><rect x="4" y="5" width="16" height="16" rx="3"/></svg></span>
+        <span><strong>Reservieren</strong><small>Tischanfrage</small></span>
+      </a>
+      <a class="quick-action" href="#transactions">
+        <span class="quick-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 12h14M12 5v14"/><circle cx="12" cy="12" r="9"/></svg></span>
+        <span><strong>Events</strong><small>VIP Nights</small></span>
+      </a>
+    </section>
+
+    <article class="panel" id="transactions">
+      <div class="section-heading">
+        <div><span class="eyebrow">Wallet Activity</span><h2>Letzte Transaktionen</h2></div>
+      </div>
+      <div class="transaction-list">
+        {% for entry in entries %}
+          <div class="transaction-row">
+            <div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div>
+            <div class="transaction-main">
+              <strong>{{ entry.get_entry_type_display }}</strong>
+              <span>{{ entry.description|default:"SAMS Club Lounge" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span>
+            </div>
+            <div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div>
+          </div>
+        {% empty %}
+          <div class="empty-state">Deine erste Lounge-Aktivität erscheint hier.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </div>
 </section>
 {% endblock %}
-{% block scripts %}<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script><script>window.addEventListener('load',function(){const t=document.getElementById('customer-qr');if(t&&window.QRCode)new QRCode(t,{text:t.dataset.token,width:180,height:180,correctLevel:QRCode.CorrectLevel.H});});</script>{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>window.addEventListener('load',function(){const t=document.getElementById('customer-qr');if(t&&window.QRCode)new QRCode(t,{text:t.dataset.token,width:194,height:194,correctLevel:QRCode.CorrectLevel.H});});</script>
+{% endblock %}
