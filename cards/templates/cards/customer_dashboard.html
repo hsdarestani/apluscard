@@ -1,0 +1,10 @@
+{% extends 'cards/base.html' %}
+{% block title %}Meine Karte · A+ Card{% endblock %}
+{% block content %}
+<section class="dashboard-head"><div><span class="eyebrow">{{ wallet.business.name }}</span><h1>Hallo, {{ wallet.display_name }}</h1><p class="muted">Deine digitale Kundenkarte und alle Transaktionen.</p></div><span class="status-pill {{ wallet.status|lower }}">{{ wallet.get_status_display }}</span></section>
+<section class="customer-grid">
+  <article class="wallet-card"><div class="wallet-top"><span class="wallet-brand">A+ CARD</span><span>{{ wallet.business.currency }}</span></div><div class="wallet-label">Verfügbares Guthaben</div><div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div><div id="customer-qr" class="qr-box" data-token="{{ wallet.qr_token }}"></div><div class="wallet-code">{{ wallet.qr_token }}</div></article>
+  <article class="panel"><div class="section-heading"><div><span class="eyebrow">Aktivität</span><h2>Letzte Transaktionen</h2></div></div><div class="transaction-list">{% for entry in entries %}<div class="transaction-row"><div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div><div class="transaction-main"><strong>{{ entry.get_entry_type_display }}</strong><span>{{ entry.description|default:"Ohne Beschreibung" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span></div><div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div></div>{% empty %}<div class="empty-state">Noch keine Transaktionen.</div>{% endfor %}</div></article>
+</section>
+{% endblock %}
+{% block scripts %}<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script><script>window.addEventListener('load',function(){const t=document.getElementById('customer-qr');if(t&&window.QRCode)new QRCode(t,{text:t.dataset.token,width:180,height:180,correctLevel:QRCode.CorrectLevel.H});});</script>{% endblock %}

@@ -1,0 +1,104 @@
+name: Test and Deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apluscard-production
+  cancel-in-progress: false
+
+jobs:
+  django:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python manage.py migrate --noinput
+        env:
+          DJANGO_DEBUG: "1"
+          DJANGO_SECURE_COOKIES: "0"
+      - run: python manage.py test
+        env:
+          DJANGO_DEBUG: "1"
+          DJANGO_SECURE_COOKIES: "0"
+
+  deploy:
+    name: Deploy to Hetzner
+    needs: django
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+
+    steps:
+      - name: Validate deployment secret
+        run: |
+          set -eu
+          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD is missing" && exit 1)
+
+      - name: Install SSH password client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Trust Hetzner host key
+        run: |
+          set -eu
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Bootstrap application directory
+        run: |
+          set -eu
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "mkdir -p '$APP_DIR' && if [ ! -d '$APP_DIR/.git' ]; then git clone https://github.com/hsdarestani/apluscard.git '$APP_DIR'; fi"
+
+      - name: Deploy and verify
+        run: |
+          set -eu
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          if [ ! -f .env ]; then
+            echo "Missing $APP_DIR/.env. Create it once on the server before deployment."
+            exit 1
+          fi
+
+          docker compose up -d --build --remove-orphans
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              echo "Deployment is healthy."
+              docker compose ps
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Health check failed."
+          docker compose ps
+          docker compose logs --tail=200 web
+          exit 1
+          REMOTE
