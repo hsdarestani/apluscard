@@ -1,56 +1,29 @@
 {% extends 'cards/base.html' %}
-{% load static %}
-{% block title %}Beleg {{ entry.bill_number }} · SAMS Club Lounge{% endblock %}
-{% block head %}<link rel="stylesheet" href="{% static 'cards/receipt.css' %}">{% endblock %}
+{% block title %}Beleg {{ entry.bill_number }} · A+ Pay{% endblock %}
 {% block content %}
 <section class="receipt-shell">
-  <div class="receipt-toolbar no-print">
-    <a class="back-link" href="javascript:history.back()">← Zurück</a>
-    <button class="button primary small" type="button" onclick="window.print()">Beleg drucken</button>
-  </div>
-
-  <article class="receipt-card">
-    <header class="receipt-header">
-      <div class="receipt-brand">
-        <span class="brand-emblem">SCL</span>
-        <div><strong>SAMS CLUB LOUNGE</strong><small>powered by <span class="aplus-signature">A+</span></small></div>
-      </div>
-      <div class="receipt-status">Digitaler Beleg</div>
-    </header>
-
-    <div class="receipt-hero">
-      <span>Belegnummer</span>
-      <h1>{{ entry.bill_number }}</h1>
-      <p>{{ entry.created_at|date:"d.m.Y · H:i" }} Uhr</p>
-    </div>
-
-    <section class="receipt-grid">
-      <div><span>Member</span><strong>{{ wallet.display_name }}</strong></div>
-      <div><span>Member-Nr.</span><strong>{{ wallet.member_number }}</strong></div>
-      <div><span>Transaktion</span><strong>{{ entry.get_entry_type_display }}</strong></div>
-      <div><span>Ausgeführt von</span><strong>{{ entry.performed_by.username }}</strong></div>
-    </section>
-
-    <section class="receipt-line-items">
-      <div class="receipt-line receipt-line-head"><span>Beschreibung</span><span>Betrag</span></div>
-      <div class="receipt-line">
-        <div>
-          <strong>{{ entry.description|default:entry.get_entry_type_display }}</strong>
-          {% if entry.order_reference %}<small>Referenz: {{ entry.order_reference }}</small>{% endif %}
-        </div>
-        <strong class="{% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</strong>
-      </div>
-    </section>
-
-    <section class="receipt-total">
-      <div><span>Guthaben vorher</span><strong>{{ entry.balance_before|floatformat:2 }} €</strong></div>
-      <div class="receipt-total-final"><span>Guthaben nachher</span><strong>{{ entry.balance_after|floatformat:2 }} €</strong></div>
-    </section>
-
-    <footer class="receipt-footer">
-      <p>Dieser Beleg wurde automatisch für die Wallet-Transaktion erstellt und ist dauerhaft über das Member-Konto abrufbar.</p>
-      <div><span>{{ entry.business.name }}</span><span>Beleg-ID: {{ entry.id }}</span></div>
-    </footer>
+  <article class="digital-receipt">
+    <div class="receipt-brand"><div><strong>SAMS CLUB LOUNGE</strong><span>powered by A+</span></div><span>{% if settings.official_invoice_enabled %}Rechnung{% else %}Digitaler Zahlungsbeleg{% endif %}</span></div>
+    {% if settings.official_invoice_enabled %}
+    <div class="official-invoice-head"><strong>{{ settings.legal_name|default:entry.business.name }}</strong><span>{{ settings.legal_address|linebreaksbr }}</span>{% if settings.tax_number %}<span>Steuernummer: {{ settings.tax_number }}</span>{% endif %}{% if settings.vat_id %}<span>USt-IdNr.: {{ settings.vat_id }}</span>{% endif %}</div>
+    {% endif %}
+    <div class="receipt-number">{{ entry.bill_number }}</div>
+    <dl class="receipt-data">
+      <div><dt>Member</dt><dd>{{ wallet.display_name }} · {{ wallet.member_number }}</dd></div>
+      <div><dt>Standort</dt><dd>{{ entry.location.name|default:"SAMS Club Lounge" }}</dd></div>
+      <div><dt>Datum</dt><dd>{{ entry.created_at|date:"d.m.Y H:i:s" }}</dd></div>
+      <div><dt>Typ</dt><dd>{{ entry.get_entry_type_display }}</dd></div>
+      <div><dt>Beschreibung</dt><dd>{{ entry.description|default:"A+ Pay Transaktion" }}</dd></div>
+      {% if entry.order_reference %}<div><dt>Referenz</dt><dd>{{ entry.order_reference }}</dd></div>{% endif %}
+      <div><dt>Durchgeführt von</dt><dd>{{ entry.performed_by.get_full_name|default:entry.performed_by.username }}</dd></div>
+    </dl>
+    <div class="receipt-total"><span>Betrag</span><strong>{{ entry.amount|floatformat:2 }} €</strong></div>
+    {% if entry.payment_request %}
+      <div class="receipt-payment-breakdown"><span>Bestellbetrag: {{ entry.payment_request.base_amount|floatformat:2 }} €</span><span>Trinkgeld: {{ entry.payment_request.tip_amount|floatformat:2 }} €</span><span>Gesamt: {{ entry.payment_request.total_amount|floatformat:2 }} €</span></div>
+    {% endif %}
+    <div class="receipt-balance"><span>Saldo vorher: {{ entry.balance_before|floatformat:2 }} €</span><span>Saldo danach: {{ entry.balance_after|floatformat:2 }} €</span></div>
+    {% if settings.official_invoice_enabled %}<p class="receipt-note">Diese Ausgabe nutzt die vom Inhaber hinterlegten Rechnungsdaten. Die steuerliche Konfiguration muss vor Produktivnutzung geprüft werden.</p>{% else %}<p class="receipt-note">Dieser Beleg dokumentiert eine Wallet-Bewegung und ist keine steuerliche Rechnung.</p>{% endif %}
+    <div class="receipt-actions"><button class="button primary" type="button" onclick="window.print()">Drucken / PDF</button><a class="button secondary" href="{% url 'dashboard' %}">Zurück</a></div>
   </article>
 </section>
 {% endblock %}

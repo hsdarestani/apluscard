@@ -15,72 +15,42 @@
   <link rel="stylesheet" href="{% static 'cards/app.css' %}">
   <link rel="stylesheet" href="{% static 'cards/registration.css' %}">
   <link rel="stylesheet" href="{% static 'cards/ledger.css' %}">
+  <link rel="stylesheet" href="{% static 'cards/sams-platform.css' %}">
   {% block head %}{% endblock %}
 </head>
 <body>
   <div class="ambient ambient-one" aria-hidden="true"></div>
   <div class="ambient ambient-two" aria-hidden="true"></div>
   <div class="ambient ambient-three" aria-hidden="true"></div>
-
   <header class="topbar">
     <a href="{% url 'dashboard' %}" class="brand-lockup" aria-label="SAMS Club Lounge Dashboard">
       <span class="brand-emblem">SCL</span>
-      <span class="brand-copy">
-        <strong>SAMS CLUB LOUNGE</strong>
-        <small>powered by <span class="aplus-signature">A+</span></small>
-      </span>
+      <span class="brand-copy"><strong>SAMS CLUB LOUNGE</strong><small>powered by <span class="aplus-signature">A+</span></small></span>
     </a>
-
     <div class="topbar-actions">
       <button class="button secondary small install-button" id="install-app" type="button">App installieren</button>
       {% if user.is_authenticated %}
-        <span class="user-chip">{{ user.username }}</span>
-        <form method="post" action="{% url 'logout' %}">
-          {% csrf_token %}
-          <button class="link-button" type="submit">Abmelden</button>
-        </form>
+        <span class="user-chip">{{ user.get_full_name|default:user.username }}</span>
+        <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link-button" type="submit">Abmelden</button></form>
       {% else %}
-        <a class="button secondary small header-login" href="{% url 'login' %}">Anmelden</a>
-        <a class="button primary small header-register" href="{% url 'register' %}">Registrieren</a>
+        <a class="button secondary small" href="{% url 'login' %}">Anmelden</a>
+        <a class="button primary small" href="{% url 'register' %}">Registrieren</a>
       {% endif %}
     </div>
   </header>
-
   <main class="page-shell">
-    {% if messages %}
-      <div class="messages" aria-live="polite">
-        {% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}
-      </div>
-    {% endif %}
+    {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
-
-    <footer class="footer-brand">
-      <span><strong>SAMS CLUB LOUNGE</strong> · Frankfurt</span>
-      <span>Premium Lounge Experience · powered by <span class="aplus-signature">A+</span></span>
-    </footer>
+    <footer class="footer-brand"><span><strong>SAMS CLUB LOUNGE</strong> · 3 Standorte</span><span>A+ Pay & Loyalty · powered by <span class="aplus-signature">A+</span></span></footer>
   </main>
-
   {% if user.is_authenticated %}
-    <nav class="mobile-nav" aria-label="Mobile Navigation">
-      <a href="{% url 'dashboard' %}" class="active">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/></svg>
-        <span>Home</span>
-      </a>
-      <a href="{% url 'dashboard' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M16 12h5M7 9h5"/></svg>
-        <span>Wallet</span>
-      </a>
-      <a href="{% url 'dashboard' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6"/></svg>
-        <span>Aktivität</span>
-      </a>
-      <a href="{% url 'dashboard' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4.5 21a7.5 7.5 0 0 1 15 0"/></svg>
-        <span>Profil</span>
-      </a>
-    </nav>
+  <nav class="mobile-nav" aria-label="Mobile Navigation">
+    <a href="{% url 'dashboard' %}" class="active"><span>⌂</span><span>Home</span></a>
+    <a href="{% url 'dashboard' %}"><span>▣</span><span>Wallet</span></a>
+    <a href="{% url 'dashboard' %}"><span>◇</span><span>Offers</span></a>
+    <a href="{% url 'dashboard' %}"><span>◎</span><span>Profil</span></a>
+  </nav>
   {% endif %}
-
   <script src="{% static 'cards/app.js' %}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
