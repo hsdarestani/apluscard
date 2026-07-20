@@ -1,0 +1,56 @@
+{% extends 'cards/base.html' %}
+{% load static %}
+{% block title %}Beleg {{ entry.bill_number }} · SAMS Club Lounge{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'cards/receipt.css' %}">{% endblock %}
+{% block content %}
+<section class="receipt-shell">
+  <div class="receipt-toolbar no-print">
+    <a class="back-link" href="javascript:history.back()">← Zurück</a>
+    <button class="button primary small" type="button" onclick="window.print()">Beleg drucken</button>
+  </div>
+
+  <article class="receipt-card">
+    <header class="receipt-header">
+      <div class="receipt-brand">
+        <span class="brand-emblem">SCL</span>
+        <div><strong>SAMS CLUB LOUNGE</strong><small>powered by <span class="aplus-signature">A+</span></small></div>
+      </div>
+      <div class="receipt-status">Digitaler Beleg</div>
+    </header>
+
+    <div class="receipt-hero">
+      <span>Belegnummer</span>
+      <h1>{{ entry.bill_number }}</h1>
+      <p>{{ entry.created_at|date:"d.m.Y · H:i" }} Uhr</p>
+    </div>
+
+    <section class="receipt-grid">
+      <div><span>Member</span><strong>{{ wallet.display_name }}</strong></div>
+      <div><span>Member-Nr.</span><strong>{{ wallet.member_number }}</strong></div>
+      <div><span>Transaktion</span><strong>{{ entry.get_entry_type_display }}</strong></div>
+      <div><span>Ausgeführt von</span><strong>{{ entry.performed_by.username }}</strong></div>
+    </section>
+
+    <section class="receipt-line-items">
+      <div class="receipt-line receipt-line-head"><span>Beschreibung</span><span>Betrag</span></div>
+      <div class="receipt-line">
+        <div>
+          <strong>{{ entry.description|default:entry.get_entry_type_display }}</strong>
+          {% if entry.order_reference %}<small>Referenz: {{ entry.order_reference }}</small>{% endif %}
+        </div>
+        <strong class="{% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</strong>
+      </div>
+    </section>
+
+    <section class="receipt-total">
+      <div><span>Guthaben vorher</span><strong>{{ entry.balance_before|floatformat:2 }} €</strong></div>
+      <div class="receipt-total-final"><span>Guthaben nachher</span><strong>{{ entry.balance_after|floatformat:2 }} €</strong></div>
+    </section>
+
+    <footer class="receipt-footer">
+      <p>Dieser Beleg wurde automatisch für die Wallet-Transaktion erstellt und ist dauerhaft über das Member-Konto abrufbar.</p>
+      <div><span>{{ entry.business.name }}</span><span>Beleg-ID: {{ entry.id }}</span></div>
+    </footer>
+  </article>
+</section>
+{% endblock %}
