@@ -1,125 +1,132 @@
 # Automated production deployment
 
-The `Test and Deploy` GitHub Actions workflow runs the Django test suite for pull requests. After a successful push or merge to `main`, it connects to the Hetzner server over SSH, updates the repository, uploads the production `.env`, rebuilds the Docker services and verifies `/health/`.
+The `Test and Deploy` GitHub Actions workflow runs tests for pull requests. After a successful push or merge to `main`, it connects to the Hetzner server as `root`, updates the repository, rebuilds Docker and verifies `/health/`.
 
-## Required GitHub Actions secrets
+## Required GitHub Actions secret
 
-Create these under:
+Create this under:
 
 `Repository Settings -> Secrets and variables -> Actions -> New repository secret`
 
 | Secret | Value |
 |---|---|
-| `HETZNER_HOST` | `91.107.145.196` |
-| `HETZNER_PORT` | SSH port, normally `22` |
-| `HETZNER_USER` | Recommended: `deploy`; `root` also works but is less desirable |
-| `HETZNER_SSH_KEY` | Complete private SSH key, including the BEGIN/END lines |
-| `HETZNER_KNOWN_HOSTS` | Output of `ssh-keyscan -H -p 22 91.107.145.196` |
-| `APP_ENV_B64` | Base64-encoded production `.env` file |
+| `HETZNER_PASSWORD` | The SSH password for `root` on `91.107.145.196` |
 
-The workflow uses the GitHub `production` environment. Repository secrets work as configured; environment-level secrets can also be used later for approvals and tighter access control.
+The host, port and user are fixed in the workflow:
+
+- Host: `91.107.145.196`
+- Port: `22`
+- User: `root`
+- Application directory: `/root/apluscard`
 
 ## One-time server preparation
 
-Run these commands on the Hetzner server as `root`:
+Run as `root`:
 
 ```bash
 apt-get update
-apt-get install -y git curl docker.io docker-compose-plugin nginx certbot python3-certbot-nginx
+apt-get install -y git curl docker.io docker-compose-v2 nginx certbot python3-certbot-nginx openssl
 systemctl enable --now docker nginx
 
-adduser --disabled-password --gecos "" deploy
-usermod -aG docker deploy
+docker --version
+docker compose version
 ```
 
-Log out and back in after adding `deploy` to the Docker group.
-
-## Create a dedicated deployment SSH key
-
-Run on your own trusted computer:
+If `docker-compose-v2` is unavailable, enable Universe first:
 
 ```bash
-ssh-keygen -t ed25519 -C "github-actions-apluscard" -f ./apluscard_deploy
-ssh-copy-id -i ./apluscard_deploy.pub deploy@91.107.145.196
+apt-get install -y software-properties-common
+add-apt-repository -y universe
+apt-get update
+apt-get install -y docker-compose-v2
 ```
 
-Set the full content of `apluscard_deploy` as `HETZNER_SSH_KEY`.
+## Root password SSH login
 
-Generate the host-key secret from a trusted connection:
+Only change this if root password login does not already work from another terminal.
+
+Set or replace the root password:
 
 ```bash
-ssh-keyscan -H -p 22 91.107.145.196 > apluscard_known_hosts
-cat apluscard_known_hosts
+passwd root
 ```
 
-Verify the fingerprint against the server before saving the output as `HETZNER_KNOWN_HOSTS`.
+Enable root password authentication:
 
-## Build the production environment secret
+```bash
+cat >/etc/ssh/sshd_config.d/99-apluscard-root-password.conf <<'EOF'
+PasswordAuthentication yes
+PermitRootLogin yes
+EOF
 
-Create a local file named `.env.production` that is never committed:
+sshd -t
+systemctl reload ssh
+```
 
-```dotenv
-DJANGO_SECRET_KEY=replace-with-a-long-random-value
+Keep the current SSH session open and verify login from a second terminal before closing it.
+
+## Create the application environment once on the server
+
+```bash
+mkdir -p /root/apluscard
+
+DJANGO_KEY="$(openssl rand -base64 48 | tr -d '\n')"
+DB_PASSWORD="$(openssl rand -hex 24)"
+
+cat >/root/apluscard/.env <<EOF
+DJANGO_SECRET_KEY=$DJANGO_KEY
 DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=cards.smarbiz.sbs,91.107.145.196,localhost,127.0.0.1
 DJANGO_CSRF_TRUSTED_ORIGINS=https://cards.smarbiz.sbs
 DJANGO_TIME_ZONE=Europe/Berlin
 DJANGO_SECURE_COOKIES=1
 DJANGO_HSTS_SECONDS=0
-DATABASE_URL=postgresql://apluscard:replace-db-password@db:5432/apluscard
+DATABASE_URL=postgresql://apluscard:$DB_PASSWORD@db:5432/apluscard
 POSTGRES_DB=apluscard
 POSTGRES_USER=apluscard
-POSTGRES_PASSWORD=replace-db-password
+POSTGRES_PASSWORD=$DB_PASSWORD
+EOF
+
+chmod 600 /root/apluscard/.env
 ```
 
-Generate safe values:
-
-```bash
-openssl rand -base64 48   # Django secret key
-openssl rand -hex 24      # PostgreSQL password
-```
-
-Encode the complete file as one line.
-
-Linux:
-
-```bash
-base64 -w 0 .env.production
-```
-
-macOS:
-
-```bash
-base64 < .env.production | tr -d '\n'
-```
-
-Save that output as `APP_ENV_B64`. Base64 is only an encoding; GitHub Secrets provides the actual encrypted storage.
+The `.env` remains on the server and GitHub Actions does not overwrite it.
 
 ## One-time Nginx and HTTPS setup
 
-After the first successful deployment, run on the server:
+After the first successful deployment:
 
 ```bash
-sudo cp "$HOME/apluscard/deploy/nginx/cards.smarbiz.sbs.conf" \
+cp /root/apluscard/deploy/nginx/cards.smarbiz.sbs.conf \
   /etc/nginx/sites-available/cards.smarbiz.sbs
-sudo ln -sfn /etc/nginx/sites-available/cards.smarbiz.sbs \
+
+ln -sfn /etc/nginx/sites-available/cards.smarbiz.sbs \
   /etc/nginx/sites-enabled/cards.smarbiz.sbs
-sudo nginx -t
-sudo systemctl reload nginx
-sudo certbot --nginx -d cards.smarbiz.sbs
+
+nginx -t
+systemctl reload nginx
+certbot --nginx -d cards.smarbiz.sbs
 ```
 
 Confirm the DNS `A` record points to `91.107.145.196` before requesting the certificate.
 
-After HTTPS is working, change `DJANGO_HSTS_SECONDS` in `.env.production` to `31536000`, regenerate `APP_ENV_B64`, and run the workflow again.
+After HTTPS works:
+
+```bash
+sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=31536000/' /root/apluscard/.env
+cd /root/apluscard
+docker compose restart web
+```
 
 ## Deployment behavior
 
 - Pull request: tests only
 - Push/merge to `main`: tests, then production deployment
 - Manual run: Actions -> Test and Deploy -> Run workflow on `main`
-- Remote application directory: `$HOME/apluscard`
+- Remote directory: `/root/apluscard`
 - Internal application address: `127.0.0.1:8010`
 - Health endpoint: `http://127.0.0.1:8010/health/`
 
-The public repository is cloned over HTTPS, so the server does not need a GitHub deploy key. The SSH key stored in GitHub is used only for GitHub Actions to access the Hetzner server.
+## Security note
+
+Password-based root deployment is intentionally simpler, but less secure than a dedicated non-root user with an SSH key. Use a long unique root password, keep it only in GitHub Secrets and avoid printing it in commands or logs.
