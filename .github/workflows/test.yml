@@ -42,6 +42,8 @@ jobs:
       SSH_HOST: ${{ secrets.HETZNER_HOST }}
       SSH_PORT: ${{ secrets.HETZNER_PORT }}
       SSH_USER: ${{ secrets.HETZNER_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
       APP_ENV_B64: ${{ secrets.APP_ENV_B64 }}
       APP_DIR: apluscard
 
@@ -52,14 +54,11 @@ jobs:
           test -n "$SSH_HOST" || (echo "HETZNER_HOST is missing" && exit 1)
           test -n "$SSH_PORT" || (echo "HETZNER_PORT is missing" && exit 1)
           test -n "$SSH_USER" || (echo "HETZNER_USER is missing" && exit 1)
+          test -n "$SSH_PRIVATE_KEY" || (echo "HETZNER_SSH_KEY is missing" && exit 1)
+          test -n "$SSH_KNOWN_HOSTS" || (echo "HETZNER_KNOWN_HOSTS is missing" && exit 1)
           test -n "$APP_ENV_B64" || (echo "APP_ENV_B64 is missing" && exit 1)
-          test -n "${{ secrets.HETZNER_SSH_KEY }}" || (echo "HETZNER_SSH_KEY is missing" && exit 1)
-          test -n "${{ secrets.HETZNER_KNOWN_HOSTS }}" || (echo "HETZNER_KNOWN_HOSTS is missing" && exit 1)
 
       - name: Configure SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_KEY }}
-          SSH_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
         run: |
           set -eu
           install -m 700 -d ~/.ssh
