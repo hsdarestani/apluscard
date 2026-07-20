@@ -55,6 +55,7 @@ Target:
 - Server: `91.107.145.196`
 - Domain: `cards.smarbiz.sbs`
 - App port on host: `127.0.0.1:8010`
+- HTTPS is provisioned automatically by the production deployment after DNS resolves to the server.
 
 ### 1. DNS
 
