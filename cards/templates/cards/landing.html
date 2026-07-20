@@ -1,0 +1,14 @@
+{% extends 'cards/base.html' %}
+{% block title %}A+ Card · Digitale Kundenkarte{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="hero-copy"><span class="eyebrow">Digitale Kundenkarte</span><h1>Guthaben. Bezahlen. Wiederkommen.</h1><p>A+ Card verbindet Prepaid-Guthaben, sichere Zahlungen und einen transparenten Transaktionsverlauf in einer einfachen Web-App.</p><div class="hero-actions"><a class="button primary" href="{% url 'login' %}">Anmelden</a><a class="button secondary" href="#features">Funktionen</a></div></div>
+  <div class="phone-preview" aria-hidden="true"><div class="preview-card"><div class="preview-logo">A+</div><div class="preview-label">Verfügbares Guthaben</div><div class="preview-balance">€ 170,00</div><div class="preview-qr">▦</div><div class="preview-foot">Demo Lounge · VIP Member</div></div></div>
+</section>
+<section id="features" class="feature-grid">
+  <article class="feature-card"><span>01</span><h2>QR-Zahlung</h2><p>Karte scannen, Betrag eingeben und sofort sicher abbuchen.</p></article>
+  <article class="feature-card"><span>02</span><h2>Kontrollierte Aufladung</h2><p>Nur berechtigte Manager können Guthaben hinzufügen oder erstatten.</p></article>
+  <article class="feature-card"><span>03</span><h2>Vollständige Historie</h2><p>Jede Bewegung enthält Zeit, Mitarbeiter, Betrag und Bestellreferenz.</p></article>
+  <article class="feature-card"><span>04</span><h2>Bereit für Apps</h2><p>API-first und als PWA installierbar; native Apps können später folgen.</p></article>
+</section>
+{% endblock %}
