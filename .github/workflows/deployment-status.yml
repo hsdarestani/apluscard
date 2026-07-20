@@ -1,0 +1,43 @@
+name: Publish Deployment Status
+
+on:
+  workflow_run:
+    workflows: ["Test and Deploy"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  publish:
+    if: github.event.workflow_run.event != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update production status issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const success = run.conclusion === 'success';
+            const icon = success ? '✅' : '❌';
+            const now = new Date().toISOString();
+            const body = `# Production Deployment Status
+
+            ${icon} **${run.conclusion || 'unknown'}**
+
+            - Commit: \`${run.head_sha}\`
+            - Branch: \`${run.head_branch}\`
+            - Event: \`${run.event}\`
+            - Workflow: ${run.html_url}
+            - Site: https://cards.smarbiz.sbs
+            - Updated: ${now}
+
+            The deployment workflow includes Django migrations, application health checks and a browser-like CSRF/login smoke test.`;
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 2,
+              body,
+            });
