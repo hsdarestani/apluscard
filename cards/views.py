@@ -80,7 +80,7 @@ def manifest(request):
 
 def service_worker(request):
     content = """
-const CACHE = 'sams-lounge-v3';
+const CACHE = 'sams-lounge-v4';
 const CORE = ['/', '/accounts/register/', '/static/cards/app.css', '/static/cards/app.js', '/static/cards/icon.svg', '/manifest.webmanifest'];
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -158,7 +158,7 @@ def staff_charge(request):
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:
-        messages.success(request, f"{abs(entry.amount):.2f} € von {wallet.display_name} abgebucht.")
+        messages.success(request, f"{abs(entry.amount):.2f} € von {wallet.display_name} abgebucht. Beleg {entry.bill_number} wurde erstellt.")
     return redirect("staff_dashboard")
 
 
@@ -170,7 +170,12 @@ def manager_dashboard(request):
     wallets = Wallet.objects.filter(business=membership.business)
     query = request.GET.get("q", "").strip()
     if query:
-        wallet_filter = Q(display_name__icontains=query) | Q(phone__icontains=query) | Q(email__icontains=query)
+        wallet_filter = (
+            Q(display_name__icontains=query)
+            | Q(phone__icontains=query)
+            | Q(email__icontains=query)
+            | Q(member_number__icontains=query)
+        )
         try:
             wallet_filter |= Q(qr_token=UUID(query))
         except (ValueError, TypeError):
@@ -200,7 +205,7 @@ def manager_wallet_create(request):
         wallet = form.save(commit=False)
         wallet.business = membership.business
         wallet.save()
-        messages.success(request, "Kundenkarte wurde erstellt.")
+        messages.success(request, f"Kundenkarte {wallet.member_number} wurde erstellt.")
         return redirect("manager_wallet_detail", wallet_id=wallet.pk)
     messages.error(request, "Kundenkarte konnte nicht erstellt werden.")
     return redirect("manager_dashboard")
@@ -239,7 +244,7 @@ def _manager_money_action(request, wallet_id, entry_type):
         messages.error(request, " ".join(exc.messages))
     else:
         label = "aufgeladen" if entry_type == LedgerEntry.Type.TOPUP else "erstattet"
-        messages.success(request, f"{abs(entry.amount):.2f} € wurden {label}.")
+        messages.success(request, f"{abs(entry.amount):.2f} € wurden {label}. Beleg {entry.bill_number} wurde erstellt.")
     return redirect("manager_wallet_detail", wallet_id=wallet.pk)
 
 
@@ -272,3 +277,15 @@ def manager_wallet_status(request, wallet_id):
     else:
         messages.success(request, "Kartenstatus wurde aktualisiert.")
     return redirect("manager_wallet_detail", wallet_id=wallet.pk)
+
+
+@login_required
+def bill_detail(request, entry_id):
+    entry = get_object_or_404(
+        LedgerEntry.objects.select_related("business", "wallet", "wallet__owner", "performed_by"),
+        pk=entry_id,
+    )
+    is_customer_owner = entry.wallet.owner_id == request.user.id
+    if not is_customer_owner:
+        require_role(request.user, entry.business, STAFF_ROLES)
+    return render(request, "cards/bill_detail.html", {"entry": entry, "wallet": entry.wallet})
