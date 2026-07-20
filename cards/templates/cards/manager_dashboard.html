@@ -1,5 +1,7 @@
 {% extends 'cards/base.html' %}
+{% load static %}
 {% block title %}Management · SAMS Club Lounge{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'cards/manager-scanner.css' %}">{% endblock %}
 {% block content %}
 <section class="dashboard-head">
   <div>
@@ -23,10 +25,16 @@
   <article class="panel">
     <div class="section-heading">
       <div><span class="eyebrow">Members</span><h2>Karten verwalten</h2></div>
-      <button class="button primary small" type="button" data-dialog-open="new-wallet">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
-        Neue Karte
-      </button>
+      <div class="manager-heading-actions">
+        <button class="button primary small" type="button" id="open-manager-scanner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><path d="M8 8h3v3H8zM14 8h2v2h-2zM8 14h2v2H8zM13 13h3v3h-3z"/></svg>
+          QR scannen
+        </button>
+        <button class="button secondary small" type="button" data-dialog-open="new-wallet">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+          Neue Karte
+        </button>
+      </div>
     </div>
     <form method="get" class="search-bar">
       <input type="search" name="q" value="{{ query }}" placeholder="Name, Telefon, E-Mail oder Kartencode">
@@ -65,6 +73,29 @@
   </article>
 </section>
 
+<dialog id="scan-member" class="app-dialog manager-scan-dialog">
+  <div class="dialog-head">
+    <div><span class="eyebrow">Member Finder</span><h2>Member Card scannen</h2></div>
+    <button type="button" class="icon-button" data-dialog-close aria-label="Scanner schließen">×</button>
+  </div>
+  <p class="muted">Halte den QR-Code der digitalen Member Card in den Kamerarahmen. Nach dem Scan öffnet sich das Member-Profil automatisch.</p>
+  <div id="manager-reader" class="scanner-box manager-scanner-box">
+    <div class="scanner-placeholder"><strong>⌁</strong>QR-Code in den Rahmen halten<br><span>Kamerazugriff wird erst nach deiner Freigabe aktiviert</span></div>
+  </div>
+  <div id="manager-scan-status" class="manager-scan-status" aria-live="polite"></div>
+  <div class="scanner-dialog-actions">
+    <button class="button secondary" type="button" id="restart-manager-scanner">Kamera neu starten</button>
+    <button class="button secondary" type="button" data-dialog-close>Abbrechen</button>
+  </div>
+  <div class="scanner-manual-divider">oder manuell</div>
+  <form method="get" action="{% url 'manager_wallet_scan' %}" class="stack-form" id="manager-scan-form">
+    <label>Kartencode
+      <input id="manager-wallet-token" type="text" name="token" placeholder="UUID oder kompletter QR-Inhalt" required>
+    </label>
+    <button class="button primary full" type="submit">Member öffnen</button>
+  </form>
+</dialog>
+
 <dialog id="new-wallet" class="app-dialog">
   <form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">
     {% csrf_token %}
@@ -75,4 +106,87 @@
     <button class="button primary full" type="submit">Member Card erstellen</button>
   </form>
 </dialog>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(function () {
+  const openButton = document.getElementById('open-manager-scanner');
+  const restartButton = document.getElementById('restart-manager-scanner');
+  const dialog = document.getElementById('scan-member');
+  const form = document.getElementById('manager-scan-form');
+  const input = document.getElementById('manager-wallet-token');
+  const status = document.getElementById('manager-scan-status');
+  let scanner = null;
+  let running = false;
+  let resolving = false;
+
+  function setStatus(message, type) {
+    status.textContent = message || '';
+    status.className = 'manager-scan-status' + (type ? ' ' + type : '');
+  }
+
+  function extractToken(value) {
+    const match = String(value || '').match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+    return match ? match[0] : '';
+  }
+
+  async function stopScanner() {
+    if (!scanner || !running) return;
+    try { await scanner.stop(); } catch (error) {}
+    running = false;
+  }
+
+  async function startScanner() {
+    if (!window.Html5Qrcode) {
+      setStatus('Scanner konnte nicht geladen werden. Bitte Kartencode manuell eingeben.', 'error');
+      return;
+    }
+    await stopScanner();
+    setStatus('Kamera wird gestartet …');
+    scanner = new Html5Qrcode('manager-reader');
+    try {
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1 },
+        async decodedText => {
+          if (resolving) return;
+          const token = extractToken(decodedText);
+          if (!token) {
+            setStatus('Dieser QR-Code enthält keinen gültigen Member-Kartencode.', 'error');
+            return;
+          }
+          resolving = true;
+          input.value = token;
+          setStatus('Member Card erkannt. Profil wird geöffnet …', 'success');
+          await stopScanner();
+          form.requestSubmit();
+        }
+      );
+      running = true;
+      setStatus('Scanner aktiv – QR-Code in den Rahmen halten.');
+    } catch (error) {
+      running = false;
+      setStatus('Kamera konnte nicht gestartet werden. Bitte Berechtigung prüfen oder den Kartencode manuell eingeben.', 'error');
+    }
+  }
+
+  openButton?.addEventListener('click', async () => {
+    resolving = false;
+    dialog.showModal();
+    await startScanner();
+  });
+
+  restartButton?.addEventListener('click', async () => {
+    resolving = false;
+    await startScanner();
+  });
+
+  dialog?.addEventListener('close', async () => {
+    resolving = false;
+    await stopScanner();
+    setStatus('');
+  });
+})();
+</script>
 {% endblock %}
