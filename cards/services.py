@@ -64,7 +64,16 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
     AuditEvent.objects.create(
         actor=actor, business=locked_wallet.business, action=f"wallet.{entry_type.lower()}", object_type="wallet",
         object_id=str(locked_wallet.pk), ip_address=ip_address,
-        details={"ledger_entry_id": str(entry.pk), "amount": str(signed_amount), "balance_before": str(before), "balance_after": str(after), "order_reference": order_reference, "description": description},
+        details={
+            "ledger_entry_id": str(entry.pk),
+            "bill_number": entry.bill_number,
+            "member_number": locked_wallet.member_number,
+            "amount": str(signed_amount),
+            "balance_before": str(before),
+            "balance_after": str(after),
+            "order_reference": order_reference,
+            "description": description,
+        },
     )
     return entry
 

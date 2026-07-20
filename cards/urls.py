@@ -10,6 +10,7 @@ urlpatterns = [
     path("sw.js", views.service_worker, name="service_worker"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("customer/", views.customer_dashboard, name="customer_dashboard"),
+    path("bills/<uuid:entry_id>/", views.bill_detail, name="bill_detail"),
     path("staff/", views.staff_dashboard, name="staff_dashboard"),
     path("staff/charge/", views.staff_charge, name="staff_charge"),
     path("manager/", views.manager_dashboard, name="manager_dashboard"),

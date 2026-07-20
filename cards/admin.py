@@ -18,17 +18,17 @@ class MembershipAdmin(admin.ModelAdmin):
 
 @admin.register(Wallet)
 class WalletAdmin(admin.ModelAdmin):
-    list_display = ("display_name", "business", "balance", "status", "phone", "updated_at")
+    list_display = ("member_number", "display_name", "business", "balance", "status", "phone", "updated_at")
     list_filter = ("status", "business")
-    search_fields = ("display_name", "phone", "email", "qr_token")
-    readonly_fields = ("id", "qr_token", "balance", "created_at", "updated_at")
+    search_fields = ("member_number", "display_name", "phone", "email", "qr_token")
+    readonly_fields = ("id", "member_number", "qr_token", "balance", "created_at", "updated_at")
 
 
 @admin.register(LedgerEntry)
 class LedgerEntryAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "wallet", "entry_type", "amount", "balance_after", "performed_by", "order_reference")
+    list_display = ("created_at", "bill_number", "wallet", "entry_type", "amount", "balance_after", "performed_by", "order_reference")
     list_filter = ("entry_type", "business", "created_at")
-    search_fields = ("wallet__display_name", "order_reference", "description", "idempotency_key")
+    search_fields = ("bill_number", "wallet__member_number", "wallet__display_name", "order_reference", "description", "idempotency_key")
     readonly_fields = [field.name for field in LedgerEntry._meta.fields]
 
     def has_add_permission(self, request): return False

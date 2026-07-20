@@ -10,7 +10,7 @@ class LedgerEntrySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LedgerEntry
-        fields = ["id", "entry_type", "amount", "balance_before", "balance_after", "description", "order_reference", "performed_by", "created_at"]
+        fields = ["id", "bill_number", "entry_type", "amount", "balance_before", "balance_after", "description", "order_reference", "performed_by", "created_at"]
 
 
 class WalletSerializer(serializers.ModelSerializer):
@@ -19,7 +19,7 @@ class WalletSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Wallet
-        fields = ["id", "display_name", "status", "balance", "currency", "business", "qr_token", "updated_at"]
+        fields = ["id", "member_number", "display_name", "status", "balance", "currency", "business", "qr_token", "updated_at"]
 
 
 class MoneyActionSerializer(serializers.Serializer):

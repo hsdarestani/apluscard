@@ -1,9 +1,21 @@
+import secrets
 import uuid
 from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
+
+
+def generate_member_number():
+    """Generate a customer-facing eight digit member number."""
+    return str(secrets.randbelow(90_000_000) + 10_000_000)
+
+
+def generate_bill_number():
+    """Generate a readable, globally unique digital receipt number."""
+    return f"B-{timezone.now():%Y%m%d}-{uuid.uuid4().hex[:10].upper()}"
 
 
 class Business(models.Model):
@@ -49,6 +61,7 @@ class Wallet(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey(Business, on_delete=models.PROTECT, related_name="wallets")
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="wallets")
+    member_number = models.CharField(max_length=8, unique=True, default=generate_member_number, editable=False, db_index=True)
     display_name = models.CharField(max_length=140)
     phone = models.CharField(max_length=40, blank=True)
     email = models.EmailField(blank=True)
@@ -75,6 +88,7 @@ class LedgerEntry(models.Model):
         ADJUSTMENT = "ADJUSTMENT", "Adjustment"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    bill_number = models.CharField(max_length=32, unique=True, default=generate_bill_number, editable=False, db_index=True)
     business = models.ForeignKey(Business, on_delete=models.PROTECT, related_name="ledger_entries")
     wallet = models.ForeignKey(Wallet, on_delete=models.PROTECT, related_name="ledger_entries")
     entry_type = models.CharField(max_length=16, choices=Type.choices)
