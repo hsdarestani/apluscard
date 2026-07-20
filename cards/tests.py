@@ -74,3 +74,42 @@ class CustomerRegistrationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "besteht bereits ein Konto")
         self.assertEqual(Wallet.objects.count(), 0)
+
+
+class ManagerQrScanTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.business = Business.objects.create(name="SAMS CLUB LOUNGE", slug="sams")
+        self.other_business = Business.objects.create(name="Other Lounge", slug="other")
+        self.owner = User.objects.create_user(username="scan-owner", password="test")
+        self.staff = User.objects.create_user(username="scan-staff", password="test")
+        Membership.objects.create(user=self.owner, business=self.business, role=Membership.Role.OWNER)
+        Membership.objects.create(user=self.staff, business=self.business, role=Membership.Role.STAFF)
+        self.wallet = Wallet.objects.create(business=self.business, display_name="SAMS Member")
+        self.other_wallet = Wallet.objects.create(business=self.other_business, display_name="Other Member")
+
+    def test_owner_scan_redirects_to_member_detail(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("manager_wallet_scan"), {"token": str(self.wallet.qr_token)})
+        self.assertRedirects(response, reverse("manager_wallet_detail", args=[self.wallet.pk]))
+
+    def test_owner_scan_accepts_uuid_inside_full_qr_content(self):
+        self.client.force_login(self.owner)
+        qr_content = f"https://cards.example/member/{self.wallet.qr_token}/"
+        response = self.client.get(reverse("manager_wallet_scan"), {"token": qr_content})
+        self.assertRedirects(response, reverse("manager_wallet_detail", args=[self.wallet.pk]))
+
+    def test_owner_cannot_open_wallet_from_another_business_by_scan(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("manager_wallet_scan"), {"token": str(self.other_wallet.qr_token)})
+        self.assertRedirects(response, reverse("manager_dashboard"))
+
+    def test_staff_cannot_use_manager_scan(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse("manager_wallet_scan"), {"token": str(self.wallet.qr_token)})
+        self.assertEqual(response.status_code, 403)
+
+    def test_invalid_qr_returns_to_manager_dashboard(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("manager_wallet_scan"), {"token": "not-a-member-code"})
+        self.assertRedirects(response, reverse("manager_dashboard"))
