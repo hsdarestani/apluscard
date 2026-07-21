@@ -1,13 +1,23 @@
 from django.urls import path
 
-from . import api, apple_views, manager_views, views
+from . import api, legal_views, manager_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
-    path("accounts/register/", views.register_customer, name="register"),
-    path("accounts/profil-vervollstaendigen/", apple_views.complete_customer_profile, name="complete_customer_profile"),
+    path("accounts/register/", legal_views.register_customer, name="register"),
+    path("accounts/profil-vervollstaendigen/", legal_views.complete_customer_profile, name="complete_customer_profile"),
     path("accounts/verify/<str:token>/", views.verify_email, name="verify_email"),
     path("accounts/resend-verification/", views.resend_verification, name="resend_verification"),
+    path("agb/", legal_views.terms, name="terms"),
+    path("datenschutz/", legal_views.privacy_policy, name="privacy_policy"),
+    path("impressum/", legal_views.imprint, name="imprint"),
+    path("datenschutz/einstellungen/", legal_views.privacy_choices, name="privacy_choices"),
+    path("datenschutz/konto-loeschen/", legal_views.account_deletion, name="account_deletion"),
+    path("rechtliches-bestaetigen/", legal_views.legal_acceptance, name="legal_acceptance"),
+    path("apps/<slug:business_slug>/agb/", legal_views.terms, name="app_terms"),
+    path("apps/<slug:business_slug>/datenschutz/", legal_views.privacy_policy, name="app_privacy_policy"),
+    path("apps/<slug:business_slug>/impressum/", legal_views.imprint, name="app_imprint"),
+    path("apps/<slug:business_slug>/konto-loeschen/", legal_views.account_deletion, name="app_account_deletion"),
     path("health/", views.health, name="health"),
     path("manifest.webmanifest", views.manifest, name="manifest"),
     path("sw.js", views.service_worker, name="service_worker"),
@@ -21,6 +31,7 @@ urlpatterns = [
     path("staff/charge/", views.staff_charge, name="staff_charge"),
     path("manager/", views.manager_dashboard, name="manager_dashboard"),
     path("manager/settings/", views.manager_settings, name="manager_settings"),
+    path("manager/rechtliches/", legal_views.manager_legal, name="manager_legal"),
     path("manager/notifications/<int:notification_id>/read/", views.mark_notification_read, name="mark_notification_read"),
     path("manager/wallets/create/", views.manager_wallet_create, name="manager_wallet_create"),
     path("manager/wallets/scan/", manager_views.manager_wallet_scan, name="manager_wallet_scan"),

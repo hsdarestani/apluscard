@@ -1,0 +1,21 @@
+{% extends 'cards/base.html' %}
+{% block title %}Rechtliche Aktualisierung · {{ business.name }}{% endblock %}
+{% block content %}
+<section class="legal-shell">
+  <header class="panel legal-hero">
+    <span class="eyebrow">Aktualisierte Rechtstexte</span>
+    <h1>Bitte kurz bestätigen</h1>
+    <p class="muted">Für die weitere Nutzung deines Mitgliedskontos benötigen wir die Bestätigung der aktuell veröffentlichten Versionen.</p>
+    <div class="legal-meta"><span>AGB {{ legal.terms_version }}</span><span>Datenschutz {{ legal.privacy_version }}</span></div>
+  </header>
+  <article class="panel legal-document">
+    <form method="post" class="stack-form">{% csrf_token %}
+      <div class="legal-consent">
+        <label class="consent-row">{{ form.accept_terms }}<span>Ich akzeptiere die <a href="{% url 'app_terms' business.slug %}" target="_blank" rel="noopener">AGB Version {{ legal.terms_version }}</a>.</span></label>{{ form.accept_terms.errors }}
+        <label class="consent-row">{{ form.acknowledge_privacy }}<span>Ich habe die <a href="{% url 'app_privacy_policy' business.slug %}" target="_blank" rel="noopener">Datenschutzerklärung Version {{ legal.privacy_version }}</a> gelesen.</span></label>{{ form.acknowledge_privacy.errors }}
+      </div>
+      <button class="button primary" type="submit">Bestätigen und fortfahren</button>
+    </form>
+  </article>
+</section>
+{% endblock %}

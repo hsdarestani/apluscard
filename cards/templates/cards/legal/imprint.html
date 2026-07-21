@@ -1,0 +1,36 @@
+{% extends 'cards/base.html' %}
+{% block title %}Impressum · {{ legal.display_name }}{% endblock %}
+{% block content %}
+<section class="legal-shell">
+  <header class="panel legal-hero">
+    <span class="eyebrow">Anbieterkennzeichnung</span>
+    <h1>Impressum</h1>
+    <p class="muted">Angaben für {{ legal.display_name }}</p>
+  </header>
+
+  {% if legal_information_incomplete and user.is_authenticated %}<aside class="legal-warning"><strong>Hinweis für die Verwaltung</strong>Folgende Pflichtangaben fehlen: {{ legal_information_incomplete|join:", " }}.</aside>{% endif %}
+
+  <article class="panel legal-document">
+    <h2>Anbieter</h2>
+    <p><strong>{{ legal.responsible_name }}</strong><br>{% if legal.controller_address %}<span class="legal-address">{{ legal.controller_address }}</span>{% endif %}</p>
+
+    {% if legal.representative %}<h2>Vertretungsberechtigt</h2><p>{{ legal.representative }}</p>{% endif %}
+
+    <h2>Kontakt</h2>
+    <p>{% if legal.contact_email %}E-Mail: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a><br>{% endif %}{% if legal.contact_phone %}Telefon: {{ legal.contact_phone }}{% endif %}</p>
+
+    {% if legal.register_court or legal.register_number %}<h2>Registereintrag</h2><p>{% if legal.register_court %}Registergericht: {{ legal.register_court }}<br>{% endif %}{% if legal.register_number %}Registernummer: {{ legal.register_number }}{% endif %}</p>{% endif %}
+
+    {% if legal.vat_id %}<h2>Umsatzsteuer</h2><p>Umsatzsteuer-Identifikationsnummer: {{ legal.vat_id }}</p>{% endif %}
+
+    <h2>Technische Bereitstellung</h2>
+    <p>Die technische Plattform und A+ Pay werden durch A+ bereitgestellt. Für Leistungen, Guthaben, Angebote und Vorgänge in den teilnehmenden Standorten ist der oben genannte Anbieter verantwortlich.</p>
+
+    <h2>Verbraucherstreitbeilegung</h2>
+    <p>Informationen über eine gesetzliche Verpflichtung oder freiwillige Bereitschaft zur Teilnahme an einem Streitbeilegungsverfahren müssen vom jeweiligen Anbieter vor Veröffentlichung ergänzt und aktuell gehalten werden.</p>
+
+    <h2>Inhalte und externe Links</h2>
+    <p>Für eigene Inhalte wird nach den allgemeinen Gesetzen gehaftet. Für Inhalte externer Seiten, auf die verlinkt wird, sind deren Betreiber verantwortlich.</p>
+  </article>
+</section>
+{% endblock %}

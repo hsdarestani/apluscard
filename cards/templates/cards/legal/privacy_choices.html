@@ -1,0 +1,20 @@
+{% extends 'cards/base.html' %}
+{% block title %}Datenschutz-Einstellungen · {{ business.name }}{% endblock %}
+{% block content %}
+<section class="legal-shell">
+  <header class="panel legal-hero">
+    <span class="eyebrow">Deine Entscheidung</span>
+    <h1>Datenschutz-Einstellungen</h1>
+    <p class="muted">Optionale Werbung kann jederzeit ein- oder ausgeschaltet werden. Mitgliedskonto, Guthaben und Sicherheitsnachrichten funktionieren unabhängig davon.</p>
+  </header>
+  <article class="panel legal-document">
+    <form method="post" class="privacy-choice-grid">{% csrf_token %}
+      {% for field in form %}<label class="consent-row">{{ field }}<span>{{ field.label }}</span></label>{{ field.errors }}{% endfor %}
+      <button class="button primary" type="submit">Einstellungen speichern</button>
+    </form>
+    <h2>Weitere Datenschutzrechte</h2>
+    <p>Du kannst Auskunft, Berichtigung, Datenübertragung oder Einschränkung der Verarbeitung über die in der <a href="{% url 'app_privacy_policy' business.slug %}">Datenschutzerklärung</a> genannte Kontaktadresse anfordern.</p>
+    <p><a class="button secondary" href="{% url 'app_account_deletion' business.slug %}">Konto und Daten löschen</a></p>
+  </article>
+</section>
+{% endblock %}

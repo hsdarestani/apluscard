@@ -6,6 +6,11 @@ class CardsConfig(AppConfig):
     name = "cards"
     verbose_name = "SAMS Verwaltung"
 
+    def import_models(self):
+        super().import_models()
+        # Rechtliche Modelle liegen getrennt, gehören aber zur selben Django-App.
+        from . import legal_models  # noqa: F401
+
     def ready(self):
         from .models import (
             AppNotification,

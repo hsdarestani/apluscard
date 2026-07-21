@@ -1,0 +1,64 @@
+{% extends 'cards/base.html' %}
+{% block title %}AGB · {{ legal.display_name }}{% endblock %}
+{% block content %}
+<section class="legal-shell">
+  <header class="panel legal-hero">
+    <span class="eyebrow">Rechtliche Informationen</span>
+    <h1>Allgemeine Geschäftsbedingungen</h1>
+    <p class="muted">für die App {{ legal.display_name }} und das darin angebotene Mitgliedsguthaben</p>
+    <div class="legal-meta"><span>Version {{ legal.terms_version }}</span><span>Gültig ab {{ legal.terms_effective_date|date:"d.m.Y" }}</span><span>{{ business.name }}</span></div>
+  </header>
+
+  {% if legal_information_incomplete and user.is_authenticated %}<aside class="legal-warning"><strong>Hinweis für die Verwaltung</strong>Folgende Pflichtangaben müssen vor der Store-Veröffentlichung ergänzt werden: {{ legal_information_incomplete|join:", " }}.</aside>{% endif %}
+
+  <article class="panel legal-document">
+    <h2>1. Anbieter und Geltungsbereich</h2>
+    <p>Diese Allgemeinen Geschäftsbedingungen gelten für die Nutzung der App {{ legal.display_name }}, der digitalen Mitgliedskarte, des Mitgliedsguthabens, des Treueprogramms und der darin veröffentlichten Angebote.</p>
+    <p>Anbieter ist <strong>{{ legal.responsible_name }}</strong>{% if legal.controller_address %}, <span class="legal-address">{{ legal.controller_address }}</span>{% endif %}. Die App wird technisch durch A+ bereitgestellt. Vertragspartner für Guthaben, Zahlungen, Angebote und Leistungen vor Ort bleibt der in dieser App genannte Anbieter.</p>
+
+    <h2>2. Voraussetzungen und Registrierung</h2>
+    <p>Die App richtet sich ausschließlich an Personen ab 18 Jahren. Die bei der Registrierung gemachten Angaben müssen richtig und aktuell sein. Jede Person darf grundsätzlich nur ein persönliches Mitgliedskonto führen. Zugangsdaten dürfen nicht an Dritte weitergegeben werden.</p>
+    <p>Die Registrierung kann mit E-Mail-Adresse und Passwort oder über „Mit Apple fortfahren“ erfolgen. Bei einer Anmeldung über Apple werden anschließend die für Mitgliedschaft und Altersprüfung notwendigen Angaben ergänzt.</p>
+
+    <h2>3. Digitale Mitgliedskarte</h2>
+    <p>Nach erfolgreicher Registrierung erhält der Kunde eine persönliche Mitgliedsnummer und eine digitale QR-Mitgliedskarte. Die Karte ist nicht übertragbar. Bei Verdacht auf Missbrauch kann sie vorübergehend gesperrt werden.</p>
+
+    <h2>4. Mitgliedsguthaben und Aufladung</h2>
+    <p>Guthaben wird ausschließlich durch den Inhaber oder eine von ihm technisch berechtigte Stelle gutgeschrieben, nachdem die Zahlung vor Ort entgegengenommen wurde. Eine eigenständige Online-Aufladung durch Kunden ist derzeit nicht vorgesehen.</p>
+    <p>Das Guthaben kann an den in der App freigeschalteten Standorten gemeinsam verwendet werden. Es ist kein frei übertragbares Zahlungsmittel und kann nicht an andere Nutzer übertragen werden.</p>
+
+    <h2>5. Bezahlung mit A+ Pay</h2>
+    <p>Bei einer Zahlung scannt ein Mitarbeiter die Mitgliedskarte und gibt den Rechnungsbetrag ein. Soweit die Kundenbestätigung aktiviert ist, wird das Guthaben erst nach Bestätigung durch den Kunden belastet. Jede Buchung wird mit Betrag, Zeitpunkt, Standort und Belegnummer im Konto dokumentiert.</p>
+    <p>Der Kunde muss den angezeigten Betrag vor der Bestätigung prüfen und Fehler unverzüglich dem Personal melden.</p>
+
+    <h2>6. Trinkgeld</h2>
+    <p>Trinkgeld ist freiwillig. Vor der Zahlungsbestätigung kann der Kunde eine der vom Inhaber eingestellten Optionen wählen. Trinkgeld wird getrennt vom Rechnungsbetrag dokumentiert und je nach Einstellung dem Team oder einer einzelnen Person zugeordnet.</p>
+
+    <h2>7. Korrekturen, Erstattungen und Auszahlung</h2>
+    <p>Eine Auszahlung des Guthabens in Bargeld ist grundsätzlich nicht vorgesehen. Falschbuchungen und berechtigte Reklamationen können ausschließlich durch den Inhaber geprüft und korrigiert werden. Zwingende gesetzliche Ansprüche des Kunden bleiben unberührt.</p>
+
+    <h2>8. Treuestufen und Vorteile</h2>
+    <p>Die Stufen Silber, Gold und Platin richten sich nach der im jeweiligen Kalendermonat aufgeladenen Summe. Die aktuell geltenden Schwellen und Vorteile werden in der App angezeigt und können für zukünftige Zeiträume angepasst werden. Eine Treuestufe begründet keinen Anspruch auf dauerhaft unveränderte Vorteile.</p>
+
+    <h2>9. Angebote und Push-Mitteilungen</h2>
+    <p>Angebote können für einzelne Standorte oder Treuestufen veröffentlicht werden. Soweit nicht ausdrücklich anders angegeben, gelten sie nur im angegebenen Zeitraum und solange der Vorrat reicht. Werbliche Push-Mitteilungen und E-Mails werden nur auf Grundlage einer freiwilligen Einwilligung versendet. Diese kann jederzeit in den Datenschutz-Einstellungen widerrufen werden.</p>
+
+    <h2>10. Verfügbarkeit und Änderungen</h2>
+    <p>Es besteht kein Anspruch auf jederzeit unterbrechungsfreie Verfügbarkeit. Wartung, Sicherheitsmaßnahmen und technische Störungen können Funktionen vorübergehend einschränken. Wesentliche Änderungen der Vertragsbedingungen werden transparent mit neuer Versionsnummer veröffentlicht und müssen bei Bedarf erneut bestätigt werden.</p>
+
+    <h2>11. Haftung</h2>
+    <p>Für Vorsatz und grobe Fahrlässigkeit sowie bei Verletzung von Leben, Körper oder Gesundheit wird nach den gesetzlichen Vorschriften gehaftet. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vorhersehbaren, vertragstypischen Schaden begrenzt. Gesetzlich zwingende Haftung bleibt unberührt.</p>
+
+    <h2>12. Kontosperrung und Beendigung</h2>
+    <p>Der Kunde kann die Löschung seines Kontos über den in der App bereitgestellten Löschweg beantragen. Bei Missbrauch, falschen Angaben, Sicherheitsrisiken oder erheblichen Vertragsverstößen kann der Anbieter das Konto sperren. Offene Vorgänge und gesetzliche Aufbewahrungspflichten bleiben davon unberührt.</p>
+
+    <h2>13. Datenschutz</h2>
+    <p>Informationen zur Verarbeitung personenbezogener Daten, zu Speicherdauer, Empfängern und Betroffenenrechten enthält die <a href="{% url 'app_privacy_policy' business.slug %}">Datenschutzerklärung</a>.</p>
+
+    <h2>14. Schlussbestimmungen</h2>
+    <p>Es gilt das Recht der Bundesrepublik Deutschland unter Wahrung zwingender Verbraucherschutzvorschriften des Staates, in dem der Verbraucher seinen gewöhnlichen Aufenthalt hat. Sollte eine Bestimmung unwirksam sein, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.</p>
+
+    {% if legal.terms_additional_clauses %}<h2>15. Zusätzliche Bestimmungen dieser App</h2><div class="legal-address">{{ legal.terms_additional_clauses }}</div>{% endif %}
+  </article>
+</section>
+{% endblock %}

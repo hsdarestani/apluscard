@@ -5,6 +5,10 @@
 <section class="dashboard-head"><div><span class="eyebrow">SAMS-App-Verwaltung</span><h1>App und<br><span class="gradient-text">Inhaltsverwaltung</span></h1><p class="muted">A+ Pay, Trinkgeld, Treueprogramm, Standorte und Angebote steuern.</p></div><a class="button secondary" href="{% url 'manager_dashboard' %}">← Zur Übersicht</a></section>
 {% if is_owner %}
 <section class="panel settings-section">
+  <div class="section-heading"><div><span class="eyebrow">Rechtliche Pflichtangaben</span><h2>AGB und Datenschutz</h2></div><a class="button secondary" href="{% url 'manager_legal' %}">Rechtliches verwalten</a></div>
+  <p class="muted">Anbieterangaben, Datenschutzerklärung, AGB-Versionen, freiwillige Werbeeinwilligungen und Anträge auf Kontolöschung werden je App getrennt verwaltet.</p>
+</section>
+<section class="panel settings-section">
   <div class="section-heading"><div><span class="eyebrow">A+ Pay</span><h2>Zahlung und Treueprogramm</h2></div></div>
   <form method="post" class="settings-grid">{% csrf_token %}<input type="hidden" name="action" value="settings">{% for field in settings_form %}<label class="{% if field.field.widget.input_type == 'checkbox' %}setting-check{% endif %}"><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>{% endfor %}<button class="button primary" type="submit">Einstellungen speichern</button></form>
   <p class="form-note">Standardstufen: Silber bis 499,99 € monatliche Aufladung, Gold ab 500 € und Platin ab 700 €. Die Grenzen können oben geändert werden.</p>

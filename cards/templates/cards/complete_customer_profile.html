@@ -18,10 +18,19 @@
       </div>
       <label>Mobilnummer{{ form.phone }}{{ form.phone.errors }}</label>
       <label>Geburtsdatum{{ form.birth_date }}{{ form.birth_date.errors }}</label>
-      <label class="consent-row">{{ form.age_confirmed }}<span>{{ form.age_confirmed.label }}</span></label>
-      {{ form.age_confirmed.errors }}
+      <label class="consent-row">{{ form.age_confirmed }}<span>{{ form.age_confirmed.label }}</span></label>{{ form.age_confirmed.errors }}
+      <div class="legal-consent">
+        <label class="consent-row">{{ form.accept_terms }}<span>Ich akzeptiere die <a href="{% url 'app_terms' business.slug %}" target="_blank" rel="noopener">Allgemeinen Geschäftsbedingungen</a>.</span></label>{{ form.accept_terms.errors }}
+        <label class="consent-row">{{ form.acknowledge_privacy }}<span>Ich habe die <a href="{% url 'app_privacy_policy' business.slug %}" target="_blank" rel="noopener">Datenschutzerklärung</a> gelesen.</span></label>{{ form.acknowledge_privacy.errors }}
+      </div>
+      <div class="legal-consent">
+        <strong>Freiwillige Informationen</strong>
+        <label class="consent-row">{{ form.marketing_push_consent }}<span>{{ form.marketing_push_consent.label }}</span></label>
+        <label class="consent-row">{{ form.marketing_email_consent }}<span>{{ form.marketing_email_consent.label }}</span></label>
+        <small class="muted">Diese Einwilligungen können jederzeit in den Datenschutz-Einstellungen widerrufen werden.</small>
+      </div>
       <button class="button primary full" type="submit">Mitgliedskonto fertigstellen</button>
-      <p class="form-note">Deine Angaben werden ausschließlich für dein Mitgliedskonto, die Altersprüfung und deine digitale Mitgliedskarte verwendet.</p>
+      <p class="form-note">Deine Angaben werden für Mitgliedskonto, Altersprüfung, Zahlung und digitale Mitgliedskarte verwendet. Einzelheiten stehen in der Datenschutzerklärung.</p>
     </form>
   </article>
 </section>

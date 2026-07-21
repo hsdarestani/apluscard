@@ -1,0 +1,81 @@
+{% extends 'cards/base.html' %}
+{% block title %}Datenschutzerklärung · {{ legal.display_name }}{% endblock %}
+{% block content %}
+<section class="legal-shell">
+  <header class="panel legal-hero">
+    <span class="eyebrow">Schutz deiner Daten</span>
+    <h1>Datenschutzerklärung</h1>
+    <p class="muted">Informationen nach Art. 13 und 14 DSGVO für {{ legal.display_name }}</p>
+    <div class="legal-meta"><span>Version {{ legal.privacy_version }}</span><span>Gültig ab {{ legal.privacy_effective_date|date:"d.m.Y" }}</span><span>{{ business.name }}</span></div>
+  </header>
+
+  {% if legal_information_incomplete and user.is_authenticated %}<aside class="legal-warning"><strong>Hinweis für die Verwaltung</strong>Folgende Pflichtangaben müssen vor der Store-Veröffentlichung ergänzt werden: {{ legal_information_incomplete|join:", " }}.</aside>{% endif %}
+
+  <article class="panel legal-document">
+    <h2>1. Verantwortlicher</h2>
+    <p><strong>{{ legal.responsible_name }}</strong><br>{% if legal.controller_address %}<span class="legal-address">{{ legal.controller_address }}</span><br>{% endif %}{% if legal.contact_email %}E-Mail: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a><br>{% endif %}{% if legal.contact_phone %}Telefon: {{ legal.contact_phone }}{% endif %}</p>
+    <p>Datenschutzanfragen können an {% if legal.privacy_email %}<a href="mailto:{{ legal.privacy_email }}">{{ legal.privacy_email }}</a>{% elif legal.contact_email %}<a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a>{% else %}die im Impressum genannte Kontaktadresse{% endif %} gerichtet werden.</p>
+    {% if legal.data_protection_officer %}<h3>Datenschutzbeauftragter</h3><p class="legal-address">{{ legal.data_protection_officer }}</p>{% endif %}
+
+    <h2>2. Welche Daten werden verarbeitet?</h2>
+    <ul>
+      <li><strong>Stammdaten:</strong> Vorname, Nachname, E-Mail-Adresse und Mobilnummer.</li>
+      <li><strong>Alters- und Geburtstagsdaten:</strong> Geburtsdatum und Bestätigung des Mindestalters von 18 Jahren.</li>
+      <li><strong>Mitgliedsdaten:</strong> Mitgliedsnummer, QR-Kennung, Treuestufe, Status und ausgewählter Standort.</li>
+      <li><strong>Finanz- und Transaktionsdaten:</strong> Guthaben, Aufladungen, Zahlungen, Trinkgeld, Korrekturen, Belegnummern, Zeitpunkt, Standort und ausführender Mitarbeiter.</li>
+      <li><strong>Authentifizierungsdaten:</strong> verschlüsselte Passwortdaten oder bei Apple-Anmeldung die von Apple bereitgestellte Kennung sowie – abhängig von der Auswahl des Nutzers – Name und E-Mail-Adresse.</li>
+      <li><strong>Kommunikations- und Einwilligungsdaten:</strong> E-Mail-Bestätigung, Version und Zeitpunkt der AGB-/Datenschutzbestätigung sowie freiwillige Werbeeinwilligungen.</li>
+      <li><strong>Geräte- und Push-Daten:</strong> Plattform, Push-Token und Status des registrierten Geräts.</li>
+      <li><strong>Sicherheits- und Protokolldaten:</strong> IP-Adresse, Zeitstempel, Browser-/App-Informationen, Zugriffs- und Prüfprotokolle.</li>
+      <li><strong>Inhalts- und Interaktionsdaten:</strong> angezeigte Angebote, Bestätigungsstatus für Google-Bewertungshinweise sowie Nachrichten an den Support.</li>
+    </ul>
+
+    <h2>3. Zwecke und Rechtsgrundlagen</h2>
+    <ul>
+      <li><strong>Mitgliedskonto, Guthaben und Zahlung:</strong> Durchführung des Nutzungsvertrags gemäß Art. 6 Abs. 1 lit. b DSGVO.</li>
+      <li><strong>Altersprüfung:</strong> Durchführung des Vertrags und Schutz des Betriebs vor unzulässiger Nutzung gemäß Art. 6 Abs. 1 lit. b und f DSGVO.</li>
+      <li><strong>Belege, Buchhaltung und gesetzliche Nachweise:</strong> Erfüllung rechtlicher Pflichten gemäß Art. 6 Abs. 1 lit. c DSGVO.</li>
+      <li><strong>Sicherheit, Betrugsprävention und Nachvollziehbarkeit:</strong> berechtigtes Interesse an einem sicheren und prüfbaren Betrieb gemäß Art. 6 Abs. 1 lit. f DSGVO.</li>
+      <li><strong>Push-Mitteilungen und Werbe-E-Mails:</strong> ausschließlich auf Grundlage einer freiwilligen Einwilligung gemäß Art. 6 Abs. 1 lit. a DSGVO. Der Widerruf ist jederzeit möglich.</li>
+      <li><strong>Geburtstagsbonus:</strong> Vertragsdurchführung oder – bei werblicher Kommunikation – freiwillige Einwilligung.</li>
+    </ul>
+
+    <h2>4. Anmeldung mit Apple</h2>
+    <p>Bei „Mit Apple fortfahren“ wird die Authentifizierung durch Apple durchgeführt. Apple übermittelt der App eine eindeutige Kennung und, soweit freigegeben, Name und E-Mail-Adresse. Bei „E-Mail-Adresse verbergen“ kann Apple eine Relay-Adresse bereitstellen. Für die Verarbeitung durch Apple gelten zusätzlich die Datenschutzinformationen von Apple. Die App erhält kein Apple-Passwort.</p>
+
+    <h2>5. Push-Mitteilungen</h2>
+    <p>Für Push-Mitteilungen wird ein gerätebezogener Token gespeichert. Der Token dient nur der Zustellung von Mitteilungen. Angebots- und Aktionshinweise werden nur bei freiwilliger Einwilligung versendet. Die Einwilligung kann in den <a href="{% url 'privacy_choices' %}">Datenschutz-Einstellungen</a> und zusätzlich über die Betriebssystemeinstellungen widerrufen werden.</p>
+
+    <h2>6. Cookies, lokale Speicherung und App-Technik</h2>
+    <p>Die Web-App verwendet technisch erforderliche Session- und Sicherheitsinformationen, etwa für Anmeldung, CSRF-Schutz, Standortauswahl und den Betrieb als installierbare Web-App. Diese Verarbeitung ist zur Bereitstellung des ausdrücklich angeforderten Dienstes erforderlich. Derzeit werden keine Werbe- oder Profiling-Cookies und keine externen Analysewerkzeuge eingesetzt.</p>
+
+    <h2>7. Empfänger und Auftragsverarbeiter</h2>
+    <p>Daten erhalten nur Personen und Dienstleister, die sie für Betrieb, Support, Hosting, E-Mail-Versand, Push-Zustellung oder gesetzliche Pflichten benötigen. Dienstleister werden vertraglich auf Datenschutz und angemessene Sicherheitsmaßnahmen verpflichtet. Mitarbeiter sehen nur die für Zahlung und Betrieb erforderlichen Informationen.</p>
+    <p>Personenbezogene Kundendaten werden nicht verkauft.</p>
+
+    <h2>8. Drittlandübermittlungen</h2>
+    <p>Einzelne Plattformanbieter wie Apple oder Push-Dienste können Daten außerhalb des Europäischen Wirtschaftsraums verarbeiten. Soweit erforderlich, erfolgt dies auf Grundlage eines Angemessenheitsbeschlusses, geeigneter Garantien oder einer anderen nach der DSGVO zulässigen Grundlage.</p>
+
+    <h2>9. Speicherdauer</h2>
+    <p>Kontodaten werden grundsätzlich für die Dauer der Mitgliedschaft gespeichert. Nach einem Löschantrag werden nicht mehr benötigte personenbezogene Kontodaten gelöscht oder anonymisiert. Transaktions-, Beleg-, Steuer- und Prüfunterlagen können aufgrund gesetzlicher Aufbewahrungspflichten länger gespeichert werden. Sicherheitsprotokolle werden nur so lange aufbewahrt, wie sie für Schutz, Fehleranalyse und Rechtsverteidigung erforderlich sind.</p>
+
+    <h2>10. Automatisierte Einstufung</h2>
+    <p>Die Treuestufe Silber, Gold oder Platin wird automatisch anhand der monatlichen Aufladesumme berechnet. Diese Einstufung hat keine rechtliche oder vergleichbar erhebliche Wirkung und kann durch den Inhaber angepasst werden.</p>
+
+    <h2>11. Deine Rechte</h2>
+    <p>Betroffene Personen haben nach Maßgabe der DSGVO insbesondere Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch. Eine erteilte Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.</p>
+    <p>Zur Ausübung der Rechte genügt eine Nachricht an die oben genannte Datenschutzadresse. Außerdem besteht ein Beschwerderecht bei einer Datenschutzaufsichtsbehörde. {% if legal.supervisory_authority %}Zuständig ist insbesondere: {{ legal.supervisory_authority }}.{% endif %}</p>
+
+    <h2>12. Konto- und Datenlöschung</h2>
+    <p>Ein Löschantrag kann jederzeit innerhalb der App oder über die öffentlich erreichbare Seite <a href="{% url 'app_account_deletion' business.slug %}">Konto und Daten löschen</a> gestellt werden. Gesetzlich aufzubewahrende Buchungs- und Nachweisdaten werden nicht vor Ablauf der jeweiligen Frist gelöscht, sondern soweit möglich von direkt identifizierenden Kontodaten getrennt oder pseudonymisiert.</p>
+
+    <h2>13. Datensicherheit</h2>
+    <p>Die App verwendet verschlüsselte Übertragung, rollenbasierte Zugriffe, Protokollierung sicherheitsrelevanter Aktionen und technische Schutzmaßnahmen. Trotz sorgfältiger Sicherung kann kein internetbasierter Dienst absolute Sicherheit garantieren.</p>
+
+    <h2>14. Änderungen dieser Erklärung</h2>
+    <p>Bei Änderungen der Datenverarbeitung wird diese Erklärung aktualisiert und mit neuer Versionsnummer veröffentlicht. Soweit erforderlich, werden Nutzer zur erneuten Kenntnisnahme oder Einwilligung aufgefordert.</p>
+
+    {% if legal.privacy_additional_information %}<h2>15. Zusätzliche Hinweise dieser App</h2><div class="legal-address">{{ legal.privacy_additional_information }}</div>{% endif %}
+  </article>
+</section>
+{% endblock %}

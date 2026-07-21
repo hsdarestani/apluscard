@@ -1,0 +1,43 @@
+{% extends 'cards/base.html' %}
+{% block title %}Konto löschen · {{ business.name }}{% endblock %}
+{% block content %}
+<section class="legal-shell">
+  <header class="panel legal-hero">
+    <span class="eyebrow">Datenschutzrecht</span>
+    <h1>Konto und Daten löschen</h1>
+    <p class="muted">Hier kannst du die Löschung deines {{ business.name }}-Kontos und der nicht mehr benötigten personenbezogenen Daten beantragen. Diese Seite ist auch ohne Anmeldung erreichbar.</p>
+  </header>
+
+  {% if reference %}
+  <article class="panel legal-document">
+    <span class="eyebrow">Antrag eingegangen</span>
+    <h2>Deine Referenznummer</h2>
+    <p class="deletion-reference">{{ reference }}</p>
+    <p>Bitte bewahre diese Nummer auf. Zur Vermeidung fremder Löschanträge kann vor der Bearbeitung eine Identitätsprüfung erforderlich sein.</p>
+  </article>
+  {% else %}
+  <article class="panel legal-document">
+    <form method="post" class="stack-form">{% csrf_token %}
+      {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+      <label>E-Mail-Adresse des Kontos{{ form.email }}{{ form.email.errors }}</label>
+      <label>Mitgliedsnummer{{ form.member_number }}{{ form.member_number.errors }}</label>
+      <label>Zusätzliche Nachricht{{ form.reason }}{{ form.reason.errors }}</label>
+      <label class="consent-row">{{ form.confirmation }}<span>{{ form.confirmation.label }}</span></label>{{ form.confirmation.errors }}
+      <button class="button primary" type="submit">Löschung verbindlich beantragen</button>
+    </form>
+  </article>
+  {% endif %}
+
+  <article class="panel legal-document">
+    <h2>Was geschieht nach dem Antrag?</h2>
+    <ul>
+      <li>Der Antrag wird dem für diese App verantwortlichen Inhaber zugeordnet.</li>
+      <li>Zur Sicherheit kann die Identität über E-Mail-Adresse und Mitgliedsnummer geprüft werden.</li>
+      <li>Nicht mehr benötigte Konto-, Kontakt-, Push- und Profildaten werden gelöscht oder anonymisiert.</li>
+      <li>Gesetzlich aufzubewahrende Transaktions-, Beleg-, Steuer- und Prüfunterlagen dürfen bis zum Ablauf der jeweiligen Frist gespeichert bleiben.</li>
+      <li>Ein vorhandenes Guthaben und offene Vorgänge werden vor Abschluss geprüft; zwingende gesetzliche Ansprüche bleiben unberührt.</li>
+    </ul>
+    <p>Weitere Informationen enthält die <a href="{% url 'app_privacy_policy' business.slug %}">Datenschutzerklärung</a>.</p>
+  </article>
+</section>
+{% endblock %}
