@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   diagnose:
@@ -27,9 +28,41 @@ jobs:
           install -m 700 -d ~/.ssh
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Letzte Django-Fehler sicher auslesen
+      - name: Letzten Django-Fehler redigiert sammeln
         run: |
           set -Eeuo pipefail
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd '$APP_DIR' && docker compose logs --since 6h --tail=1200 web 2>&1" \
-            | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[EMAIL]/g; s/[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,36}/[UUID]/g; s/(sessionid|csrftoken)=[^ ;]+/\1=[REDACTED]/g' \
-            | awk '/Internal Server Error|Traceback \(most recent call last\)|manager\/wallets\/.*topup|ERROR/{show=1; count=0} show{print; count++} count>90{show=0}'
+          RAW_FILE="$RUNNER_TEMP/raw.log"
+          OUT_FILE="$RUNNER_TEMP/diagnostic.txt"
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd '$APP_DIR' && docker compose logs --since 8h --tail=1600 web 2>&1" > "$RAW_FILE"
+          sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[EMAIL]/g; s/[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,36}/[UUID]/g; s/(sessionid|csrftoken)=[^ ;]+/\1=[REDACTED]/g; s/(password|secret|token)=([^ ,;]+)/\1=[REDACTED]/Ig' "$RAW_FILE" \
+            | awk '/Internal Server Error|Traceback \(most recent call last\)|manager\/wallets\/.*topup|ERROR/{show=1; count=0} show{print; count++} count>100{show=0}' \
+            | tail -n 140 > "$OUT_FILE"
+          if [ ! -s "$OUT_FILE" ]; then
+            printf 'Kein passender Traceback in den letzten acht Stunden gefunden.\n' > "$OUT_FILE"
+          fi
+          echo "DIAGNOSTIC_FILE=$OUT_FILE" >> "$GITHUB_ENV"
+      - name: Diagnose-Issue aktualisieren
+        uses: actions/github-script@v7
+        env:
+          DIAGNOSTIC_FILE: ${{ env.DIAGNOSTIC_FILE }}
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync(process.env.DIAGNOSTIC_FILE, 'utf8').slice(0, 12000);
+            const body = [
+              '# Diagnose Guthaben-Aufladen',
+              '',
+              `Stand: ${new Date().toISOString()}`,
+              '',
+              '```text',
+              report,
+              '```',
+              '',
+              'Die Ausgabe wurde automatisch um E-Mail-Adressen, UUIDs, Cookies, Token und Secrets bereinigt.',
+            ].join('\n');
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 14,
+              body,
+            });
