@@ -9,8 +9,6 @@
     <div class="legal-meta"><span>Version {{ legal.privacy_version }}</span><span>Gültig ab {{ legal.privacy_effective_date|date:"d.m.Y" }}</span><span>{{ business.name }}</span></div>
   </header>
 
-  {% if legal_information_incomplete and user.is_authenticated %}<aside class="legal-warning"><strong>Hinweis für die Verwaltung</strong>Folgende Pflichtangaben müssen vor der Store-Veröffentlichung ergänzt werden: {{ legal_information_incomplete|join:", " }}.</aside>{% endif %}
-
   <article class="panel legal-document">
     <h2>1. Verantwortlicher</h2>
     <p><strong>{{ legal.responsible_name }}</strong><br>{% if legal.controller_address %}<span class="legal-address">{{ legal.controller_address }}</span><br>{% endif %}{% if legal.contact_email %}E-Mail: <a href="mailto:{{ legal.contact_email }}">{{ legal.contact_email }}</a><br>{% endif %}{% if legal.contact_phone %}Telefon: {{ legal.contact_phone }}{% endif %}</p>
@@ -70,7 +68,7 @@
     <p>Ein Löschantrag kann jederzeit innerhalb der App oder über die öffentlich erreichbare Seite <a href="{% url 'app_account_deletion' business.slug %}">Konto und Daten löschen</a> gestellt werden. Gesetzlich aufzubewahrende Buchungs- und Nachweisdaten werden nicht vor Ablauf der jeweiligen Frist gelöscht, sondern soweit möglich von direkt identifizierenden Kontodaten getrennt oder pseudonymisiert.</p>
 
     <h2>13. Datensicherheit</h2>
-    <p>Die App verwendet verschlüsselte Übertragung, rollenbasierte Zugriffe, Protokollierung sicherheitsrelevanter Aktionen und technische Schutzmaßnahmen. Trotz sorgfältiger Sicherung kann kein internetbasierter Dienst absolute Sicherheit garantieren.</p>
+    <p>Die App verwendet verschlüsselte Übertragung، rollenbasierte Zugriffe, Protokollierung sicherheitsrelevanter Aktionen und technische Schutzmaßnahmen. Trotz sorgfältiger Sicherung kann kein internetbasierter Dienst absolute Sicherheit garantieren.</p>
 
     <h2>14. Änderungen dieser Erklärung</h2>
     <p>Bei Änderungen der Datenverarbeitung wird diese Erklärung aktualisiert und mit neuer Versionsnummer veröffentlicht. Soweit erforderlich, werden Nutzer zur erneuten Kenntnisnahme oder Einwilligung aufgefordert.</p>
