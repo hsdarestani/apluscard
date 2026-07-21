@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: apluscard-production
@@ -193,3 +194,52 @@ jobs:
           rm -f "$HEADERS_FILE"
           test "$ready" -eq 1 || (echo "Öffentliche Apple-Weiterleitung konnte nicht bestätigt werden." && exit 1)
           echo "SAMS Apple Login ist öffentlich erreichbar und leitet zu Apple weiter."
+
+      - name: Publish Apple Login production status
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          APPLE_JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const success = process.env.APPLE_JOB_STATUS === 'success';
+            const icon = success ? '✅' : '❌';
+            const status = success ? 'success' : 'failure';
+            const details = success
+              ? [
+                  '- GitHub Secrets: vorhanden und verarbeitet',
+                  '- Apple-.p8-Schlüssel: mit OpenSSL geprüft',
+                  '- Produktions-.env: sicher synchronisiert',
+                  '- Django/allauth: Apple-Anmeldung aktiv',
+                  '- Interne Weiterleitung: geprüft',
+                  '- Öffentliche Weiterleitung zu appleid.apple.com: geprüft',
+                ]
+              : [
+                  '- Die sichere Konfiguration oder eine der Verbindungsprüfungen ist fehlgeschlagen.',
+                  '- Es wurden keine Secret-Werte in diesen Bericht geschrieben.',
+                ];
+            const body = [
+              '# Apple Login Production Status',
+              '',
+              `${icon} **${status}**`,
+              '',
+              `- Commit: \`${context.sha}\``,
+              `- Workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `- SAMS: https://cards.smarbiz.sbs`,
+              `- Updated: ${new Date().toISOString()}`,
+              '',
+              ...details,
+            ].join('\n');
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 10,
+              body,
+            });
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 10,
+              body: `${icon} Apple Login production verification **${status}** for commit \`${context.sha}\`.`,
+            });
