@@ -13,11 +13,7 @@ def generate_deletion_reference():
 
 
 class LegalConfiguration(models.Model):
-    business = models.OneToOneField(
-        Business,
-        on_delete=models.CASCADE,
-        related_name="legal_configuration",
-    )
+    business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name="legal_configuration")
     app_display_name = models.CharField(max_length=180, blank=True)
     controller_name = models.CharField(max_length=180, blank=True)
     controller_address = models.TextField(blank=True)
@@ -65,18 +61,8 @@ class LegalAcceptance(models.Model):
         APPLE = "APPLE", "Anmeldung mit Apple"
         RECONFIRMATION = "RECONFIRMATION", "Erneute Bestätigung"
 
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="legal_acceptances",
-    )
-    business = models.ForeignKey(
-        Business,
-        on_delete=models.PROTECT,
-        related_name="legal_acceptances",
-    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="legal_acceptances")
+    business = models.ForeignKey(Business, on_delete=models.PROTECT, related_name="legal_acceptances")
     document_type = models.CharField(max_length=16, choices=DocumentType.choices)
     version = models.CharField(max_length=30)
     source = models.CharField(max_length=24, choices=Source.choices)
@@ -90,15 +76,10 @@ class LegalAcceptance(models.Model):
         verbose_name = "Rechtliche Bestätigung"
         verbose_name_plural = "Rechtliche Bestätigungen"
         ordering = ["-accepted_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["user", "business", "document_type", "version"],
-                name="unique_user_legal_acceptance_version",
-            )
-        ]
+        constraints = [models.UniqueConstraint(fields=["user", "business", "document_type", "version"], name="unique_user_legal_acceptance_version")]
         indexes = [
-            models.Index(fields=["business", "document_type", "version"]),
-            models.Index(fields=["email_hash"]),
+            models.Index(fields=["business", "document_type", "version"], name="cards_legal_busines_39daf9_idx"),
+            models.Index(fields=["email_hash"], name="cards_legal_email_h_5c2112_idx"),
         ]
 
     def __str__(self):
@@ -106,16 +87,8 @@ class LegalAcceptance(models.Model):
 
 
 class PrivacyPreference(models.Model):
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="privacy_preferences",
-    )
-    business = models.ForeignKey(
-        Business,
-        on_delete=models.CASCADE,
-        related_name="privacy_preferences",
-    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="privacy_preferences")
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name="privacy_preferences")
     marketing_push_enabled = models.BooleanField(default=False)
     marketing_email_enabled = models.BooleanField(default=False)
     consented_at = models.DateTimeField(null=True, blank=True)
@@ -125,12 +98,7 @@ class PrivacyPreference(models.Model):
     class Meta:
         verbose_name = "Datenschutz-Einstellung"
         verbose_name_plural = "Datenschutz-Einstellungen"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["user", "business"],
-                name="unique_user_business_privacy_preference",
-            )
-        ]
+        constraints = [models.UniqueConstraint(fields=["user", "business"], name="unique_user_business_privacy_preference")]
 
     def __str__(self):
         return f"Datenschutz · {self.user} · {self.business}"
@@ -144,31 +112,10 @@ class AccountDeletionRequest(models.Model):
         REJECTED = "REJECTED", "Abgelehnt"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    reference_number = models.CharField(
-        max_length=32,
-        unique=True,
-        default=generate_deletion_reference,
-        editable=False,
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="account_deletion_requests",
-    )
-    business = models.ForeignKey(
-        Business,
-        on_delete=models.PROTECT,
-        related_name="account_deletion_requests",
-    )
-    wallet = models.ForeignKey(
-        Wallet,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="account_deletion_requests",
-    )
+    reference_number = models.CharField(max_length=32, unique=True, default=generate_deletion_reference, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="account_deletion_requests")
+    business = models.ForeignKey(Business, on_delete=models.PROTECT, related_name="account_deletion_requests")
+    wallet = models.ForeignKey(Wallet, on_delete=models.SET_NULL, null=True, blank=True, related_name="account_deletion_requests")
     email = models.EmailField()
     member_number = models.CharField(max_length=8, blank=True)
     reason = models.TextField(blank=True)
@@ -184,8 +131,8 @@ class AccountDeletionRequest(models.Model):
         verbose_name_plural = "Anträge auf Kontolöschung"
         ordering = ["-requested_at"]
         indexes = [
-            models.Index(fields=["business", "status", "requested_at"]),
-            models.Index(fields=["email", "status"]),
+            models.Index(fields=["business", "status", "requested_at"], name="cards_accou_busines_5cc41d_idx"),
+            models.Index(fields=["email", "status"], name="cards_accou_email_f_820608_idx"),
         ]
 
     def __str__(self):
