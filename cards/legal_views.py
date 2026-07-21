@@ -179,16 +179,16 @@ def privacy_choices(request):
     if wallet is None:
         raise PermissionDenied
     preference, _ = PrivacyPreference.objects.get_or_create(user=request.user, business=wallet.business)
+    originally_enabled = preference.marketing_push_enabled or preference.marketing_email_enabled
     form_data = request.POST if request.method == "POST" else None
     form = PrivacyChoicesForm(form_data, instance=preference)
     if request.method == "POST" and form.is_valid():
-        old_enabled = preference.marketing_push_enabled or preference.marketing_email_enabled
         preference = form.save(commit=False)
-        new_enabled = preference.marketing_push_enabled or preference.marketing_email_enabled
-        if new_enabled and not old_enabled:
+        currently_enabled = preference.marketing_push_enabled or preference.marketing_email_enabled
+        if currently_enabled and not originally_enabled:
             preference.consented_at = timezone.now()
             preference.withdrawn_at = None
-        elif old_enabled and not new_enabled:
+        elif originally_enabled and not currently_enabled:
             preference.withdrawn_at = timezone.now()
         preference.save()
         # The device registration stays active for security and transaction
