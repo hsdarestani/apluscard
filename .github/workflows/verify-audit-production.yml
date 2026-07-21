@@ -1,0 +1,105 @@
+name: App-Härtung auf Production prüfen
+
+on:
+  push:
+    branches: [agent/verify-audit-production]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+    steps:
+      - run: sudo apt-get update >/dev/null && sudo apt-get install -y sshpass >/dev/null
+      - run: |
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Production intern prüfen
+        run: |
+          set -Eeuo pipefail
+          REPORT="$RUNNER_TEMP/verify.txt"
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd '$APP_DIR' && docker compose exec -T web python -" > "$REPORT" 2>&1 <<'PY'
+          import os
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+          import django
+          django.setup()
+
+          from django.contrib.auth import get_user_model
+          from django.db import transaction
+          from django.test import Client, RequestFactory
+          from django.urls import resolve, reverse
+          from cards.adapters import SamsAccountAdapter
+          from cards.models import Membership, Wallet
+
+          print('=== PRODUKTIONS-HÄRTUNG ===')
+          callback = resolve('/accounts/apple/callback/').func
+          print('Apple Callback CSRF-ausgenommen:', bool(getattr(callback, 'csrf_exempt', False)))
+
+          response = Client().get('/accounts/login/', HTTP_HOST='cards.smarbiz.sbs', HTTP_X_FORWARDED_PROTO='https', secure=True)
+          html = response.content.decode('utf-8')
+          print('Login-Seite Status:', response.status_code)
+          print('Zoom-Sperre maximum-scale:', 'maximum-scale=1' in html)
+          print('Zoom-Sperre user-scalable:', 'user-scalable=no' in html)
+          print('Apple-Schaltfläche deutsch:', 'Mit Apple fortfahren' in html)
+
+          User = get_user_model()
+          with transaction.atomic():
+              transient = User.objects.create_user(username='audit-apple-transient@example.invalid')
+              request = RequestFactory().get('/accounts/apple/login/callback/finish/')
+              request.user = transient
+              target = SamsAccountAdapter().get_login_redirect_url(request)
+              print('Erster Apple-Login Ziel:', target)
+              print('Erster Apple-Login ohne 403 vorbereitet:', target == reverse('complete_customer_profile'))
+              transaction.set_rollback(True)
+
+          csrf_client = Client(enforce_csrf_checks=True, raise_request_exception=False)
+          callback_response = csrf_client.post(
+              '/accounts/apple/callback/',
+              {'state': 'ungueltig'},
+              HTTP_HOST='cards.smarbiz.sbs',
+              HTTP_X_FORWARDED_PROTO='https',
+              secure=True,
+          )
+          print('Apple POST ohne CSRF-Rohfehler:', callback_response.status_code != 403)
+          print('Apple POST Status:', callback_response.status_code)
+
+          print('Select-for-update Stellen:')
+          from pathlib import Path
+          for path in Path('/app/cards').rglob('*.py'):
+              for line_no, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                  if 'select_for_update' in line:
+                      print(f'- {path.name}:{line_no}: {line.strip()}')
+          PY
+
+          echo >> "$REPORT"
+          echo '=== FEHLER SEIT DEPLOYMENT ===' >> "$REPORT"
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd '$APP_DIR' && docker compose logs --since 2h --tail=2500 web 2>&1" \
+            | grep -E ' (500|403) |Internal Server Error|Traceback|Forbidden' \
+            | tail -n 120 >> "$REPORT" || true
+
+          sed -E -i 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[EMAIL]/g; s/[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,36}/[UUID]/g; s/(sessionid|csrftoken)=[^ ;]+/\1=[REDACTED]/g' "$REPORT"
+          echo "REPORT_FILE=$REPORT" >> "$GITHUB_ENV"
+      - name: Ergebnis veröffentlichen
+        uses: actions/github-script@v7
+        env:
+          REPORT_FILE: ${{ env.REPORT_FILE }}
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync(process.env.REPORT_FILE, 'utf8').slice(0, 18000);
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 16,
+              body: `# Vollständige Produktionsprüfung – abgeschlossen\n\nStand: ${new Date().toISOString()}\n\n\`\`\`text\n${report}\n\`\`\`\n\nDer Testbenutzer und alle Testdaten wurden innerhalb einer Datenbanktransaktion vollständig zurückgerollt.`,
+            });
