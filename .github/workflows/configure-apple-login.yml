@@ -1,0 +1,195 @@
+name: Configure Apple Login
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apluscard-production
+  cancel-in-progress: false
+
+jobs:
+  configure-apple-login:
+    name: Configure and verify Apple Login
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+      APPLE_CLIENT_ID_SECRET: ${{ secrets.APPLE_CLIENT_ID }}
+      APPLE_KEY_ID_SECRET: ${{ secrets.APPLE_KEY_ID }}
+      APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_PRIVATE_KEY_INPUT: ${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
+      APPLE_REDIRECT_URI_SECRET: ${{ secrets.APPLE_REDIRECT_URI }}
+
+    steps:
+      - name: Validate and normalize Apple secrets
+        id: apple-payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD fehlt." && exit 1)
+          test -n "$APPLE_CLIENT_ID_SECRET" || (echo "APPLE_CLIENT_ID fehlt." && exit 1)
+          test -n "$APPLE_KEY_ID_SECRET" || (echo "APPLE_KEY_ID fehlt." && exit 1)
+          test -n "$APPLE_TEAM_ID_SECRET" || (echo "APPLE_TEAM_ID fehlt." && exit 1)
+          test -n "$APPLE_PRIVATE_KEY_INPUT" || (echo "APPLE_PRIVATE_KEY_BASE64 fehlt." && exit 1)
+          test -n "$APPLE_REDIRECT_URI_SECRET" || (echo "APPLE_REDIRECT_URI fehlt." && exit 1)
+
+          EXPECTED_REDIRECT_URI="https://cards.smarbiz.sbs/accounts/apple/login/callback/"
+          NORMALIZED_REDIRECT_URI="${APPLE_REDIRECT_URI_SECRET%/}/"
+          test "$NORMALIZED_REDIRECT_URI" = "$EXPECTED_REDIRECT_URI" || (
+            echo "APPLE_REDIRECT_URI stimmt nicht mit der SAMS-Rückrufadresse überein."
+            exit 1
+          )
+
+          umask 077
+          KEY_FILE="$RUNNER_TEMP/apple-auth-key.p8"
+          if printf '%s' "$APPLE_PRIVATE_KEY_INPUT" | grep -q -- '-----BEGIN PRIVATE KEY-----'; then
+            printf '%s' "$APPLE_PRIVATE_KEY_INPUT" > "$KEY_FILE"
+          else
+            printf '%s' "$APPLE_PRIVATE_KEY_INPUT" | tr -d '\r\n\t ' | base64 --decode > "$KEY_FILE"
+          fi
+          sed -i 's/\r$//' "$KEY_FILE"
+          grep -q -- '-----BEGIN PRIVATE KEY-----' "$KEY_FILE"
+          grep -q -- '-----END PRIVATE KEY-----' "$KEY_FILE"
+          openssl pkey -in "$KEY_FILE" -noout
+
+          PAYLOAD_FILE="$RUNNER_TEMP/apple-secrets.payload"
+          {
+            printf 'APPLE_CLIENT_ID_B64=%s\n' "$(printf '%s' "$APPLE_CLIENT_ID_SECRET" | base64 -w0)"
+            printf 'APPLE_KEY_ID_B64=%s\n' "$(printf '%s' "$APPLE_KEY_ID_SECRET" | base64 -w0)"
+            printf 'APPLE_TEAM_ID_B64=%s\n' "$(printf '%s' "$APPLE_TEAM_ID_SECRET" | base64 -w0)"
+            printf 'APPLE_REDIRECT_URI_B64=%s\n' "$(printf '%s' "$NORMALIZED_REDIRECT_URI" | base64 -w0)"
+            printf 'APPLE_PRIVATE_KEY_B64=%s\n' "$(base64 -w0 "$KEY_FILE")"
+          } > "$PAYLOAD_FILE"
+          chmod 600 "$PAYLOAD_FILE"
+          echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
+          echo "Apple-Secrets sind vollständig und der private Schlüssel ist lesbar."
+
+      - name: Install SSH password client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Trust Hetzner host key
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload encrypted-safe payload
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$APP_DIR'"
+          sshpass -e scp -P "$SSH_PORT" "${{ steps.apple-payload.outputs.payload_file }}" "$SSH_USER@$SSH_HOST:$APP_DIR/.apple-secrets.payload"
+
+      - name: Apply configuration and verify server
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          test -f .env || (echo "Produktionsdatei .env fehlt." && exit 1)
+          test -f .apple-secrets.payload || (echo "Apple-Payload fehlt." && exit 1)
+          # shellcheck disable=SC1091
+          . ./.apple-secrets.payload
+
+          decode_value() {
+            printf '%s' "$1" | base64 --decode
+          }
+
+          APPLE_CLIENT_ID_VALUE="$(decode_value "$APPLE_CLIENT_ID_B64")"
+          APPLE_KEY_ID_VALUE="$(decode_value "$APPLE_KEY_ID_B64")"
+          APPLE_TEAM_ID_VALUE="$(decode_value "$APPLE_TEAM_ID_B64")"
+          APPLE_REDIRECT_URI_VALUE="$(decode_value "$APPLE_REDIRECT_URI_B64")"
+
+          KEY_FILE="$(mktemp)"
+          printf '%s' "$APPLE_PRIVATE_KEY_B64" | base64 --decode > "$KEY_FILE"
+          openssl pkey -in "$KEY_FILE" -noout
+          rm -f "$KEY_FILE"
+
+          ENV_TEMP="$(mktemp)"
+          grep -vE '^(APPLE_CLIENT_ID|APPLE_KEY_ID|APPLE_TEAM_ID|APPLE_PRIVATE_KEY|APPLE_PRIVATE_KEY_BASE64|APPLE_REDIRECT_URI)=' .env > "$ENV_TEMP" || true
+          {
+            printf 'APPLE_CLIENT_ID=%s\n' "$APPLE_CLIENT_ID_VALUE"
+            printf 'APPLE_KEY_ID=%s\n' "$APPLE_KEY_ID_VALUE"
+            printf 'APPLE_TEAM_ID=%s\n' "$APPLE_TEAM_ID_VALUE"
+            printf 'APPLE_PRIVATE_KEY_BASE64=%s\n' "$APPLE_PRIVATE_KEY_B64"
+            printf 'APPLE_REDIRECT_URI=%s\n' "$APPLE_REDIRECT_URI_VALUE"
+          } >> "$ENV_TEMP"
+          chmod 600 "$ENV_TEMP"
+          mv "$ENV_TEMP" .env
+          rm -f .apple-secrets.payload
+
+          docker compose up -d --build --remove-orphans
+
+          healthy=0
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" -eq 1 || (docker compose logs --tail=200 web && exit 1)
+
+          docker compose exec -T web python - <<'PY'
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.conf import settings
+
+          expected = "https://cards.smarbiz.sbs/accounts/apple/login/callback/"
+          assert settings.APPLE_LOGIN_ENABLED, "Apple Login is not enabled in Django"
+          assert settings.APPLE_PRIVATE_KEY_HAS_PEM_MARKERS, "Apple private key was not decoded"
+          assert settings.APPLE_REDIRECT_URI == expected, "Apple redirect URI is incorrect"
+          apps = settings.SOCIALACCOUNT_PROVIDERS["apple"]["APPS"]
+          assert apps and apps[0]["client_id"] == settings.APPLE_CLIENT_ID
+          print("Django Apple Login configuration is active.")
+          PY
+
+          HEADERS_FILE="$(mktemp)"
+          curl --silent --show-error --max-time 20 \
+            -D "$HEADERS_FILE" -o /dev/null \
+            -H 'Host: cards.smarbiz.sbs' \
+            -H 'X-Forwarded-Proto: https' \
+            http://127.0.0.1:8010/accounts/apple/login/
+          grep -Eqi '^location: https://appleid\.apple\.com/auth/authorize' "$HEADERS_FILE"
+          rm -f "$HEADERS_FILE"
+          echo "Der interne Apple-Anmeldeweg ist aktiv."
+          REMOTE
+
+      - name: Verify public SAMS Apple redirect
+        run: |
+          set -Eeuo pipefail
+          HEADERS_FILE="$(mktemp)"
+          ready=0
+          for attempt in $(seq 1 20); do
+            if curl --silent --show-error --max-time 20 \
+              -D "$HEADERS_FILE" -o /dev/null \
+              https://cards.smarbiz.sbs/accounts/apple/login/ \
+              && grep -Eqi '^location: https://appleid\.apple\.com/auth/authorize' "$HEADERS_FILE"; then
+              ready=1
+              break
+            fi
+            sleep 3
+          done
+          rm -f "$HEADERS_FILE"
+          test "$ready" -eq 1 || (echo "Öffentliche Apple-Weiterleitung konnte nicht bestätigt werden." && exit 1)
+          echo "SAMS Apple Login ist öffentlich erreichbar und leitet zu Apple weiter."
