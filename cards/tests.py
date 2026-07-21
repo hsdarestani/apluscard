@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from .legal_models import LegalAcceptance, LegalConfiguration
 from .models import AppNotification, Business, BusinessSettings, LedgerEntry, Location, MemberProfile, Membership, Offer, PaymentRequest, Wallet
 from .services import OWNER_ROLES, active_offers_for, create_payment_request, finalize_payment_request, post_wallet_entry, require_role
 from .views import _verification_token
@@ -26,6 +27,23 @@ class PlatformMixin:
         Membership.objects.create(user=self.staff, business=self.business, role=Membership.Role.STAFF)
         MemberProfile.objects.create(user=self.customer, birth_date=date(1995, 5, 5), age_confirmed=True, email_verified=True, email_verified_at=timezone.now())
         self.wallet = Wallet.objects.create(business=self.business, owner=self.customer, display_name="Customer", email=self.customer.email)
+        LegalConfiguration.objects.create(
+            business=self.business,
+            app_display_name=self.business.name,
+            controller_name=self.business.name,
+            terms_version="1.0",
+            privacy_version="1.0",
+        )
+        for document_type in (LegalAcceptance.DocumentType.TERMS, LegalAcceptance.DocumentType.PRIVACY):
+            LegalAcceptance.objects.create(
+                user=self.customer,
+                business=self.business,
+                document_type=document_type,
+                version="1.0",
+                source=LegalAcceptance.Source.REGISTRATION,
+                email_hash="test",
+                member_number=self.wallet.member_number,
+            )
 
 
 class WalletServiceTests(PlatformMixin, TestCase):
@@ -114,9 +132,10 @@ class CustomerRegistrationTests(TestCase):
         self.business = Business.objects.create(name="SAMS CLUB LOUNGE", slug="shisha-bar")
         BusinessSettings.objects.create(business=self.business)
         Location.objects.create(business=self.business, name="SAMS 1", slug="sams-1")
+        LegalConfiguration.objects.create(business=self.business, app_display_name=self.business.name, controller_name=self.business.name)
 
     def registration_payload(self, email="new.member@example.com", birth_date="1995-05-05"):
-        return {"first_name": "Lena", "last_name": "Sommer", "email": email, "phone": "+49 160 1234567", "birth_date": birth_date, "age_confirmed": "on", "password1": "SamsMember2026!", "password2": "SamsMember2026!"}
+        return {"first_name": "Lena", "last_name": "Sommer", "email": email, "phone": "+49 160 1234567", "birth_date": birth_date, "age_confirmed": "on", "password1": "SamsMember2026!", "password2": "SamsMember2026!", "accept_terms": "on", "acknowledge_privacy": "on"}
 
     def test_registration_requires_adult_birth_date(self):
         underage = date.today() - timedelta(days=17 * 365)
@@ -129,6 +148,7 @@ class CustomerRegistrationTests(TestCase):
         user = get_user_model().objects.get(email="new.member@example.com")
         profile = user.member_profile; wallet = Wallet.objects.get(owner=user, business=self.business)
         self.assertFalse(profile.email_verified); self.assertTrue(profile.age_confirmed); self.assertEqual(profile.birth_date, date(1995, 5, 5)); self.assertEqual(wallet.display_name, "Lena Sommer")
+        self.assertTrue(LegalAcceptance.objects.filter(user=user, document_type=LegalAcceptance.DocumentType.TERMS).exists())
         self.assertEqual(int(self.client.session["_auth_user_id"]), user.pk)
 
     def test_email_verification_link_activates_member(self):
