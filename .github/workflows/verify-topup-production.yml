@@ -1,0 +1,120 @@
+name: Produktions-Aufladung prüfen
+
+on:
+  push:
+    branches: [agent/verify-topup-production]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+    steps:
+      - name: SSH-Werkzeug installieren
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+      - name: Host-Schlüssel laden
+        run: |
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Aufladung auf Production transaktional prüfen
+        run: |
+          set -Eeuo pipefail
+          RESULT_FILE="$RUNNER_TEMP/result.txt"
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "cd '$APP_DIR' && docker compose exec -T web python -" > "$RESULT_FILE" 2>&1 <<'PY'
+          import os
+          from decimal import Decimal
+
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+
+          from django.db import transaction
+          from django.test import Client
+          from django.urls import reverse
+          from cards.models import LedgerEntry
+
+          latest = (
+              LedgerEntry.objects.select_related("wallet", "performed_by")
+              .filter(entry_type=LedgerEntry.Type.TOPUP)
+              .order_by("-created_at")
+              .first()
+          )
+          assert latest is not None, "Keine bestehende Aufladung für Smoke-Test vorhanden."
+
+          wallet = latest.wallet
+          before_balance = wallet.balance
+          before_count = wallet.ledger_entries.count()
+
+          with transaction.atomic():
+              client = Client(raise_request_exception=True)
+              client.force_login(latest.performed_by)
+              response = client.post(
+                  reverse("manager_topup", args=[wallet.pk]),
+                  {
+                      "amount": "0.01",
+                      "description": "Produktionsprüfung mit Rollback",
+                      "order_reference": "PROD-SMOKE-ROLLBACK",
+                  },
+                  HTTP_HOST="cards.smarbiz.sbs",
+                  HTTP_X_FORWARDED_PROTO="https",
+                  secure=True,
+              )
+              assert response.status_code == 302, response.status_code
+              follow = client.get(
+                  response["Location"],
+                  HTTP_HOST="cards.smarbiz.sbs",
+                  HTTP_X_FORWARDED_PROTO="https",
+                  secure=True,
+              )
+              assert follow.status_code == 200, follow.status_code
+              assert wallet.ledger_entries.filter(order_reference="PROD-SMOKE-ROLLBACK").exists()
+              transaction.set_rollback(True)
+
+          wallet.refresh_from_db()
+          assert wallet.balance == before_balance
+          assert wallet.ledger_entries.count() == before_count
+          print("PRODUCTION_TOPUP_OK")
+          print("HTTP_REDIRECT=302")
+          print("DETAIL_PAGE=200")
+          print("ROLLBACK_OK=True")
+          PY
+          grep -q 'PRODUCTION_TOPUP_OK' "$RESULT_FILE"
+          cat "$RESULT_FILE"
+          echo "RESULT_FILE=$RESULT_FILE" >> "$GITHUB_ENV"
+      - name: Diagnose-Issue als behoben markieren
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              '# Diagnose Guthaben-Aufladen',
+              '',
+              '✅ **behoben und auf Production geprüft**',
+              '',
+              '- Auflade-Endpunkt: HTTP 302',
+              '- Weitergeleitete Detailseite: HTTP 200',
+              '- Beleg/Transaktion wurde innerhalb des Tests erzeugt',
+              '- Gesamter Smoke-Test wurde zurückgerollt',
+              '- Reales Guthaben und Transaktionsanzahl blieben unverändert',
+              '',
+              `- Commit: \`${context.sha}\``,
+              `- Workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join('\n');
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 14,
+              body,
+            });
