@@ -1,30 +1,25 @@
 {% extends 'cards/base.html' %}
-{% block title %}App Einstellungen · SAMS Club Lounge{% endblock %}
+{% load sams_de %}
+{% block title %}App-Einstellungen · SAMS Club Lounge{% endblock %}
 {% block content %}
-<section class="dashboard-head"><div><span class="eyebrow">SAMS App Management</span><h1>App &<br><span class="gradient-text">Content Studio</span></h1><p class="muted">A+ Pay, Trinkgeld, Loyalty, Standorte und Angebote steuern.</p></div><a class="button secondary" href="{% url 'manager_dashboard' %}">← Dashboard</a></section>
-
+<section class="dashboard-head"><div><span class="eyebrow">SAMS-App-Verwaltung</span><h1>App und<br><span class="gradient-text">Inhaltsverwaltung</span></h1><p class="muted">A+ Pay, Trinkgeld, Treueprogramm, Standorte und Angebote steuern.</p></div><a class="button secondary" href="{% url 'manager_dashboard' %}">← Zur Übersicht</a></section>
 {% if is_owner %}
 <section class="panel settings-section">
-  <div class="section-heading"><div><span class="eyebrow">A+ Pay</span><h2>Zahlung & Loyalty</h2></div></div>
-  <form method="post" class="settings-grid">{% csrf_token %}<input type="hidden" name="action" value="settings">
-    {% for field in settings_form %}<label class="{% if field.field.widget.input_type == 'checkbox' %}setting-check{% endif %}"><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>{% endfor %}
-    <button class="button primary" type="submit">Einstellungen speichern</button>
-  </form>
-  <p class="form-note">Standard-Level: Silber bis 499,99 € monatliche Aufladung, Gold ab 500 €, Platinum ab 700 €. Die Grenzen können oben geändert werden.</p>
+  <div class="section-heading"><div><span class="eyebrow">A+ Pay</span><h2>Zahlung und Treueprogramm</h2></div></div>
+  <form method="post" class="settings-grid">{% csrf_token %}<input type="hidden" name="action" value="settings">{% for field in settings_form %}<label class="{% if field.field.widget.input_type == 'checkbox' %}setting-check{% endif %}"><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>{% endfor %}<button class="button primary" type="submit">Einstellungen speichern</button></form>
+  <p class="form-note">Standardstufen: Silber bis 499,99 € monatliche Aufladung, Gold ab 500 € und Platin ab 700 €. Die Grenzen können oben geändert werden.</p>
 </section>
-
 <section class="panel settings-section">
-  <div class="section-heading"><div><span class="eyebrow">3 Standorte</span><h2>Standorte verwalten</h2></div></div>
+  <div class="section-heading"><div><span class="eyebrow">Drei Standorte</span><h2>Standorte verwalten</h2></div></div>
   <div class="location-admin-grid">{% for location in locations %}<article><strong>{{ location.name }}</strong><span>{{ location.address|default:"Adresse noch ergänzen" }}</span><small>{{ location.slug }} · {% if location.is_active %}aktiv{% else %}inaktiv{% endif %}</small></article>{% endfor %}</div>
   <form method="post" class="settings-grid compact-settings">{% csrf_token %}<input type="hidden" name="action" value="location">{% for field in location_form %}<label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>{% endfor %}<button class="button secondary" type="submit">Standort hinzufügen</button></form>
 </section>
 {% endif %}
-
 {% if can_manage_content %}
 <section class="panel settings-section">
-  <div class="section-heading"><div><span class="eyebrow">Content Studio</span><h2>Angebot veröffentlichen</h2></div></div>
+  <div class="section-heading"><div><span class="eyebrow">Inhaltsverwaltung</span><h2>Angebot veröffentlichen</h2></div></div>
   <form method="post" enctype="multipart/form-data" class="settings-grid">{% csrf_token %}<input type="hidden" name="action" value="offer">{% for field in offer_form %}<label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>{% endfor %}<button class="button primary" type="submit">Angebot veröffentlichen</button></form>
-  <div class="offer-admin-list">{% for offer in offers %}<article>{% if offer.image %}<img src="{{ offer.image.url }}" alt="">{% endif %}<div><strong>{{ offer.title }}</strong><span>{{ offer.location.name|default:"Alle Standorte" }} · {{ offer.get_target_tier_display }}</span><small>{% if offer.is_active %}Live{% else %}Entwurf{% endif %} · {{ offer.created_at|date:"d.m.Y H:i" }}</small></div></article>{% empty %}<div class="empty-state">Noch keine Angebote veröffentlicht.</div>{% endfor %}</div>
+  <div class="offer-admin-list">{% for offer in offers %}<article>{% if offer.image %}<img src="{{ offer.image.url }}" alt="{{ offer.title }}">{% endif %}<div><strong>{{ offer.title }}</strong><span>{{ offer.location.name|default:"Alle Standorte" }} · {{ offer.target_tier|sams_label }}</span><small>{% if offer.is_active %}Veröffentlicht{% else %}Entwurf{% endif %} · {{ offer.created_at|date:"d.m.Y H:i" }}</small></div></article>{% empty %}<div class="empty-state">Noch keine Angebote veröffentlicht.</div>{% endfor %}</div>
 </section>
 {% endif %}
 {% endblock %}

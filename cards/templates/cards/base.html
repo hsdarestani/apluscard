@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="SAMS Lounge">
-  <title>{% block title %}SAMS Club Lounge · powered by A+{% endblock %}</title>
+  <title>{% block title %}SAMS Club Lounge · bereitgestellt von A+{% endblock %}</title>
   <link rel="manifest" href="{% url 'manifest' %}">
   <link rel="icon" href="{% static 'cards/icon.svg' %}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{% static 'cards/icon.svg' %}">
@@ -23,9 +23,9 @@
   <div class="ambient ambient-two" aria-hidden="true"></div>
   <div class="ambient ambient-three" aria-hidden="true"></div>
   <header class="topbar">
-    <a href="{% url 'dashboard' %}" class="brand-lockup" aria-label="SAMS Club Lounge Dashboard">
+    <a href="{% url 'dashboard' %}" class="brand-lockup" aria-label="SAMS Club Lounge Übersicht">
       <span class="brand-emblem">SCL</span>
-      <span class="brand-copy"><strong>SAMS CLUB LOUNGE</strong><small>powered by <span class="aplus-signature">A+</span></small></span>
+      <span class="brand-copy"><strong>SAMS CLUB LOUNGE</strong><small>bereitgestellt von <span class="aplus-signature">A+</span></small></span>
     </a>
     <div class="topbar-actions">
       <button class="button secondary small install-button" id="install-app" type="button">App installieren</button>
@@ -41,13 +41,13 @@
   <main class="page-shell">
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
-    <footer class="footer-brand"><span><strong>SAMS CLUB LOUNGE</strong> · 3 Standorte</span><span>A+ Pay & Loyalty · powered by <span class="aplus-signature">A+</span></span></footer>
+    <footer class="footer-brand"><span><strong>SAMS CLUB LOUNGE</strong> · 3 Standorte</span><span>A+ Pay & Treueprogramm · bereitgestellt von <span class="aplus-signature">A+</span></span></footer>
   </main>
   {% if user.is_authenticated %}
-  <nav class="mobile-nav" aria-label="Mobile Navigation">
-    <a href="{% url 'dashboard' %}" class="active"><span>⌂</span><span>Home</span></a>
-    <a href="{% url 'dashboard' %}"><span>▣</span><span>Wallet</span></a>
-    <a href="{% url 'dashboard' %}"><span>◇</span><span>Offers</span></a>
+  <nav class="mobile-nav" aria-label="Navigation für Mobilgeräte">
+    <a href="{% url 'dashboard' %}" class="active"><span>⌂</span><span>Start</span></a>
+    <a href="{% url 'dashboard' %}"><span>▣</span><span>Guthaben</span></a>
+    <a href="{% url 'dashboard' %}"><span>◇</span><span>Angebote</span></a>
     <a href="{% url 'dashboard' %}"><span>◎</span><span>Profil</span></a>
   </nav>
   {% endif %}

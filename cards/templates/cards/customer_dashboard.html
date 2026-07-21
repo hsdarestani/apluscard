@@ -1,21 +1,22 @@
 {% extends 'cards/base.html' %}
-{% block title %}Meine Member Card · SAMS Club Lounge{% endblock %}
+{% load sams_de %}
+{% block title %}Meine Mitgliedskarte · SAMS Club Lounge{% endblock %}
 {% block content %}
 <section class="dashboard-head">
   <div>
     <span class="eyebrow">{{ wallet.business.name }}</span>
     <h1>Willkommen,<br><span class="gradient-text">{{ wallet.display_name }}</span></h1>
-    <p class="muted">Eine Member Card für alle drei Standorte.</p>
+    <p class="muted">Eine Mitgliedskarte für alle drei Standorte.</p>
   </div>
   <div class="dashboard-context">
-    <span class="vip-chip">Member-Nr. {{ wallet.member_number }}</span>
-    <span class="tier-badge {{ wallet.tier|lower }}">{{ wallet.get_tier_display }}</span>
+    <span class="vip-chip">Mitgliedsnummer {{ wallet.member_number }}</span>
+    <span class="tier-badge {{ wallet.tier|lower }}">{{ wallet.tier|sams_label }}</span>
   </div>
 </section>
 
 {% if profile and not profile.email_verified %}
 <section class="platform-alert warning">
-  <div><strong>E-Mail noch nicht bestätigt</strong><span>Dein Wallet ist erstellt, Zahlungen werden aber erst nach der E-Mail-Bestätigung freigeschaltet.</span></div>
+  <div><strong>E-Mail-Adresse noch nicht bestätigt</strong><span>Dein Guthabenkonto ist erstellt. Zahlungen werden nach der Bestätigung deiner E-Mail-Adresse freigeschaltet.</span></div>
   <form method="post" action="{% url 'resend_verification' %}">{% csrf_token %}<button class="button secondary small">Link erneut senden</button></form>
 </section>
 {% endif %}
@@ -33,72 +34,65 @@
 {% for payment in pending_payments %}
 <section class="payment-confirm-card">
   <div class="payment-confirm-head">
-    <div><span class="eyebrow">A+ Pay Freigabe</span><h2>{{ payment.base_amount|floatformat:2 }} € bestätigen</h2></div>
+    <div><span class="eyebrow">Zahlungsfreigabe</span><h2>{{ payment.base_amount|floatformat:2 }} € bestätigen</h2></div>
     <span class="status-pill pending">{{ payment.location.name }}</span>
   </div>
   <p>{{ payment.description|default:"SAMS Zahlung" }}{% if payment.order_reference %} · {{ payment.order_reference }}{% endif %}</p>
   <p class="muted">Wähle dein Trinkgeld vor der endgültigen Bestätigung. Das Trinkgeld wird separat verbucht.</p>
   <form method="post" action="{% url 'customer_confirm_payment' payment.id %}" class="tip-choice-form">{% csrf_token %}
-    {% for tip in tip_options %}
-      <button type="submit" name="tip_percentage" value="{{ tip }}">{{ tip|floatformat:0 }}%</button>
-    {% endfor %}
+    {% for tip in tip_options %}<button type="submit" name="tip_percentage" value="{{ tip }}">{{ tip|floatformat:0 }}%</button>{% endfor %}
   </form>
 </section>
 {% endfor %}
 
 <section class="customer-grid">
   <article class="wallet-card tier-{{ wallet.tier|lower }}">
-    <div class="wallet-top"><span class="wallet-brand">SAMS CLUB<br>LOUNGE<small>powered by <span class="aplus-signature">A+</span></small></span><span>{{ wallet.get_tier_display|upper }}</span></div>
+    <div class="wallet-top"><span class="wallet-brand">SAMS CLUB<br>LOUNGE<small>bereitgestellt von <span class="aplus-signature">A+</span></small></span><span>{{ wallet.tier|sams_label|upper }}</span></div>
     <div class="wallet-label">Verfügbares Guthaben</div>
     <div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div>
     <div class="wallet-bonus">Diesen Monat aufgeladen: {{ wallet.monthly_topup_total|floatformat:2 }} €</div>
     <div class="tier-progress"><span style="width:{% if wallet.tier == 'PLATINUM' %}100{% elif wallet.tier == 'GOLD' %}72{% else %}35{% endif %}%"></span></div>
     <div class="qr-frame"><div id="customer-qr" class="qr-box" data-token="{{ wallet.qr_token }}"></div></div>
-    <div class="wallet-code">Member-Nr. {{ wallet.member_number }}</div>
-    <div class="member-line"><span>Für alle SAMS Standorte</span><span>✦ {{ wallet.get_tier_display }}</span></div>
+    <div class="wallet-code">Mitgliedsnummer {{ wallet.member_number }}</div>
+    <div class="member-line"><span>Für alle SAMS Standorte</span><span>✦ {{ wallet.tier|sams_label }}</span></div>
   </article>
 
   <div class="dashboard-stack">
     {% if should_request_review %}
     <article class="panel review-card">
-      <span class="eyebrow">Dein Feedback zählt</span>
+      <span class="eyebrow">Deine Meinung zählt</span>
       <h2>Wie war dein Besuch?</h2>
       <p>Bewerte {{ active_location.name }} auf Google. Nach deiner ersten Bewertung wird diese Erinnerung nicht mehr angezeigt.</p>
       <div class="action-row">
-        <a class="button primary" href="{{ active_location.google_review_url }}" target="_blank" rel="noopener">Google Bewertung öffnen</a>
+        <a class="button primary" href="{{ active_location.google_review_url }}" target="_blank" rel="noopener">Google-Bewertung öffnen</a>
         <form method="post" action="{% url 'mark_reviewed' active_location.id %}">{% csrf_token %}<button class="button secondary">Als bewertet markieren</button></form>
       </div>
     </article>
     {% endif %}
 
     <article class="panel" id="offers">
-      <div class="section-heading"><div><span class="eyebrow">Nur für Members</span><h2>Aktuelle Angebote</h2></div><span class="tier-badge {{ wallet.tier|lower }}">{{ wallet.get_tier_display }}</span></div>
+      <div class="section-heading"><div><span class="eyebrow">Nur für Mitglieder</span><h2>Aktuelle Angebote</h2></div><span class="tier-badge {{ wallet.tier|lower }}">{{ wallet.tier|sams_label }}</span></div>
       <div class="offer-grid">
         {% for offer in offers %}
         <article class="offer-card">
           {% if offer.image %}<img src="{{ offer.image.url }}" alt="{{ offer.title }}">{% endif %}
-          <div><small>{{ offer.location.name|default:"Alle Standorte" }} · {{ offer.get_target_tier_display }}</small><h3>{{ offer.title }}</h3><p>{{ offer.body|linebreaksbr }}</p></div>
+          <div><small>{{ offer.location.name|default:"Alle Standorte" }} · {{ offer.target_tier|sams_label }}</small><h3>{{ offer.title }}</h3><p>{{ offer.body|linebreaksbr }}</p></div>
         </article>
         {% empty %}<div class="empty-state">Für diesen Standort gibt es aktuell keine neuen Angebote.</div>{% endfor %}
       </div>
-      {% if active_location %}
-      <div class="social-links">
-        {% if active_location.instagram_url %}<a href="{{ active_location.instagram_url }}" target="_blank" rel="noopener">Instagram</a>{% endif %}
-        {% if active_location.tiktok_url %}<a href="{{ active_location.tiktok_url }}" target="_blank" rel="noopener">TikTok</a>{% endif %}
-      </div>
-      {% endif %}
+      {% if active_location %}<div class="social-links">{% if active_location.instagram_url %}<a href="{{ active_location.instagram_url }}" target="_blank" rel="noopener">Instagram</a>{% endif %}{% if active_location.tiktok_url %}<a href="{{ active_location.tiktok_url }}" target="_blank" rel="noopener">TikTok</a>{% endif %}</div>{% endif %}
     </article>
 
     <article class="panel" id="transactions">
-      <div class="section-heading"><div><span class="eyebrow">A+ Pay</span><h2>Transaktionen & Belege</h2></div></div>
+      <div class="section-heading"><div><span class="eyebrow">Zahlungen</span><h2>Transaktionen & Belege</h2></div></div>
       <div class="transaction-list">
         {% for entry in entries %}
         <div class="transaction-row">
           <div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div>
-          <div class="transaction-main"><strong>{{ entry.get_entry_type_display }}</strong><span>{{ entry.location.name|default:"SAMS" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span><a class="bill-link" href="{% url 'bill_detail' entry.id %}">Beleg {{ entry.bill_number }} öffnen →</a></div>
+          <div class="transaction-main"><strong>{{ entry.entry_type|sams_label }}</strong><span>{{ entry.location.name|default:"SAMS" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span><a class="bill-link" href="{% url 'bill_detail' entry.id %}">Beleg {{ entry.bill_number }} öffnen →</a></div>
           <div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div>
         </div>
-        {% empty %}<div class="empty-state">Deine erste SAMS Aktivität erscheint hier.</div>{% endfor %}
+        {% empty %}<div class="empty-state">Deine erste SAMS-Aktivität erscheint hier.</div>{% endfor %}
       </div>
     </article>
   </div>

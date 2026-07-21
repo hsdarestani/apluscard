@@ -1,31 +1,30 @@
 {% extends 'cards/base.html' %}
+{% load sams_de %}
 {% block title %}{{ wallet.display_name }} · SAMS Club Lounge{% endblock %}
 {% block content %}
-<a class="back-link" href="{% url 'manager_dashboard' %}">← Zurück zum Control Center</a>
+<a class="back-link" href="{% url 'manager_dashboard' %}">← Zurück zur Verwaltungszentrale</a>
 <section class="dashboard-head">
-  <div><span class="eyebrow">Member-Nr. {{ wallet.member_number }}</span><h1>{{ wallet.display_name }}</h1><p class="muted">{{ wallet.phone|default:"Keine Telefonnummer" }} · {{ wallet.email|default:"Keine E-Mail" }}</p></div>
-  <div class="dashboard-context"><span class="tier-badge {{ wallet.tier|lower }}">{{ wallet.get_tier_display }}</span><span class="status-pill {{ wallet.status|lower }}">{{ wallet.get_status_display }}</span></div>
+  <div><span class="eyebrow">Mitgliedsnummer {{ wallet.member_number }}</span><h1>{{ wallet.display_name }}</h1><p class="muted">{{ wallet.phone|default:"Keine Telefonnummer" }} · {{ wallet.email|default:"Keine E-Mail-Adresse" }}</p></div>
+  <div class="dashboard-context"><span class="tier-badge {{ wallet.tier|lower }}">{{ wallet.tier|sams_label }}</span><span class="status-pill {{ wallet.status|lower }}">{{ wallet.status|sams_label }}</span></div>
 </section>
 <section class="detail-grid">
   <article class="wallet-card compact-card tier-{{ wallet.tier|lower }}">
-    <div class="wallet-top"><span class="wallet-brand">SAMS CLUB<br>LOUNGE<small>powered by <span class="aplus-signature">A+</span></small></span><span>{{ wallet.get_tier_display|upper }}</span></div>
+    <div class="wallet-top"><span class="wallet-brand">SAMS CLUB<br>LOUNGE<small>bereitgestellt von <span class="aplus-signature">A+</span></small></span><span>{{ wallet.tier|sams_label|upper }}</span></div>
     <div class="wallet-label">Aktuelles Guthaben</div><div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div>
     <div class="wallet-bonus">Monatliche Aufladung: {{ wallet.monthly_topup_total|floatformat:2 }} €</div>
     <div class="qr-frame small-frame"><div id="manager-qr" class="qr-box small-qr" data-token="{{ wallet.qr_token }}"></div></div>
-    <div class="wallet-code">Member-Nr. {{ wallet.member_number }}</div>
-    <div class="member-line"><span>{% if wallet.owner.member_profile.email_verified %}E-Mail bestätigt{% else %}E-Mail offen{% endif %}</span><span>{% if wallet.owner.member_profile.birth_date %}{{ wallet.owner.member_profile.birth_date|date:"d.m.Y" }}{% else %}Geburtstag fehlt{% endif %}</span></div>
+    <div class="wallet-code">Mitgliedsnummer {{ wallet.member_number }}</div>
+    <div class="member-line"><span>{% if wallet.owner.member_profile.email_verified %}E-Mail-Adresse bestätigt{% else %}E-Mail-Bestätigung offen{% endif %}</span><span>{% if wallet.owner.member_profile.birth_date %}{{ wallet.owner.member_profile.birth_date|date:"d.m.Y" }}{% else %}Geburtsdatum fehlt{% endif %}</span></div>
   </article>
   <article class="panel action-panel">
     {% if is_owner %}
       <div class="tab-buttons"><button class="tab-button active" data-tab="topup" type="button">Aufladen</button><button class="tab-button" data-tab="refund" type="button">Erstatten</button></div>
-      <form method="post" action="{% url 'manager_topup' wallet.id %}" class="stack-form tab-content active" id="topup">{% csrf_token %}<label>Betrag (€)<input type="number" name="amount" min="0.01" step="0.01" required></label><label>Beschreibung<input name="description" placeholder="Barzahlung erhalten"></label><label>Referenz<input name="order_reference" placeholder="POS / externe Belegnummer"></label><button class="button primary full">Guthaben hinzufügen</button></form>
-      <form method="post" action="{% url 'manager_refund' wallet.id %}" class="stack-form tab-content" id="refund">{% csrf_token %}<label>Betrag (€)<input type="number" name="amount" min="0.01" step="0.01" required></label><label>Grund<input name="description" placeholder="Korrektur durch Inhaber"></label><label>Referenz<input name="order_reference"></label><button class="button secondary full">Betrag erstatten</button></form>
-    {% else %}
-      <div class="platform-alert"><strong>Nur Ansicht</strong><span>Guthaben aufladen und erstatten kann ausschließlich der Inhaber.</span></div>
-    {% endif %}
-    <div class="danger-zone"><form method="post" action="{% url 'manager_wallet_status' wallet.id %}">{% csrf_token %}{% if wallet.status == 'ACTIVE' %}<input type="hidden" name="status" value="BLOCKED"><button class="link-button danger" type="submit">Member Card sperren</button>{% else %}<input type="hidden" name="status" value="ACTIVE"><button class="link-button" type="submit">Member Card aktivieren</button>{% endif %}</form></div>
+      <form method="post" action="{% url 'manager_topup' wallet.id %}" class="stack-form tab-content active" id="topup">{% csrf_token %}<label>Betrag (€)<input type="number" name="amount" min="0.01" step="0.01" required></label><label>Beschreibung<input name="description" placeholder="Barzahlung erhalten"></label><label>Referenz<input name="order_reference" placeholder="Kasse oder externe Belegnummer"></label><button class="button primary full">Guthaben hinzufügen</button></form>
+      <form method="post" action="{% url 'manager_refund' wallet.id %}" class="stack-form tab-content" id="refund">{% csrf_token %}<label>Betrag (€)<input type="number" name="amount" min="0.01" step="0.01" required></label><label>Grund<input name="description" placeholder="Korrektur durch den Inhaber"></label><label>Referenz<input name="order_reference"></label><button class="button secondary full">Betrag erstatten</button></form>
+    {% else %}<div class="platform-alert"><strong>Nur Ansicht</strong><span>Guthaben aufladen und erstatten kann ausschließlich der Inhaber.</span></div>{% endif %}
+    <div class="danger-zone"><form method="post" action="{% url 'manager_wallet_status' wallet.id %}">{% csrf_token %}{% if wallet.status == 'ACTIVE' %}<input type="hidden" name="status" value="BLOCKED"><button class="link-button danger" type="submit">Mitgliedskarte sperren</button>{% else %}<input type="hidden" name="status" value="ACTIVE"><button class="link-button" type="submit">Mitgliedskarte aktivieren</button>{% endif %}</form></div>
   </article>
 </section>
-<section class="panel"><div class="section-heading"><div><span class="eyebrow">Audit & Ledger</span><h2>Transaktionshistorie</h2></div></div><div class="wallet-table-wrap"><table class="data-table"><thead><tr><th>Zeit</th><th>Standort</th><th>Beleg</th><th>Typ</th><th>Beschreibung</th><th>Betrag</th><th>Saldo</th></tr></thead><tbody>{% for entry in entries %}<tr><td>{{ entry.created_at|date:"d.m.Y H:i" }}</td><td>{{ entry.location.name|default:"Global" }}</td><td><a class="text-link" href="{% url 'bill_detail' entry.id %}">{{ entry.bill_number }}</a></td><td>{{ entry.get_entry_type_display }}</td><td>{{ entry.description|default:"–" }}<span>{{ entry.order_reference|default:"" }}</span></td><td class="{% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</td><td>{{ entry.balance_after|floatformat:2 }} €</td></tr>{% empty %}<tr><td colspan="7" class="empty-state">Noch keine Transaktionen.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="panel"><div class="section-heading"><div><span class="eyebrow">Prüfprotokoll und Kassenbuch</span><h2>Transaktionshistorie</h2></div></div><div class="wallet-table-wrap"><table class="data-table"><thead><tr><th>Zeit</th><th>Standort</th><th>Beleg</th><th>Art</th><th>Beschreibung</th><th>Betrag</th><th>Saldo</th></tr></thead><tbody>{% for entry in entries %}<tr><td>{{ entry.created_at|date:"d.m.Y H:i" }}</td><td>{{ entry.location.name|default:"Alle Standorte" }}</td><td><a class="text-link" href="{% url 'bill_detail' entry.id %}">{{ entry.bill_number }}</a></td><td>{{ entry.entry_type|sams_label }}</td><td>{{ entry.description|default:"–" }}<span>{{ entry.order_reference|default:"" }}</span></td><td class="{% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</td><td>{{ entry.balance_after|floatformat:2 }} €</td></tr>{% empty %}<tr><td colspan="7" class="empty-state">Noch keine Transaktionen.</td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}
 {% block scripts %}<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script><script>window.addEventListener('load',function(){const t=document.getElementById('manager-qr');if(t&&window.QRCode)new QRCode(t,{text:t.dataset.token,width:140,height:140,correctLevel:QRCode.CorrectLevel.H});});</script>{% endblock %}

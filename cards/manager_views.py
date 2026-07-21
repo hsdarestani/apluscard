@@ -17,7 +17,7 @@ UUID_PATTERN = re.compile(
 
 @login_required
 def manager_wallet_scan(request):
-    """Resolve a scanned Member QR code within the manager's own business."""
+    """Eine gescannte Mitgliedskarte innerhalb des eigenen Betriebs auflösen."""
     membership = get_active_membership(request.user)
     if not membership or membership.role not in MANAGER_ROLES:
         raise PermissionDenied
@@ -33,7 +33,7 @@ def manager_wallet_scan(request):
         qr_token=match.group(0),
     ).first()
     if wallet is None:
-        messages.error(request, "Diese Member Card gehört nicht zu dieser Lounge oder wurde nicht gefunden.")
+        messages.error(request, "Diese Mitgliedskarte gehört nicht zu diesem Betrieb oder wurde nicht gefunden.")
         return redirect("manager_dashboard")
 
     return redirect("manager_wallet_detail", wallet_id=wallet.pk)

@@ -1,0 +1,28 @@
+{% extends 'cards/base.html' %}
+{% block title %}Profil vervollständigen · SAMS Club Lounge{% endblock %}
+{% block content %}
+<section class="auth-layout">
+  <article class="auth-copy">
+    <span class="eyebrow">Anmeldung mit Apple</span>
+    <h1>Fast geschafft.<br><span class="gradient-text">Deine Mitgliedskarte wartet.</span></h1>
+    <p>Apple hat deine Identität sicher bestätigt. Für den Jugendschutz und dein SAMS-Mitgliedskonto benötigen wir noch wenige Angaben.</p>
+    <div class="feature-pills"><span>Ein Konto</span><span>Drei Standorte</span><span>Gemeinsames Guthaben</span><span>Ab 18 Jahren</span></div>
+  </article>
+  <article class="panel registration-card">
+    <div class="section-heading"><div><span class="eyebrow">Letzter Schritt</span><h2>Profil vervollständigen</h2></div></div>
+    <form method="post" class="stack-form">{% csrf_token %}
+      {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="two-col">
+        <label>Vorname{{ form.first_name }}{{ form.first_name.errors }}</label>
+        <label>Nachname{{ form.last_name }}{{ form.last_name.errors }}</label>
+      </div>
+      <label>Mobilnummer{{ form.phone }}{{ form.phone.errors }}</label>
+      <label>Geburtsdatum{{ form.birth_date }}{{ form.birth_date.errors }}</label>
+      <label class="consent-row">{{ form.age_confirmed }}<span>{{ form.age_confirmed.label }}</span></label>
+      {{ form.age_confirmed.errors }}
+      <button class="button primary full" type="submit">Mitgliedskonto fertigstellen</button>
+      <p class="form-note">Deine Angaben werden ausschließlich für dein Mitgliedskonto, die Altersprüfung und deine digitale Mitgliedskarte verwendet.</p>
+    </form>
+  </article>
+</section>
+{% endblock %}
