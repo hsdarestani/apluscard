@@ -9,8 +9,6 @@
     <div class="legal-meta"><span>Version {{ legal.terms_version }}</span><span>Gültig ab {{ legal.terms_effective_date|date:"d.m.Y" }}</span><span>{{ business.name }}</span></div>
   </header>
 
-  {% if legal_information_incomplete and user.is_authenticated %}<aside class="legal-warning"><strong>Hinweis für die Verwaltung</strong>Folgende Pflichtangaben müssen vor der Store-Veröffentlichung ergänzt werden: {{ legal_information_incomplete|join:", " }}.</aside>{% endif %}
-
   <article class="panel legal-document">
     <h2>1. Anbieter und Geltungsbereich</h2>
     <p>Diese Allgemeinen Geschäftsbedingungen gelten für die Nutzung der App {{ legal.display_name }}, der digitalen Mitgliedskarte, des Mitgliedsguthabens, des Treueprogramms und der darin veröffentlichten Angebote.</p>
