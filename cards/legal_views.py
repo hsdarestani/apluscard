@@ -7,7 +7,6 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_POST
 
 from .legal_forms import (
     AccountDeletionRequestForm,
@@ -25,7 +24,7 @@ from .legal_services import (
     record_legal_acceptances,
     wallet_for_customer,
 )
-from .models import Business, MemberProfile, Membership, Wallet
+from .models import Business, MemberProfile, Wallet
 from .services import OWNER_ROLES, get_active_membership, require_role
 from .views import _send_verification_email
 
@@ -171,11 +170,7 @@ def legal_acceptance(request):
         )
         messages.success(request, "Die aktuellen Rechtstexte wurden bestätigt.")
         return redirect("dashboard")
-    return render(
-        request,
-        "cards/legal/acceptance.html",
-        {"form": form, "business": wallet.business, "legal": configuration},
-    )
+    return render(request, "cards/legal/acceptance.html", {"form": form, "business": wallet.business, "legal": configuration})
 
 
 @login_required
@@ -195,15 +190,11 @@ def privacy_choices(request):
         elif old_enabled and not new_enabled:
             preference.withdrawn_at = timezone.now()
         preference.save()
-        if not preference.marketing_push_enabled:
-            request.user.push_devices.update(is_active=False)
+        # The device registration stays active for security and transaction
+        # notifications. Marketing delivery must check the preference separately.
         messages.success(request, "Deine Datenschutz-Einstellungen wurden gespeichert.")
         return redirect("privacy_choices")
-    return render(
-        request,
-        "cards/legal/privacy_choices.html",
-        {"form": form, "business": wallet.business, "preference": preference},
-    )
+    return render(request, "cards/legal/privacy_choices.html", {"form": form, "business": wallet.business, "preference": preference})
 
 
 def account_deletion(request, business_slug=None):
@@ -212,10 +203,7 @@ def account_deletion(request, business_slug=None):
     initial = {}
     if request.user.is_authenticated:
         wallet = Wallet.objects.filter(owner=request.user, business=business).first()
-        initial = {
-            "email": request.user.email or (wallet.email if wallet else ""),
-            "member_number": wallet.member_number if wallet else "",
-        }
+        initial = {"email": request.user.email or (wallet.email if wallet else ""), "member_number": wallet.member_number if wallet else ""}
 
     form = AccountDeletionRequestForm(request.POST or None, initial=initial)
     reference = None
@@ -242,11 +230,7 @@ def account_deletion(request, business_slug=None):
         reference = deletion_request.reference_number
         form = AccountDeletionRequestForm(initial=initial)
 
-    return render(
-        request,
-        "cards/legal/account_deletion.html",
-        {"form": form, "business": business, "reference": reference, "wallet": wallet},
-    )
+    return render(request, "cards/legal/account_deletion.html", {"form": form, "business": business, "reference": reference, "wallet": wallet})
 
 
 @login_required
@@ -265,11 +249,7 @@ def manager_legal(request):
             messages.success(request, "Rechtstexte und Anbieterangaben wurden gespeichert.")
             return redirect("manager_legal")
         if action == "deletion-status":
-            deletion_request = get_object_or_404(
-                AccountDeletionRequest,
-                pk=request.POST.get("request_id"),
-                business=membership.business,
-            )
+            deletion_request = get_object_or_404(AccountDeletionRequest, pk=request.POST.get("request_id"), business=membership.business)
             status = request.POST.get("status")
             if status not in AccountDeletionRequest.Status.values:
                 raise PermissionDenied
@@ -282,13 +262,4 @@ def manager_legal(request):
         messages.error(request, "Bitte die markierten Angaben prüfen.")
 
     deletion_requests = membership.business.account_deletion_requests.select_related("user", "wallet")[:100]
-    return render(
-        request,
-        "cards/legal/manager_legal.html",
-        {
-            "form": form,
-            "business": membership.business,
-            "legal": configuration,
-            "deletion_requests": deletion_requests,
-        },
-    )
+    return render(request, "cards/legal/manager_legal.html", {"form": form, "business": membership.business, "legal": configuration, "deletion_requests": deletion_requests})
