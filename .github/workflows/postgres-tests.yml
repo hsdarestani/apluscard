@@ -38,5 +38,11 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python manage.py migrate --noinput
-      - run: python manage.py test
+      - name: Django-Systemprüfung
+        run: python manage.py check
+      - name: Fehlende Migrationen ausschließen
+        run: python manage.py makemigrations --check --dry-run
+      - name: Migrationen auf PostgreSQL anwenden
+        run: python manage.py migrate --noinput
+      - name: Gesamte Testsuite auf PostgreSQL ausführen
+        run: python manage.py test
