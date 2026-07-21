@@ -1,4 +1,5 @@
 from pathlib import Path
+import base64
 import os
 
 import dj_database_url
@@ -98,12 +99,46 @@ SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_QUERY_EMAIL = True
 
+
+def _apple_private_key():
+    direct_value = os.getenv("APPLE_PRIVATE_KEY", "").strip()
+    encoded_value = os.getenv("APPLE_PRIVATE_KEY_BASE64", "").strip()
+    value = direct_value or encoded_value
+    if not value:
+        return ""
+
+    normalized = value.replace("\\n", "\n").strip()
+    if "-----BEGIN PRIVATE KEY-----" in normalized:
+        return normalized
+
+    try:
+        compact_value = "".join(value.split())
+        decoded = base64.b64decode(compact_value, validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return ""
+    return decoded.replace("\\n", "\n").strip()
+
+
 APPLE_CLIENT_ID = os.getenv("APPLE_CLIENT_ID", "").strip()
 APPLE_KEY_ID = os.getenv("APPLE_KEY_ID", "").strip()
 APPLE_TEAM_ID = os.getenv("APPLE_TEAM_ID", "").strip()
-APPLE_PRIVATE_KEY = os.getenv("APPLE_PRIVATE_KEY", "").replace("\\n", "\n").strip()
+APPLE_PRIVATE_KEY = _apple_private_key()
 APPLE_BUNDLE_ID = os.getenv("APPLE_BUNDLE_ID", "").strip()
-APPLE_LOGIN_ENABLED = all([APPLE_CLIENT_ID, APPLE_KEY_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY])
+APPLE_REDIRECT_URI = os.getenv(
+    "APPLE_REDIRECT_URI",
+    "https://cards.smarbiz.sbs/accounts/apple/login/callback/",
+).strip()
+APPLE_PRIVATE_KEY_HAS_PEM_MARKERS = (
+    APPLE_PRIVATE_KEY.startswith("-----BEGIN PRIVATE KEY-----")
+    and APPLE_PRIVATE_KEY.endswith("-----END PRIVATE KEY-----")
+)
+APPLE_LOGIN_ENABLED = all([
+    APPLE_CLIENT_ID,
+    APPLE_KEY_ID,
+    APPLE_TEAM_ID,
+    APPLE_PRIVATE_KEY_HAS_PEM_MARKERS,
+    APPLE_REDIRECT_URI,
+])
 APPLE_PROVIDER_APPS = []
 if APPLE_LOGIN_ENABLED:
     apple_settings = {"certificate_key": APPLE_PRIVATE_KEY}
