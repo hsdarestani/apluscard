@@ -88,7 +88,9 @@ def _assert_wallet_payable(wallet):
 @transaction.atomic
 def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", order_reference="", idempotency_key="", ip_address=None, location=None, payment_request=None):
     amount = normalize_amount(amount)
-    locked_wallet = Wallet.objects.select_for_update().select_related("business", "owner", "owner__member_profile").get(pk=wallet.pk)
+    # Only the wallet row must be locked. Joining nullable owner/profile tables
+    # here makes PostgreSQL reject FOR UPDATE on the nullable side of an outer join.
+    locked_wallet = Wallet.objects.select_for_update().select_related("business").get(pk=wallet.pk)
     if entry_type in DEBIT_TYPES:
         _assert_wallet_payable(locked_wallet)
     elif locked_wallet.status != Wallet.Status.ACTIVE:
@@ -149,7 +151,9 @@ def create_payment_request(*, wallet, location, actor, amount, description="", o
 
 @transaction.atomic
 def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_address=None):
-    payment = PaymentRequest.objects.select_for_update().select_related("business", "location", "wallet", "wallet__owner", "wallet__owner__member_profile").get(pk=payment.pk)
+    # Lock only the payment row and non-nullable relations. Optional owner/profile
+    # data is loaded lazily when the wallet validation needs it.
+    payment = PaymentRequest.objects.select_for_update().select_related("business", "location", "wallet").get(pk=payment.pk)
     if payment.status != PaymentRequest.Status.PENDING:
         raise ValidationError("Diese Zahlungsanfrage wurde bereits bearbeitet.")
     if payment.expires_at and payment.expires_at < timezone.now():
