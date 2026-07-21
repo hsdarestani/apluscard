@@ -1,29 +1,26 @@
 {% extends 'cards/base.html' %}
+{% load sams_de %}
 {% block title %}Beleg {{ entry.bill_number }} · A+ Pay{% endblock %}
 {% block content %}
 <section class="receipt-shell">
   <article class="digital-receipt">
-    <div class="receipt-brand"><div><strong>SAMS CLUB LOUNGE</strong><span>powered by A+</span></div><span>{% if settings.official_invoice_enabled %}Rechnung{% else %}Digitaler Zahlungsbeleg{% endif %}</span></div>
-    {% if settings.official_invoice_enabled %}
-    <div class="official-invoice-head"><strong>{{ settings.legal_name|default:entry.business.name }}</strong><span>{{ settings.legal_address|linebreaksbr }}</span>{% if settings.tax_number %}<span>Steuernummer: {{ settings.tax_number }}</span>{% endif %}{% if settings.vat_id %}<span>USt-IdNr.: {{ settings.vat_id }}</span>{% endif %}</div>
-    {% endif %}
+    <div class="receipt-brand"><div><strong>SAMS CLUB LOUNGE</strong><span>bereitgestellt von A+</span></div><span>{% if settings.official_invoice_enabled %}Rechnung{% else %}Digitaler Zahlungsbeleg{% endif %}</span></div>
+    {% if settings.official_invoice_enabled %}<div class="official-invoice-head"><strong>{{ settings.legal_name|default:entry.business.name }}</strong><span>{{ settings.legal_address|linebreaksbr }}</span>{% if settings.tax_number %}<span>Steuernummer: {{ settings.tax_number }}</span>{% endif %}{% if settings.vat_id %}<span>USt-IdNr.: {{ settings.vat_id }}</span>{% endif %}</div>{% endif %}
     <div class="receipt-number">{{ entry.bill_number }}</div>
     <dl class="receipt-data">
-      <div><dt>Member</dt><dd>{{ wallet.display_name }} · {{ wallet.member_number }}</dd></div>
+      <div><dt>Mitglied</dt><dd>{{ wallet.display_name }} · {{ wallet.member_number }}</dd></div>
       <div><dt>Standort</dt><dd>{{ entry.location.name|default:"SAMS Club Lounge" }}</dd></div>
       <div><dt>Datum</dt><dd>{{ entry.created_at|date:"d.m.Y H:i:s" }}</dd></div>
-      <div><dt>Typ</dt><dd>{{ entry.get_entry_type_display }}</dd></div>
-      <div><dt>Beschreibung</dt><dd>{{ entry.description|default:"A+ Pay Transaktion" }}</dd></div>
+      <div><dt>Art</dt><dd>{{ entry.entry_type|sams_label }}</dd></div>
+      <div><dt>Beschreibung</dt><dd>{{ entry.description|default:"A+ Pay Zahlung" }}</dd></div>
       {% if entry.order_reference %}<div><dt>Referenz</dt><dd>{{ entry.order_reference }}</dd></div>{% endif %}
       <div><dt>Durchgeführt von</dt><dd>{{ entry.performed_by.get_full_name|default:entry.performed_by.username }}</dd></div>
     </dl>
     <div class="receipt-total"><span>Betrag</span><strong>{{ entry.amount|floatformat:2 }} €</strong></div>
-    {% if entry.payment_request %}
-      <div class="receipt-payment-breakdown"><span>Bestellbetrag: {{ entry.payment_request.base_amount|floatformat:2 }} €</span><span>Trinkgeld: {{ entry.payment_request.tip_amount|floatformat:2 }} €</span><span>Gesamt: {{ entry.payment_request.total_amount|floatformat:2 }} €</span></div>
-    {% endif %}
+    {% if entry.payment_request %}<div class="receipt-payment-breakdown"><span>Bestellbetrag: {{ entry.payment_request.base_amount|floatformat:2 }} €</span><span>Trinkgeld: {{ entry.payment_request.tip_amount|floatformat:2 }} €</span><span>Gesamt: {{ entry.payment_request.total_amount|floatformat:2 }} €</span></div>{% endif %}
     <div class="receipt-balance"><span>Saldo vorher: {{ entry.balance_before|floatformat:2 }} €</span><span>Saldo danach: {{ entry.balance_after|floatformat:2 }} €</span></div>
-    {% if settings.official_invoice_enabled %}<p class="receipt-note">Diese Ausgabe nutzt die vom Inhaber hinterlegten Rechnungsdaten. Die steuerliche Konfiguration muss vor Produktivnutzung geprüft werden.</p>{% else %}<p class="receipt-note">Dieser Beleg dokumentiert eine Wallet-Bewegung und ist keine steuerliche Rechnung.</p>{% endif %}
-    <div class="receipt-actions"><button class="button primary" type="button" onclick="window.print()">Drucken / PDF</button><a class="button secondary" href="{% url 'dashboard' %}">Zurück</a></div>
+    {% if settings.official_invoice_enabled %}<p class="receipt-note">Diese Ausgabe nutzt die vom Inhaber hinterlegten Rechnungsdaten. Die steuerliche Konfiguration muss vor der Produktivnutzung geprüft werden.</p>{% else %}<p class="receipt-note">Dieser Beleg dokumentiert eine Guthabenbewegung und ist keine steuerliche Rechnung.</p>{% endif %}
+    <div class="receipt-actions"><button class="button primary" type="button" onclick="window.print()">Drucken oder als PDF speichern</button><a class="button secondary" href="{% url 'dashboard' %}">Zurück</a></div>
   </article>
 </section>
 {% endblock %}
