@@ -126,7 +126,7 @@ APPLE_PRIVATE_KEY = _apple_private_key()
 APPLE_BUNDLE_ID = os.getenv("APPLE_BUNDLE_ID", "").strip()
 APPLE_REDIRECT_URI = os.getenv(
     "APPLE_REDIRECT_URI",
-    "https://cards.smarbiz.sbs/accounts/apple/login/callback/",
+    "https://cards.smarbiz.sbs/accounts/apple/callback/",
 ).strip()
 APPLE_PRIVATE_KEY_HAS_PEM_MARKERS = (
     APPLE_PRIVATE_KEY.startswith("-----BEGIN PRIVATE KEY-----")
