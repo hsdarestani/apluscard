@@ -1,0 +1,5 @@
+{% extends 'cards/base.html' %}
+{% block title %}Anmeldung nicht möglich · SAMS Club Lounge{% endblock %}
+{% block content %}
+<section class="auth-wrap"><div class="panel auth-panel"><span class="eyebrow">Anmeldung mit Apple</span><h1>Anmeldung nicht möglich</h1><p class="muted">Die Anmeldung mit Apple konnte nicht abgeschlossen werden. Bitte versuche es erneut oder melde dich mit deiner E-Mail-Adresse an.</p><a class="button primary full" href="{% url 'login' %}">Zur Anmeldung</a></div></section>
+{% endblock %}
