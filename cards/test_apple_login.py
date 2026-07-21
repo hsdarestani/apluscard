@@ -9,6 +9,7 @@ from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import resolve, reverse
 
 from .adapters import SamsAccountAdapter
+from .legal_models import LegalAcceptance, LegalConfiguration
 from .models import Business, MemberProfile, Wallet
 
 
@@ -16,6 +17,13 @@ from .models import Business, MemberProfile, Wallet
 class AppleCustomerFlowTests(TestCase):
     def setUp(self):
         self.business = Business.objects.create(name="SAMS Club Lounge", slug="shisha-bar")
+        LegalConfiguration.objects.create(
+            business=self.business,
+            app_display_name=self.business.name,
+            controller_name=self.business.name,
+            terms_version="1.0",
+            privacy_version="1.0",
+        )
         self.user = get_user_model().objects.create_user(
             username="apple-kunde@example.com",
             email="apple-kunde@example.com",
@@ -32,6 +40,8 @@ class AppleCustomerFlowTests(TestCase):
             "phone": "+49 160 1234567",
             "birth_date": (birth_date or date(1990, 5, 12)).isoformat(),
             "age_confirmed": "on",
+            "accept_terms": "on",
+            "acknowledge_privacy": "on",
         }
 
     def test_apple_customer_can_complete_profile_and_receive_wallet(self):
@@ -43,6 +53,7 @@ class AppleCustomerFlowTests(TestCase):
         self.assertEqual(wallet.phone, "+49 160 1234567")
         self.assertTrue(profile.age_confirmed)
         self.assertTrue(profile.email_verified)
+        self.assertEqual(LegalAcceptance.objects.filter(user=self.user).count(), 2)
 
     def test_repeated_profile_completion_never_creates_a_second_wallet(self):
         first = self.client.post(reverse("complete_customer_profile"), self.payload())
@@ -59,7 +70,17 @@ class AppleCustomerFlowTests(TestCase):
         self.assertFalse(Wallet.objects.filter(owner=self.user).exists())
 
     def test_existing_wallet_skips_profile_completion(self):
-        Wallet.objects.create(business=self.business, owner=self.user, display_name="Anna Beispiel")
+        wallet = Wallet.objects.create(business=self.business, owner=self.user, display_name="Anna Beispiel")
+        for document_type in (LegalAcceptance.DocumentType.TERMS, LegalAcceptance.DocumentType.PRIVACY):
+            LegalAcceptance.objects.create(
+                user=self.user,
+                business=self.business,
+                document_type=document_type,
+                version="1.0",
+                source=LegalAcceptance.Source.APPLE,
+                email_hash="test",
+                member_number=wallet.member_number,
+            )
         response = self.client.get(reverse("complete_customer_profile"))
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("dashboard"))
