@@ -1,10 +1,11 @@
 from django.urls import path
 
-from . import api, manager_views, views
+from . import api, apple_views, manager_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
     path("accounts/register/", views.register_customer, name="register"),
+    path("accounts/profil-vervollstaendigen/", apple_views.complete_customer_profile, name="complete_customer_profile"),
     path("accounts/verify/<str:token>/", views.verify_email, name="verify_email"),
     path("accounts/resend-verification/", views.resend_verification, name="resend_verification"),
     path("health/", views.health, name="health"),
