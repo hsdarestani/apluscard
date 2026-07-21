@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="{% static 'cards/registration.css' %}">
   <link rel="stylesheet" href="{% static 'cards/ledger.css' %}">
   <link rel="stylesheet" href="{% static 'cards/sams-platform.css' %}">
+  <link rel="stylesheet" href="{% static 'cards/legal.css' %}">
   <style>html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;}</style>
   {% block head %}{% endblock %}
 </head>
@@ -42,14 +43,23 @@
   <main class="page-shell">
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
-    <footer class="footer-brand"><span><strong>SAMS CLUB LOUNGE</strong> · 3 Standorte</span><span>A+ Pay & Treueprogramm · bereitgestellt von <span class="aplus-signature">A+</span></span></footer>
+    <footer class="footer-brand legal-footer">
+      <div><strong>SAMS CLUB LOUNGE</strong> · 3 Standorte<br><span>A+ Pay & Treueprogramm · bereitgestellt von <span class="aplus-signature">A+</span></span></div>
+      <nav aria-label="Rechtliche Informationen">
+        <a href="{% url 'terms' %}">AGB</a>
+        <a href="{% url 'privacy_policy' %}">Datenschutz</a>
+        <a href="{% url 'imprint' %}">Impressum</a>
+        <a href="{% url 'account_deletion' %}">Konto löschen</a>
+        {% if user.is_authenticated %}<a href="{% url 'privacy_choices' %}">Datenschutz-Einstellungen</a>{% endif %}
+      </nav>
+    </footer>
   </main>
   {% if user.is_authenticated %}
   <nav class="mobile-nav" aria-label="Navigation für Mobilgeräte">
     <a href="{% url 'dashboard' %}" class="active"><span>⌂</span><span>Start</span></a>
     <a href="{% url 'dashboard' %}"><span>▣</span><span>Guthaben</span></a>
     <a href="{% url 'dashboard' %}"><span>◇</span><span>Angebote</span></a>
-    <a href="{% url 'dashboard' %}"><span>◎</span><span>Profil</span></a>
+    <a href="{% url 'privacy_choices' %}"><span>◎</span><span>Datenschutz</span></a>
   </nav>
   {% endif %}
   <script src="{% static 'cards/app.js' %}" defer></script>
