@@ -5,9 +5,10 @@ from allauth.socialaccount.models import SocialAccount
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
-from django.test import Client, TestCase, override_settings
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import resolve, reverse
 
+from .adapters import SamsAccountAdapter
 from .models import Business, MemberProfile, Wallet
 
 
@@ -93,6 +94,18 @@ class AppleCallbackSecurityTests(TestCase):
     def test_callback_rejects_get_requests(self):
         response = self.client.get("/accounts/apple/callback/")
         self.assertEqual(response.status_code, 405)
+
+    def test_first_login_redirect_does_not_depend_on_socialaccount_commit_timing(self):
+        user = get_user_model().objects.create_user(
+            username="apple-first-step@example.com",
+            email="apple-first-step@example.com",
+        )
+        request = RequestFactory().get("/accounts/apple/login/callback/finish/")
+        request.user = user
+        self.assertEqual(
+            SamsAccountAdapter().get_login_redirect_url(request),
+            reverse("complete_customer_profile"),
+        )
 
 
 class GermanInterfaceTests(TestCase):
