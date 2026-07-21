@@ -42,14 +42,17 @@ jobs:
           test -n "$APPLE_KEY_ID_SECRET" || (echo "APPLE_KEY_ID fehlt." && exit 1)
           test -n "$APPLE_TEAM_ID_SECRET" || (echo "APPLE_TEAM_ID fehlt." && exit 1)
           test -n "$APPLE_PRIVATE_KEY_INPUT" || (echo "APPLE_PRIVATE_KEY_BASE64 fehlt." && exit 1)
-          test -n "$APPLE_REDIRECT_URI_SECRET" || (echo "APPLE_REDIRECT_URI fehlt." && exit 1)
 
           EXPECTED_REDIRECT_URI="https://cards.smarbiz.sbs/accounts/apple/login/callback/"
-          NORMALIZED_REDIRECT_URI="${APPLE_REDIRECT_URI_SECRET%/}/"
-          test "$NORMALIZED_REDIRECT_URI" = "$EXPECTED_REDIRECT_URI" || (
-            echo "APPLE_REDIRECT_URI stimmt nicht mit der SAMS-Rückrufadresse überein."
-            exit 1
-          )
+          if [ -n "$APPLE_REDIRECT_URI_SECRET" ]; then
+            PROVIDED_REDIRECT_URI="${APPLE_REDIRECT_URI_SECRET%/}/"
+            if [ "$PROVIDED_REDIRECT_URI" != "$EXPECTED_REDIRECT_URI" ]; then
+              echo "APPLE_REDIRECT_URI wird auf die kanonische SAMS-Rückrufadresse korrigiert."
+            fi
+          else
+            echo "APPLE_REDIRECT_URI wird automatisch für SAMS gesetzt."
+          fi
+          NORMALIZED_REDIRECT_URI="$EXPECTED_REDIRECT_URI"
 
           umask 077
           KEY_FILE="$RUNNER_TEMP/apple-auth-key.p8"
@@ -210,6 +213,7 @@ jobs:
               ? [
                   '- GitHub Secrets: vorhanden und verarbeitet',
                   '- Apple-.p8-Schlüssel: mit OpenSSL geprüft',
+                  '- Kanonische SAMS-Rückrufadresse: angewendet',
                   '- Produktions-.env: sicher synchronisiert',
                   '- Django/allauth: Apple-Anmeldung aktiv',
                   '- Interne Weiterleitung: geprüft',
