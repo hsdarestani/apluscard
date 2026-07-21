@@ -1,0 +1,35 @@
+name: Diagnose Guthabenfehler
+
+on:
+  push:
+    branches: [agent/debug-topup-500]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+    steps:
+      - name: SSH-Werkzeug installieren
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+      - name: Host-Schlüssel laden
+        run: |
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Letzte Django-Fehler sicher auslesen
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd '$APP_DIR' && docker compose logs --since 6h --tail=1200 web 2>&1" \
+            | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[EMAIL]/g; s/[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,36}/[UUID]/g; s/(sessionid|csrftoken)=[^ ;]+/\1=[REDACTED]/g' \
+            | awk '/Internal Server Error|Traceback \(most recent call last\)|manager\/wallets\/.*topup|ERROR/{show=1; count=0} show{print; count++} count>90{show=0}'
