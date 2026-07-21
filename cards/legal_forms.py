@@ -4,7 +4,7 @@ from .forms import AppleProfileCompletionForm, CustomerRegistrationForm
 from .legal_models import AccountDeletionRequest, LegalConfiguration, PrivacyPreference
 
 
-class LegalAgreementFieldsMixin:
+class LegalCustomerRegistrationForm(CustomerRegistrationForm):
     accept_terms = forms.BooleanField(
         label="Ich akzeptiere die Allgemeinen Geschäftsbedingungen.",
         required=True,
@@ -23,12 +23,23 @@ class LegalAgreementFieldsMixin:
     )
 
 
-class LegalCustomerRegistrationForm(LegalAgreementFieldsMixin, CustomerRegistrationForm):
-    pass
-
-
-class LegalAppleProfileCompletionForm(LegalAgreementFieldsMixin, AppleProfileCompletionForm):
-    pass
+class LegalAppleProfileCompletionForm(AppleProfileCompletionForm):
+    accept_terms = forms.BooleanField(
+        label="Ich akzeptiere die Allgemeinen Geschäftsbedingungen.",
+        required=True,
+    )
+    acknowledge_privacy = forms.BooleanField(
+        label="Ich habe die Datenschutzerklärung gelesen.",
+        required=True,
+    )
+    marketing_push_consent = forms.BooleanField(
+        label="Ich möchte freiwillig Push-Mitteilungen zu Angeboten und Aktionen erhalten.",
+        required=False,
+    )
+    marketing_email_consent = forms.BooleanField(
+        label="Ich möchte freiwillig E-Mails zu Angeboten und Aktionen erhalten.",
+        required=False,
+    )
 
 
 class CurrentLegalAcceptanceForm(forms.Form):
