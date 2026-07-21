@@ -1,0 +1,36 @@
+{% extends 'cards/base.html' %}
+{% block title %}Rechtliches und Datenschutz · {{ business.name }}{% endblock %}
+{% block content %}
+<section class="dashboard-head">
+  <div><span class="eyebrow">Inhaberbereich</span><h1>Rechtliches und<br><span class="gradient-text">Datenschutz</span></h1><p class="muted">Anbieterangaben, versionsgebundene Rechtstexte und Löschanträge für diese App verwalten.</p></div>
+  <a class="button secondary" href="{% url 'manager_settings' %}">← App-Einstellungen</a>
+</section>
+
+<section class="panel settings-section">
+  <div class="section-heading"><div><span class="eyebrow">App Store und Google Play</span><h2>Anbieter- und Datenschutzangaben</h2></div></div>
+  <div class="legal-warning"><strong>Vor Veröffentlichung prüfen lassen</strong>Die Texte sind ein technisch eingebundener DSGVO-/Store-Entwurf und müssen mit den echten Unternehmensdaten ergänzt sowie vor dem öffentlichen Start rechtlich geprüft werden. Bei einer Versionsänderung müssen bestehende Kunden die neue Fassung erneut bestätigen.</div>
+  <form method="post" class="settings-grid">{% csrf_token %}<input type="hidden" name="action" value="configuration">
+    {% for field in form %}<label class="{% if field.field.widget.input_type == 'checkbox' %}setting-check{% endif %}"><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>{% endfor %}
+    <button class="button primary" type="submit">Rechtliche Angaben speichern</button>
+  </form>
+  <div class="legal-meta"><a href="{% url 'app_terms' business.slug %}" target="_blank">AGB ansehen</a><a href="{% url 'app_privacy_policy' business.slug %}" target="_blank">Datenschutz ansehen</a><a href="{% url 'app_imprint' business.slug %}" target="_blank">Impressum ansehen</a><a href="{% url 'app_account_deletion' business.slug %}" target="_blank">Löschseite ansehen</a></div>
+</section>
+
+<section class="panel settings-section">
+  <div class="section-heading"><div><span class="eyebrow">Betroffenenrechte</span><h2>Anträge auf Kontolöschung</h2></div></div>
+  <div class="deletion-list">
+    {% for item in deletion_requests %}
+    <article class="deletion-item">
+      <div><strong>{{ item.reference_number }}</strong> · {{ item.get_status_display }}</div>
+      <small>{{ item.requested_at|date:"d.m.Y H:i" }} · {{ item.email }}{% if item.member_number %} · Mitglied {{ item.member_number }}{% endif %}</small>
+      {% if item.reason %}<p>{{ item.reason }}</p>{% endif %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="deletion-status"><input type="hidden" name="request_id" value="{{ item.pk }}">
+        <select name="status"><option value="RECEIVED" {% if item.status == 'RECEIVED' %}selected{% endif %}>Eingegangen</option><option value="PROCESSING" {% if item.status == 'PROCESSING' %}selected{% endif %}>In Bearbeitung</option><option value="COMPLETED" {% if item.status == 'COMPLETED' %}selected{% endif %}>Abgeschlossen</option><option value="REJECTED" {% if item.status == 'REJECTED' %}selected{% endif %}>Abgelehnt</option></select>
+        <input type="text" name="internal_note" value="{{ item.internal_note }}" placeholder="Interne Notiz">
+        <button class="button secondary small" type="submit">Status speichern</button>
+      </form>
+    </article>
+    {% empty %}<div class="empty-state">Noch keine Löschanträge eingegangen.</div>{% endfor %}
+  </div>
+</section>
+{% endblock %}
