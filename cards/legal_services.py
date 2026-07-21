@@ -83,14 +83,15 @@ def record_legal_acceptances(*, user, business, request, source, marketing_push=
             defaults=common,
         )
 
-    consented = bool(marketing_push or marketing_email)
     preference, _ = PrivacyPreference.objects.get_or_create(user=user, business=business)
+    was_enabled = preference.marketing_push_enabled or preference.marketing_email_enabled
     preference.marketing_push_enabled = bool(marketing_push)
     preference.marketing_email_enabled = bool(marketing_email)
-    if consented:
+    is_enabled = preference.marketing_push_enabled or preference.marketing_email_enabled
+    if is_enabled and not was_enabled:
         preference.consented_at = timezone.now()
         preference.withdrawn_at = None
-    elif preference.marketing_push_enabled or preference.marketing_email_enabled:
+    elif was_enabled and not is_enabled:
         preference.withdrawn_at = timezone.now()
     preference.save()
     return preference
