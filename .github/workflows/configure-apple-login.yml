@@ -179,24 +179,48 @@ jobs:
           echo "Der interne Apple-Anmeldeweg ist aktiv."
           REMOTE
 
-      - name: Verify public SAMS Apple redirect
+      - name: Verify Apple accepts the SAMS web request
         run: |
           set -Eeuo pipefail
+          EXPECTED_REDIRECT_URI="https://cards.smarbiz.sbs/accounts/apple/login/callback/"
           HEADERS_FILE="$(mktemp)"
-          ready=0
-          for attempt in $(seq 1 20); do
-            if curl --silent --show-error --max-time 20 \
-              -D "$HEADERS_FILE" -o /dev/null \
-              https://cards.smarbiz.sbs/accounts/apple/login/ \
-              && grep -Eqi '^location: https://appleid\.apple\.com/auth/authorize' "$HEADERS_FILE"; then
-              ready=1
-              break
-            fi
-            sleep 3
-          done
-          rm -f "$HEADERS_FILE"
-          test "$ready" -eq 1 || (echo "Öffentliche Apple-Weiterleitung konnte nicht bestätigt werden." && exit 1)
-          echo "SAMS Apple Login ist öffentlich erreichbar und leitet zu Apple weiter."
+          BODY_FILE="$(mktemp)"
+
+          curl --silent --show-error --max-time 20 \
+            -D "$HEADERS_FILE" -o /dev/null \
+            https://cards.smarbiz.sbs/accounts/apple/login/
+
+          AUTH_URL="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$HEADERS_FILE")"
+          test -n "$AUTH_URL" || (echo "Keine Apple-Autorisierungsadresse erhalten." && exit 1)
+
+          AUTH_URL="$AUTH_URL" EXPECTED_REDIRECT_URI="$EXPECTED_REDIRECT_URI" python - <<'PY'
+          import os
+          from urllib.parse import parse_qs, urlparse
+
+          auth_url = os.environ["AUTH_URL"]
+          expected = os.environ["EXPECTED_REDIRECT_URI"]
+          parsed = urlparse(auth_url)
+          params = parse_qs(parsed.query)
+          assert parsed.scheme == "https"
+          assert parsed.netloc == "appleid.apple.com"
+          assert parsed.path == "/auth/authorize"
+          assert params.get("redirect_uri", [None])[0] == expected
+          assert params.get("client_id", [""])[0]
+          assert params.get("response_mode", [None])[0] == "form_post"
+          print("Die von SAMS erzeugten OAuth-Parameter sind syntaktisch korrekt.")
+          PY
+
+          curl --silent --show-error --max-time 30 \
+            -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15' \
+            -L "$AUTH_URL" -o "$BODY_FILE"
+
+          if grep -Eqi 'Invalid web redirect url|invalid_request' "$BODY_FILE"; then
+            echo "Apple lehnt die Kombination aus Services ID und Return URL ab. Prüfe die Web-Konfiguration des Services ID im Apple Developer Portal."
+            exit 1
+          fi
+
+          rm -f "$HEADERS_FILE" "$BODY_FILE"
+          echo "Apple akzeptiert die SAMS-Webanfrage und zeigt den Anmeldedialog an."
 
       - name: Publish Apple Login production status
         if: always()
@@ -216,11 +240,12 @@ jobs:
                   '- Kanonische SAMS-Rückrufadresse: angewendet',
                   '- Produktions-.env: sicher synchronisiert',
                   '- Django/allauth: Apple-Anmeldung aktiv',
-                  '- Interne Weiterleitung: geprüft',
-                  '- Öffentliche Weiterleitung zu appleid.apple.com: geprüft',
+                  '- OAuth-Parameter: geprüft',
+                  '- Apple-Webanfrage: von Apple akzeptiert',
                 ]
               : [
-                  '- Die sichere Konfiguration oder eine der Verbindungsprüfungen ist fehlgeschlagen.',
+                  '- Die sichere Konfiguration oder die Annahme durch Apple ist fehlgeschlagen.',
+                  '- Häufigste Ursache: APPLE_CLIENT_ID ist keine Services ID oder die Return URL ist nicht exakt in dieser Services ID registriert.',
                   '- Es wurden keine Secret-Werte in diesen Bericht geschrieben.',
                 ];
             const body = [
