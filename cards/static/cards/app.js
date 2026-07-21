@@ -2,6 +2,22 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 
+// The SAMS interface is laid out like an installed app. Prevent accidental
+// pinch/double-tap zoom that can leave fixed navigation and dialogs misaligned.
+document.addEventListener('gesturestart', event => event.preventDefault(), { passive: false });
+document.addEventListener('gesturechange', event => event.preventDefault(), { passive: false });
+document.addEventListener('gestureend', event => event.preventDefault(), { passive: false });
+document.addEventListener('touchmove', event => {
+  if (event.touches.length > 1) event.preventDefault();
+}, { passive: false });
+
+let lastTouchEnd = 0;
+document.addEventListener('touchend', event => {
+  const now = Date.now();
+  if (now - lastTouchEnd <= 300) event.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+
 let installPrompt = null;
 const installButton = document.getElementById('install-app');
 
@@ -25,6 +41,17 @@ window.addEventListener('appinstalled', () => {
 });
 
 document.addEventListener('click', event => {
+  const appleButton = event.target.closest('a.apple-login-button');
+  if (appleButton) {
+    if (appleButton.dataset.busy === 'true') {
+      event.preventDefault();
+      return;
+    }
+    appleButton.dataset.busy = 'true';
+    appleButton.setAttribute('aria-disabled', 'true');
+    appleButton.classList.add('is-loading');
+  }
+
   const openButton = event.target.closest('[data-dialog-open]');
   if (openButton) document.getElementById(openButton.dataset.dialogOpen)?.showModal();
 

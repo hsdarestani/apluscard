@@ -1,10 +1,14 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 
 from allauth.socialaccount.models import SocialAccount
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
-from django.urls import reverse
+from django.core.exceptions import PermissionDenied
+from django.http import HttpResponse
+from django.test import Client, RequestFactory, TestCase, override_settings
+from django.urls import resolve, reverse
 
+from .adapters import SamsAccountAdapter
 from .models import Business, MemberProfile, Wallet
 
 
@@ -40,6 +44,13 @@ class AppleCustomerFlowTests(TestCase):
         self.assertTrue(profile.age_confirmed)
         self.assertTrue(profile.email_verified)
 
+    def test_repeated_profile_completion_never_creates_a_second_wallet(self):
+        first = self.client.post(reverse("complete_customer_profile"), self.payload())
+        self.assertEqual(first.status_code, 302)
+        second = self.client.post(reverse("complete_customer_profile"), self.payload())
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(Wallet.objects.filter(owner=self.user, business=self.business).count(), 1)
+
     def test_underage_apple_customer_is_rejected(self):
         underage = date.today() - timedelta(days=365 * 17)
         response = self.client.post(reverse("complete_customer_profile"), self.payload(underage))
@@ -57,12 +68,58 @@ class AppleCustomerFlowTests(TestCase):
         self.assertEqual(dashboard.url, reverse("customer_dashboard"))
 
 
+class AppleCallbackSecurityTests(TestCase):
+    def test_callback_is_explicitly_csrf_exempt_for_apple_form_post(self):
+        callback = resolve("/accounts/apple/callback/").func
+        self.assertTrue(getattr(callback, "csrf_exempt", False))
+
+    @patch("cards.apple_views.allauth_apple_callback", return_value=HttpResponse("ok"))
+    def test_cross_site_style_post_does_not_return_csrf_403(self, mocked_callback):
+        csrf_client = Client(enforce_csrf_checks=True)
+        response = csrf_client.post(
+            "/accounts/apple/callback/",
+            {"state": "test", "code": "test"},
+            HTTP_HOST="cards.smarbiz.sbs",
+            HTTP_X_FORWARDED_PROTO="https",
+            secure=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        mocked_callback.assert_called_once()
+
+    @patch("cards.apple_views.allauth_apple_callback", side_effect=PermissionDenied)
+    def test_stale_apple_session_returns_safe_retry_instead_of_403(self, _mocked_callback):
+        response = self.client.post("/accounts/apple/callback/", {"state": "stale"})
+        self.assertRedirects(response, reverse("login"))
+
+    def test_callback_rejects_get_requests(self):
+        response = self.client.get("/accounts/apple/callback/")
+        self.assertEqual(response.status_code, 405)
+
+    def test_first_login_redirect_does_not_depend_on_socialaccount_commit_timing(self):
+        user = get_user_model().objects.create_user(
+            username="apple-first-step@example.com",
+            email="apple-first-step@example.com",
+        )
+        request = RequestFactory().get("/accounts/apple/login/callback/finish/")
+        request.user = user
+        self.assertEqual(
+            SamsAccountAdapter().get_login_redirect_url(request),
+            reverse("complete_customer_profile"),
+        )
+
+
 class GermanInterfaceTests(TestCase):
     def test_login_page_contains_apple_button_in_german(self):
         response = self.client.get(reverse("login"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Mit Apple fortfahren")
         self.assertContains(response, "Willkommen zurück")
+
+    def test_mobile_viewport_prevents_accidental_zoom(self):
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, "maximum-scale=1")
+        self.assertContains(response, "minimum-scale=1")
+        self.assertContains(response, "user-scalable=no")
 
     def test_public_pages_do_not_show_previous_english_titles(self):
         forbidden = [
