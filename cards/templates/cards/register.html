@@ -19,6 +19,16 @@
       <label>Passwort{{ form.password1 }}{{ form.password1.errors }}</label>
       <label>Passwort wiederholen{{ form.password2 }}{{ form.password2.errors }}</label>
       <label class="consent-row">{{ form.age_confirmed }}<span>{{ form.age_confirmed.label }}</span></label>{{ form.age_confirmed.errors }}
+      <div class="legal-consent">
+        <label class="consent-row">{{ form.accept_terms }}<span>Ich akzeptiere die <a href="{% url 'app_terms' business.slug %}" target="_blank" rel="noopener">Allgemeinen Geschäftsbedingungen</a>.</span></label>{{ form.accept_terms.errors }}
+        <label class="consent-row">{{ form.acknowledge_privacy }}<span>Ich habe die <a href="{% url 'app_privacy_policy' business.slug %}" target="_blank" rel="noopener">Datenschutzerklärung</a> gelesen.</span></label>{{ form.acknowledge_privacy.errors }}
+      </div>
+      <div class="legal-consent">
+        <strong>Freiwillige Informationen</strong>
+        <label class="consent-row">{{ form.marketing_push_consent }}<span>{{ form.marketing_push_consent.label }}</span></label>
+        <label class="consent-row">{{ form.marketing_email_consent }}<span>{{ form.marketing_email_consent.label }}</span></label>
+        <small class="muted">Diese Einwilligungen sind freiwillig und können jederzeit in den Datenschutz-Einstellungen widerrufen werden.</small>
+      </div>
       <button class="button primary full" type="submit">Mitgliedskarte erstellen</button>
       <p class="form-note">Nach der Registrierung erhältst du einen Bestätigungslink per E-Mail. Zahlungen sind erst nach der Bestätigung möglich.</p>
     </form>
