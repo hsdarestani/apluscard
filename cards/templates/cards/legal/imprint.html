@@ -8,8 +8,6 @@
     <p class="muted">Angaben für {{ legal.display_name }}</p>
   </header>
 
-  {% if legal_information_incomplete and user.is_authenticated %}<aside class="legal-warning"><strong>Hinweis für die Verwaltung</strong>Folgende Pflichtangaben fehlen: {{ legal_information_incomplete|join:", " }}.</aside>{% endif %}
-
   <article class="panel legal-document">
     <h2>Anbieter</h2>
     <p><strong>{{ legal.responsible_name }}</strong><br>{% if legal.controller_address %}<span class="legal-address">{{ legal.controller_address }}</span>{% endif %}</p>
