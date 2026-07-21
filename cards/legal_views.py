@@ -179,7 +179,8 @@ def privacy_choices(request):
     if wallet is None:
         raise PermissionDenied
     preference, _ = PrivacyPreference.objects.get_or_create(user=request.user, business=wallet.business)
-    form = PrivacyChoicesForm(request.POST or None, instance=preference)
+    form_data = request.POST if request.method == "POST" else None
+    form = PrivacyChoicesForm(form_data, instance=preference)
     if request.method == "POST" and form.is_valid():
         old_enabled = preference.marketing_push_enabled or preference.marketing_email_enabled
         preference = form.save(commit=False)
