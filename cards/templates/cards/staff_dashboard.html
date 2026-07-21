@@ -1,33 +1,27 @@
 {% extends 'cards/base.html' %}
-{% block title %}A+ Pay Checkout · SAMS Club Lounge{% endblock %}
+{% load sams_de %}
+{% block title %}Zahlungskasse · SAMS Club Lounge{% endblock %}
 {% block content %}
 <section class="dashboard-head">
-  <div><span class="eyebrow">{{ membership.business.name }}</span><h1>A+ Pay<br><span class="gradient-text">Checkout</span></h1><p class="muted">Jede SAMS Member Card kann an jedem Standort verwendet werden.</p></div>
-  <div class="dashboard-context"><span class="vip-chip">{{ active_location.name|default:"Standort wählen" }}</span><span class="role-pill">{{ membership.get_role_display }}</span></div>
+  <div><span class="eyebrow">{{ membership.business.name }}</span><h1>A+ Pay<br><span class="gradient-text">Zahlungskasse</span></h1><p class="muted">Jede SAMS-Mitgliedskarte kann an jedem Standort verwendet werden.</p></div>
+  <div class="dashboard-context"><span class="vip-chip">{{ active_location.name|default:"Standort wählen" }}</span><span class="role-pill">{{ membership.role|sams_label }}</span></div>
 </section>
-
 <section class="location-strip">
   <div><span class="eyebrow">Kassenstandort</span><strong>{{ active_location.name|default:"Nicht gewählt" }}</strong></div>
-  <form method="post" action="{% url 'select_location' %}" class="inline-select">{% csrf_token %}
-    <input type="hidden" name="next" value="{% url 'staff_dashboard' %}">
-    <select name="location_id" onchange="this.form.submit()">
-      {% for location in locations %}<option value="{{ location.id }}" {% if location.id == active_location.id %}selected{% endif %}>{{ location.name }}</option>{% endfor %}
-    </select>
-  </form>
+  <form method="post" action="{% url 'select_location' %}" class="inline-select">{% csrf_token %}<input type="hidden" name="next" value="{% url 'staff_dashboard' %}"><select name="location_id" onchange="this.form.submit()">{% for location in locations %}<option value="{{ location.id }}" {% if location.id == active_location.id %}selected{% endif %}>{{ location.name }}</option>{% endfor %}</select></form>
 </section>
-
 <section class="staff-grid">
   <article class="panel scan-panel">
-    <div class="section-heading"><div><span class="eyebrow">A+ Pay</span><h2>Member Card scannen</h2></div><button class="button secondary small" type="button" id="start-scanner">Kamera starten</button></div>
+    <div class="section-heading"><div><span class="eyebrow">Zahlung</span><h2>Mitgliedskarte scannen</h2></div><button class="button secondary small" type="button" id="start-scanner">Kamera starten</button></div>
     <div id="reader" class="scanner-box"><div class="scanner-placeholder"><strong>⌁</strong>QR-Code in den Rahmen halten<br><span>oder Kartencode manuell eingeben</span></div></div>
     <form method="post" action="{% url 'staff_charge' %}" class="stack-form" id="charge-form">{% csrf_token %}
       <input type="hidden" name="location_id" value="{{ active_location.id }}">
-      <label>Kartencode<input id="wallet-token" type="text" name="wallet_token" placeholder="UUID aus QR-Code" required></label>
-      <div class="two-col"><label>Betrag (€)<input type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="30.00" required></label><label>Bestellnummer<input type="text" name="order_reference" placeholder="POS-12345"></label></div>
-      <label>Bestellung / Beschreibung<input type="text" name="description" placeholder="1 Shisha, 1 Cola"></label>
+      <label>Kartencode<input id="wallet-token" type="text" name="wallet_token" placeholder="UUID aus dem QR-Code" required></label>
+      <div class="two-col"><label>Betrag (€)<input type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="30.00" required></label><label>Bestellnummer<input type="text" name="order_reference" placeholder="KASSE-12345"></label></div>
+      <label>Bestellung oder Beschreibung<input type="text" name="description" placeholder="1 Shisha, 1 Cola"></label>
       {% if settings.require_customer_confirmation %}
         <input type="hidden" name="tip_percentage" value="0">
-        <div class="platform-alert"><strong>Kundenbestätigung aktiv</strong><span>Der Kunde wählt Trinkgeld und bestätigt die Zahlung auf seinem eigenen Gerät.</span></div>
+        <div class="platform-alert"><strong>Kundenbestätigung aktiv</strong><span>Der Kunde wählt das Trinkgeld und bestätigt die Zahlung auf seinem eigenen Gerät.</span></div>
         <button class="button primary full" type="submit">Zahlungsanfrage senden</button>
       {% else %}
         <fieldset class="tip-fieldset"><legend>Trinkgeld auswählen</legend><div class="tip-radio-grid">{% for tip in tip_options %}<label><input type="radio" name="tip_percentage" value="{{ tip }}" {% if forloop.first %}checked{% endif %}><span>{{ tip|floatformat:0 }}%</span></label>{% endfor %}</div></fieldset>
@@ -36,16 +30,9 @@
     </form>
   </article>
   <article class="panel">
-    <div class="section-heading"><div><span class="eyebrow">Live Ledger</span><h2>Meine Zahlungen</h2></div></div>
-    <div class="transaction-list compact">
-      {% for entry in recent_entries %}
-      <div class="transaction-row"><div class="transaction-icon {{ entry.entry_type|lower }}">−</div><div class="transaction-main"><strong>{{ entry.wallet.display_name }} · {{ entry.wallet.member_number }}</strong><span>{{ entry.location.name }} · {{ entry.get_entry_type_display }} · {{ entry.created_at|date:"H:i" }}</span><a class="bill-link" href="{% url 'bill_detail' entry.id %}">{{ entry.bill_number }} öffnen →</a></div><div class="transaction-amount negative">{{ entry.amount|floatformat:2 }} €</div></div>
-      {% empty %}<div class="empty-state">Die erste Zahlung erscheint hier.</div>{% endfor %}
-    </div>
+    <div class="section-heading"><div><span class="eyebrow">Aktuelles Kassenbuch</span><h2>Meine Zahlungen</h2></div></div>
+    <div class="transaction-list compact">{% for entry in recent_entries %}<div class="transaction-row"><div class="transaction-icon {{ entry.entry_type|lower }}">−</div><div class="transaction-main"><strong>{{ entry.wallet.display_name }} · {{ entry.wallet.member_number }}</strong><span>{{ entry.location.name }} · {{ entry.entry_type|sams_label }} · {{ entry.created_at|date:"H:i" }}</span><a class="bill-link" href="{% url 'bill_detail' entry.id %}">{{ entry.bill_number }} öffnen →</a></div><div class="transaction-amount negative">{{ entry.amount|floatformat:2 }} €</div></div>{% empty %}<div class="empty-state">Die erste Zahlung erscheint hier.</div>{% endfor %}</div>
   </article>
 </section>
 {% endblock %}
-{% block scripts %}
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script>(function(){const b=document.getElementById('start-scanner'),i=document.getElementById('wallet-token');let s;b?.addEventListener('click',async function(){if(!window.Html5Qrcode)return alert('Scanner konnte nicht geladen werden.');b.disabled=true;s=new Html5Qrcode('reader');try{await s.start({facingMode:'environment'},{fps:10,qrbox:230},async text=>{const m=text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);i.value=m?m[0]:text.trim();await s.stop();b.disabled=false;i.focus();});}catch(e){b.disabled=false;alert('Kamera konnte nicht gestartet werden.');}});})();</script>
-{% endblock %}
+{% block scripts %}<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script><script>(function(){const b=document.getElementById('start-scanner'),i=document.getElementById('wallet-token');let s;b?.addEventListener('click',async function(){if(!window.Html5Qrcode)return alert('Scanner konnte nicht geladen werden.');b.disabled=true;s=new Html5Qrcode('reader');try{await s.start({facingMode:'environment'},{fps:10,qrbox:230},async text=>{const m=text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);i.value=m?m[0]:text.trim();await s.stop();b.disabled=false;i.focus();});}catch(e){b.disabled=false;alert('Kamera konnte nicht gestartet werden.');}});})();</script>{% endblock %}
