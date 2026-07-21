@@ -73,10 +73,18 @@ jobs:
                           "description": "Diagnose ohne dauerhafte Buchung",
                           "order_reference": "DIAGNOSE-ROLLBACK",
                       },
+                      HTTP_HOST="cards.smarbiz.sbs",
+                      HTTP_X_FORWARDED_PROTO="https",
+                      secure=True,
                   )
                   print(f"HTTP-Status: {response.status_code}")
                   if response.status_code in {301, 302, 303, 307, 308}:
-                      follow = client.get(response["Location"])
+                      follow = client.get(
+                          response["Location"],
+                          HTTP_HOST="cards.smarbiz.sbs",
+                          HTTP_X_FORWARDED_PROTO="https",
+                          secure=True,
+                      )
                       print(f"Status nach Weiterleitung: {follow.status_code}")
               except Exception:
                   print("TRACEBACK_START")
