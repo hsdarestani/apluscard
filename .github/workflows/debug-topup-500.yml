@@ -28,18 +28,69 @@ jobs:
           install -m 700 -d ~/.ssh
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Letzten Django-Fehler redigiert sammeln
+      - name: Fehler ohne dauerhafte Buchung reproduzieren
         run: |
           set -Eeuo pipefail
-          RAW_FILE="$RUNNER_TEMP/raw.log"
+          RAW_FILE="$RUNNER_TEMP/reproduction.log"
           OUT_FILE="$RUNNER_TEMP/diagnostic.txt"
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd '$APP_DIR' && docker compose logs --since 8h --tail=1600 web 2>&1" > "$RAW_FILE"
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "cd '$APP_DIR' && docker compose exec -T web python -" > "$RAW_FILE" 2>&1 <<'PY'
+          import os
+          import traceback
+          from decimal import Decimal
+
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+
+          from django.db import transaction
+          from django.test import Client
+          from django.urls import reverse
+          from cards.models import LedgerEntry
+
+          latest = (
+              LedgerEntry.objects.select_related("wallet", "performed_by")
+              .filter(entry_type=LedgerEntry.Type.TOPUP)
+              .order_by("-created_at")
+              .first()
+          )
+          if latest is None:
+              print("Keine Aufladung für die Reproduktion vorhanden.")
+              raise SystemExit(0)
+
+          wallet = latest.wallet
+          before_balance = wallet.balance
+          print("Reproduktion mit der zuletzt betroffenen Karte gestartet.")
+
+          with transaction.atomic():
+              client = Client(raise_request_exception=True)
+              client.force_login(latest.performed_by)
+              try:
+                  response = client.post(
+                      reverse("manager_topup", args=[wallet.pk]),
+                      {
+                          "amount": str(abs(latest.amount) or Decimal("0.01")),
+                          "description": "Diagnose ohne dauerhafte Buchung",
+                          "order_reference": "DIAGNOSE-ROLLBACK",
+                      },
+                  )
+                  print(f"HTTP-Status: {response.status_code}")
+                  if response.status_code in {301, 302, 303, 307, 308}:
+                      follow = client.get(response["Location"])
+                      print(f"Status nach Weiterleitung: {follow.status_code}")
+              except Exception:
+                  print("TRACEBACK_START")
+                  traceback.print_exc()
+                  print("TRACEBACK_END")
+              finally:
+                  transaction.set_rollback(True)
+
+          wallet.refresh_from_db()
+          print(f"Rollback bestätigt: {wallet.balance == before_balance}")
+          PY
+
           sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[EMAIL]/g; s/[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,36}/[UUID]/g; s/(sessionid|csrftoken)=[^ ;]+/\1=[REDACTED]/g; s/(password|secret|token)=([^ ,;]+)/\1=[REDACTED]/Ig' "$RAW_FILE" \
-            | awk '/Internal Server Error|Traceback \(most recent call last\)|manager\/wallets\/.*topup|ERROR/{show=1; count=0} show{print; count++} count>100{show=0}' \
-            | tail -n 140 > "$OUT_FILE"
-          if [ ! -s "$OUT_FILE" ]; then
-            printf 'Kein passender Traceback in den letzten acht Stunden gefunden.\n' > "$OUT_FILE"
-          fi
+            | tail -n 180 > "$OUT_FILE"
           echo "DIAGNOSTIC_FILE=$OUT_FILE" >> "$GITHUB_ENV"
       - name: Diagnose-Issue aktualisieren
         uses: actions/github-script@v7
@@ -48,7 +99,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const report = fs.readFileSync(process.env.DIAGNOSTIC_FILE, 'utf8').slice(0, 12000);
+            const report = fs.readFileSync(process.env.DIAGNOSTIC_FILE, 'utf8').slice(0, 14000);
             const body = [
               '# Diagnose Guthaben-Aufladen',
               '',
@@ -58,6 +109,7 @@ jobs:
               report,
               '```',
               '',
+              'Die Reproduktion lief in einer äußeren Datenbanktransaktion und wurde vollständig zurückgerollt.',
               'Die Ausgabe wurde automatisch um E-Mail-Adressen, UUIDs, Cookies, Token und Secrets bereinigt.',
             ].join('\n');
             await github.rest.issues.update({
