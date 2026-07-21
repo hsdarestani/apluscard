@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from .legal_models import AccountDeletionRequest, LegalAcceptance, LegalConfiguration, PrivacyPreference
 from .models import AppNotification, AuditEvent, Business, BusinessSettings, LedgerEntry, Location, MemberProfile, Membership, Offer, PaymentRequest, PushDevice, ReviewStatus, Wallet
 
 
@@ -19,6 +20,39 @@ class LocationAdmin(admin.ModelAdmin):
 @admin.register(BusinessSettings)
 class BusinessSettingsAdmin(admin.ModelAdmin):
     list_display = ("business", "require_customer_confirmation", "tip_allocation", "gold_threshold", "platinum_threshold", "official_invoice_enabled")
+
+
+@admin.register(LegalConfiguration)
+class LegalConfigurationAdmin(admin.ModelAdmin):
+    list_display = ("business", "app_display_name", "terms_version", "privacy_version", "is_published", "updated_at")
+    list_filter = ("is_published",)
+    search_fields = ("business__name", "app_display_name", "controller_name", "contact_email", "privacy_email")
+
+
+@admin.register(LegalAcceptance)
+class LegalAcceptanceAdmin(admin.ModelAdmin):
+    list_display = ("accepted_at", "business", "user", "document_type", "version", "source", "member_number")
+    list_filter = ("business", "document_type", "version", "source")
+    search_fields = ("user__username", "user__email", "member_number", "email_hash")
+    readonly_fields = [field.name for field in LegalAcceptance._meta.fields]
+    def has_add_permission(self, request): return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(PrivacyPreference)
+class PrivacyPreferenceAdmin(admin.ModelAdmin):
+    list_display = ("user", "business", "marketing_push_enabled", "marketing_email_enabled", "consented_at", "withdrawn_at", "updated_at")
+    list_filter = ("business", "marketing_push_enabled", "marketing_email_enabled")
+    search_fields = ("user__username", "user__email")
+
+
+@admin.register(AccountDeletionRequest)
+class AccountDeletionRequestAdmin(admin.ModelAdmin):
+    list_display = ("requested_at", "reference_number", "business", "email", "member_number", "status", "completed_at")
+    list_filter = ("business", "status", "requested_at")
+    search_fields = ("reference_number", "email", "member_number")
+    readonly_fields = ("id", "reference_number", "requested_ip", "requested_user_agent", "requested_at")
 
 
 @admin.register(Membership)
