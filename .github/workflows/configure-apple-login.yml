@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   configure-apple-login:
-    name: Configure and verify Apple Login
+    name: Apple-Anmeldung konfigurieren und prüfen
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
@@ -32,7 +32,7 @@ jobs:
       APPLE_REDIRECT_URI_SECRET: ${{ secrets.APPLE_REDIRECT_URI }}
 
     steps:
-      - name: Validate and normalize Apple secrets
+      - name: Apple-Secrets prüfen und normalisieren
         id: apple-payload
         shell: bash
         run: |
@@ -43,16 +43,13 @@ jobs:
           test -n "$APPLE_TEAM_ID_SECRET" || (echo "APPLE_TEAM_ID fehlt." && exit 1)
           test -n "$APPLE_PRIVATE_KEY_INPUT" || (echo "APPLE_PRIVATE_KEY_BASE64 fehlt." && exit 1)
 
-          EXPECTED_REDIRECT_URI="https://cards.smarbiz.sbs/accounts/apple/login/callback/"
+          EXPECTED_REDIRECT_URI="https://cards.smarbiz.sbs/accounts/apple/callback/"
           if [ -n "$APPLE_REDIRECT_URI_SECRET" ]; then
             PROVIDED_REDIRECT_URI="${APPLE_REDIRECT_URI_SECRET%/}/"
             if [ "$PROVIDED_REDIRECT_URI" != "$EXPECTED_REDIRECT_URI" ]; then
-              echo "APPLE_REDIRECT_URI wird auf die kanonische SAMS-Rückrufadresse korrigiert."
+              echo "APPLE_REDIRECT_URI wird auf die in Apple Developer registrierte SAMS-Adresse korrigiert."
             fi
-          else
-            echo "APPLE_REDIRECT_URI wird automatisch für SAMS gesetzt."
           fi
-          NORMALIZED_REDIRECT_URI="$EXPECTED_REDIRECT_URI"
 
           umask 077
           KEY_FILE="$RUNNER_TEMP/apple-auth-key.p8"
@@ -71,32 +68,32 @@ jobs:
             printf 'APPLE_CLIENT_ID_B64=%s\n' "$(printf '%s' "$APPLE_CLIENT_ID_SECRET" | base64 -w0)"
             printf 'APPLE_KEY_ID_B64=%s\n' "$(printf '%s' "$APPLE_KEY_ID_SECRET" | base64 -w0)"
             printf 'APPLE_TEAM_ID_B64=%s\n' "$(printf '%s' "$APPLE_TEAM_ID_SECRET" | base64 -w0)"
-            printf 'APPLE_REDIRECT_URI_B64=%s\n' "$(printf '%s' "$NORMALIZED_REDIRECT_URI" | base64 -w0)"
+            printf 'APPLE_REDIRECT_URI_B64=%s\n' "$(printf '%s' "$EXPECTED_REDIRECT_URI" | base64 -w0)"
             printf 'APPLE_PRIVATE_KEY_B64=%s\n' "$(base64 -w0 "$KEY_FILE")"
           } > "$PAYLOAD_FILE"
           chmod 600 "$PAYLOAD_FILE"
           echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
-          echo "Apple-Secrets sind vollständig und der private Schlüssel ist lesbar."
+          echo "Apple-Secrets und .p8-Schlüssel sind gültig."
 
-      - name: Install SSH password client
+      - name: SSH-Werkzeuge installieren
         run: |
           sudo apt-get update
           sudo apt-get install -y sshpass
 
-      - name: Trust Hetzner host key
+      - name: Hetzner-Schlüssel vertrauen
         run: |
           set -Eeuo pipefail
           install -m 700 -d ~/.ssh
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Upload encrypted-safe payload
+      - name: Geschützte Konfiguration übertragen
         run: |
           set -Eeuo pipefail
           sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$APP_DIR'"
           sshpass -e scp -P "$SSH_PORT" "${{ steps.apple-payload.outputs.payload_file }}" "$SSH_USER@$SSH_HOST:$APP_DIR/.apple-secrets.payload"
 
-      - name: Apply configuration and verify server
+      - name: Produktion konfigurieren und intern prüfen
         run: |
           set -Eeuo pipefail
           sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
@@ -109,15 +106,18 @@ jobs:
           test -f .env || (echo "Produktionsdatei .env fehlt." && exit 1)
           test -f .apple-secrets.payload || (echo "Apple-Payload fehlt." && exit 1)
           . ./.apple-secrets.payload
+
           decode_value() { printf '%s' "$1" | base64 --decode; }
           APPLE_CLIENT_ID_VALUE="$(decode_value "$APPLE_CLIENT_ID_B64")"
           APPLE_KEY_ID_VALUE="$(decode_value "$APPLE_KEY_ID_B64")"
           APPLE_TEAM_ID_VALUE="$(decode_value "$APPLE_TEAM_ID_B64")"
           APPLE_REDIRECT_URI_VALUE="$(decode_value "$APPLE_REDIRECT_URI_B64")"
+
           KEY_FILE="$(mktemp)"
           printf '%s' "$APPLE_PRIVATE_KEY_B64" | base64 --decode > "$KEY_FILE"
           openssl pkey -in "$KEY_FILE" -noout
           rm -f "$KEY_FILE"
+
           ENV_TEMP="$(mktemp)"
           grep -vE '^(APPLE_CLIENT_ID|APPLE_KEY_ID|APPLE_TEAM_ID|APPLE_PRIVATE_KEY|APPLE_PRIVATE_KEY_BASE64|APPLE_REDIRECT_URI)=' .env > "$ENV_TEMP" || true
           {
@@ -130,50 +130,86 @@ jobs:
           chmod 600 "$ENV_TEMP"
           mv "$ENV_TEMP" .env
           rm -f .apple-secrets.payload
+
           docker compose up -d --build --remove-orphans
+          healthy=0
           for attempt in $(seq 1 45); do
-            curl --fail --silent http://127.0.0.1:8010/health/ >/dev/null && break
+            if curl --fail --silent http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
             sleep 2
           done
+          test "$healthy" -eq 1 || (docker compose logs --tail=200 web && exit 1)
+
           docker compose exec -T web python - <<'PY'
           import os
+          from urllib.parse import parse_qs, urlparse
+
           os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
-          import django; django.setup()
+          import django
+          django.setup()
+
           from django.conf import settings
-          expected = "https://cards.smarbiz.sbs/accounts/apple/login/callback/"
+          from django.test import Client
+          from django.urls import reverse
+
+          expected = "https://cards.smarbiz.sbs/accounts/apple/callback/"
           assert settings.APPLE_LOGIN_ENABLED
           assert settings.APPLE_PRIVATE_KEY_HAS_PEM_MARKERS
           assert settings.APPLE_REDIRECT_URI == expected
+          assert reverse("apple_callback") == "/accounts/apple/callback/"
+
+          response = Client(HTTP_HOST="cards.smarbiz.sbs", HTTP_X_FORWARDED_PROTO="https").get(
+              "/accounts/apple/login/"
+          )
+          assert response.status_code == 302
+          location = response["Location"]
+          params = parse_qs(urlparse(location).query)
+          assert params.get("redirect_uri", [None])[0] == expected
+          assert params.get("response_mode", [None])[0] == "form_post"
+          print("SAMS erzeugt die registrierte Apple-Rückrufadresse.")
           PY
           REMOTE
 
-      - name: Verify Apple accepts the SAMS web request
+      - name: Annahme durch Apple prüfen
         run: |
           set -Eeuo pipefail
-          EXPECTED_REDIRECT_URI="https://cards.smarbiz.sbs/accounts/apple/login/callback/"
+          EXPECTED_REDIRECT_URI="https://cards.smarbiz.sbs/accounts/apple/callback/"
           HEADERS_FILE="$(mktemp)"
           BODY_FILE="$(mktemp)"
-          curl --silent --show-error --max-time 20 -D "$HEADERS_FILE" -o /dev/null https://cards.smarbiz.sbs/accounts/apple/login/
+
+          curl --silent --show-error --max-time 20 \
+            -D "$HEADERS_FILE" -o /dev/null \
+            https://cards.smarbiz.sbs/accounts/apple/login/
           AUTH_URL="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$HEADERS_FILE")"
-          test -n "$AUTH_URL"
+          test -n "$AUTH_URL" || (echo "Keine Apple-Autorisierungsadresse erhalten." && exit 1)
+
           AUTH_URL="$AUTH_URL" EXPECTED_REDIRECT_URI="$EXPECTED_REDIRECT_URI" python - <<'PY'
           import os
           from urllib.parse import parse_qs, urlparse
+
           parsed = urlparse(os.environ["AUTH_URL"])
           params = parse_qs(parsed.query)
+          assert parsed.scheme == "https"
           assert parsed.netloc == "appleid.apple.com"
+          assert parsed.path == "/auth/authorize"
           assert params.get("redirect_uri", [None])[0] == os.environ["EXPECTED_REDIRECT_URI"]
           assert params.get("client_id", [""])[0]
           assert params.get("response_mode", [None])[0] == "form_post"
           PY
-          curl --silent --show-error --max-time 30 -A 'Mozilla/5.0 AppleWebKit/605.1.15 Safari/605.1.15' -L "$AUTH_URL" -o "$BODY_FILE"
+
+          curl --silent --show-error --max-time 30 \
+            -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15' \
+            -L "$AUTH_URL" -o "$BODY_FILE"
           if grep -Eqi 'Invalid web redirect url|invalid_request' "$BODY_FILE"; then
-            echo "Apple lehnt die Services-ID/Return-URL-Kombination ab."
+            echo "Apple lehnt die Services-ID/Return-URL-Kombination weiterhin ab."
             exit 1
           fi
-          echo "Apple akzeptiert die SAMS-Webanfrage."
+          rm -f "$HEADERS_FILE" "$BODY_FILE"
+          echo "Apple akzeptiert die registrierte SAMS-Rückrufadresse."
 
-      - name: Publish Apple Login production status
+      - name: Apple-Status veröffentlichen
         if: always()
         continue-on-error: true
         uses: actions/github-script@v7
@@ -187,12 +223,26 @@ jobs:
             const details = success ? [
               '- GitHub Secrets: verarbeitet',
               '- Apple-.p8-Schlüssel: geprüft',
+              '- Return URL: `/accounts/apple/callback/`',
               '- Django/allauth: aktiv',
               '- Apple-Webanfrage: von Apple akzeptiert',
             ] : [
-              '- Apple lehnt aktuell die Kombination aus Services ID und Return URL ab.',
-              '- APPLE_CLIENT_ID muss die Services ID sein; die Return URL muss exakt in derselben Services ID registriert sein.',
+              '- Apple-Anmeldung oder Annahme der Return URL ist fehlgeschlagen.',
               '- Keine Secret-Werte wurden veröffentlicht.',
             ];
-            const body = ['# Apple Login Production Status','',`${icon} **${status}**`,'',`- Commit: \`${context.sha}\``,`- Workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,'',...details].join('\n');
-            await github.rest.issues.update({owner: context.repo.owner, repo: context.repo.repo, issue_number: 10, body});
+            const body = [
+              '# Apple Login Production Status',
+              '',
+              `${icon} **${status}**`,
+              '',
+              `- Commit: \`${context.sha}\``,
+              `- Workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              ...details,
+            ].join('\n');
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 10,
+              body,
+            });
