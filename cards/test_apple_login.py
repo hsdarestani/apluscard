@@ -50,7 +50,11 @@ class AppleCustomerFlowTests(TestCase):
     def test_existing_wallet_skips_profile_completion(self):
         Wallet.objects.create(business=self.business, owner=self.user, display_name="Anna Beispiel")
         response = self.client.get(reverse("complete_customer_profile"))
-        self.assertRedirects(response, reverse("dashboard"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("dashboard"))
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertEqual(dashboard.status_code, 302)
+        self.assertEqual(dashboard.url, reverse("customer_dashboard"))
 
 
 class GermanInterfaceTests(TestCase):
@@ -71,8 +75,9 @@ class GermanInterfaceTests(TestCase):
             "powered by",
         ]
         for route in (reverse("landing"), reverse("login"), reverse("register")):
-            response = self.client.get(route)
-            self.assertEqual(response.status_code, 200)
-            body = response.content.decode("utf-8")
-            for text in forbidden:
-                self.assertNotIn(text, body)
+            with self.subTest(route=route):
+                response = self.client.get(route, follow=True)
+                self.assertEqual(response.status_code, 200)
+                body = response.content.decode("utf-8")
+                for text in forbidden:
+                    self.assertNotIn(text, body)
