@@ -1,30 +1,26 @@
 {% extends 'cards/base.html' %}
-{% block title %}Member werden · SAMS Club Lounge{% endblock %}
+{% block title %}Mitglied werden · SAMS Club Lounge{% endblock %}
 {% block content %}
 <section class="auth-layout">
   <article class="auth-copy">
-    <span class="eyebrow">SAMS Member App</span>
-    <h1>Deine digitale<br><span class="gradient-text">Member Card.</span></h1>
-    <p>Ein Account, ein gemeinsames Guthaben und ein Loyalty-Status für alle drei SAMS Standorte.</p>
-    <div class="feature-pills"><span>A+ Pay</span><span>Silber · Gold · Platinum</span><span>18+</span><span>Member Offers</span></div>
+    <span class="eyebrow">SAMS Mitglieder-App</span>
+    <h1>Deine digitale<br><span class="gradient-text">Mitgliedskarte.</span></h1>
+    <p>Ein Konto, ein gemeinsames Guthaben und eine Treuestufe für alle drei SAMS-Standorte.</p>
+    <div class="feature-pills"><span>A+ Pay</span><span>Silber · Gold · Platin</span><span>Ab 18 Jahren</span><span>Mitgliederangebote</span></div>
   </article>
   <article class="panel registration-card">
-    <div class="section-heading"><div><span class="eyebrow">Kostenlos registrieren</span><h2>Member werden</h2></div></div>
+    <div class="section-heading"><div><span class="eyebrow">Kostenlos registrieren</span><h2>Mitglied werden</h2></div></div>
     <form method="post" class="stack-form">{% csrf_token %}
       {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
-      <div class="two-col">
-        <label>Vorname{{ form.first_name }}{{ form.first_name.errors }}</label>
-        <label>Nachname{{ form.last_name }}{{ form.last_name.errors }}</label>
-      </div>
+      <div class="two-col"><label>Vorname{{ form.first_name }}{{ form.first_name.errors }}</label><label>Nachname{{ form.last_name }}{{ form.last_name.errors }}</label></div>
       <label>E-Mail-Adresse{{ form.email }}{{ form.email.errors }}</label>
       <label>Mobilnummer{{ form.phone }}{{ form.phone.errors }}</label>
       <label>Geburtsdatum{{ form.birth_date }}{{ form.birth_date.errors }}</label>
       <label>Passwort{{ form.password1 }}{{ form.password1.errors }}</label>
       <label>Passwort wiederholen{{ form.password2 }}{{ form.password2.errors }}</label>
-      <label class="consent-row">{{ form.age_confirmed }}<span>{{ form.age_confirmed.label }}</span></label>
-      {{ form.age_confirmed.errors }}
-      <button class="button primary full" type="submit">Member Card erstellen</button>
-      <p class="form-note">Nach der Registrierung erhältst du einen Bestätigungslink per E-Mail. Zahlungen sind erst nach der Verifizierung möglich.</p>
+      <label class="consent-row">{{ form.age_confirmed }}<span>{{ form.age_confirmed.label }}</span></label>{{ form.age_confirmed.errors }}
+      <button class="button primary full" type="submit">Mitgliedskarte erstellen</button>
+      <p class="form-note">Nach der Registrierung erhältst du einen Bestätigungslink per E-Mail. Zahlungen sind erst nach der Bestätigung möglich.</p>
     </form>
   </article>
 </section>
