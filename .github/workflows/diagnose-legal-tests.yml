@@ -1,0 +1,74 @@
+name: Diagnose Rechtstext-Tests
+
+on:
+  push:
+    branches: [agent/legal-privacy-per-app]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: apluscard_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d apluscard_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/apluscard_test
+      DJANGO_SECRET_KEY: diagnostic-only
+      DJANGO_DEBUG: "1"
+      DJANGO_SECURE_COOKIES: "0"
+      DEFAULT_BUSINESS_SLUG: shisha-bar
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Tests ausführen und Bericht speichern
+        id: tests
+        continue-on-error: true
+        run: |
+          set +e
+          python manage.py test -v 2 > "$RUNNER_TEMP/tests.log" 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          tail -n 260 "$RUNNER_TEMP/tests.log" > "$RUNNER_TEMP/report.txt"
+          exit 0
+      - name: Diagnose veröffentlichen
+        uses: actions/github-script@v7
+        env:
+          REPORT_FILE: ${{ runner.temp }}/report.txt
+          EXIT_CODE: ${{ steps.tests.outputs.exit_code }}
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync(process.env.REPORT_FILE, 'utf8').slice(0, 28000);
+            const body = [
+              '# Diagnose Rechtstexte und Datenschutz',
+              '',
+              `Exit-Code: ${process.env.EXIT_CODE}`,
+              '',
+              '```text',
+              report,
+              '```',
+            ].join('\n');
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 19,
+              body,
+            });
