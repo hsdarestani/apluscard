@@ -1,23 +1,23 @@
 {% extends 'cards/base.html' %}
-{% load static %}
-{% block title %}Management · SAMS Club Lounge{% endblock %}
+{% load static sams_de %}
+{% block title %}Verwaltung · SAMS Club Lounge{% endblock %}
 {% block head %}<link rel="stylesheet" href="{% static 'cards/manager-scanner.css' %}">{% endblock %}
 {% block content %}
 <section class="dashboard-head">
-  <div><span class="eyebrow">{{ membership.business.name }}</span><h1>SAMS<br><span class="gradient-text">Control Center</span></h1><p class="muted">Drei Standorte, ein gemeinsames Wallet-System.</p></div>
-  <div class="dashboard-context"><span class="vip-chip">A+ Pay Live</span><span class="role-pill">{{ membership.get_role_display }}</span></div>
+  <div><span class="eyebrow">{{ membership.business.name }}</span><h1>SAMS<br><span class="gradient-text">Verwaltungszentrale</span></h1><p class="muted">Drei Standorte und ein gemeinsames Guthabensystem.</p></div>
+  <div class="dashboard-context"><span class="vip-chip">A+ Pay aktiv</span><span class="role-pill">{{ membership.role|sams_label }}</span></div>
 </section>
 
 <section class="location-strip">
   <div><span class="eyebrow">Auswertung für</span><strong>{{ active_location.name|default:"Alle Standorte" }}</strong></div>
   <div class="action-row">
     <form method="post" action="{% url 'select_location' %}" class="inline-select">{% csrf_token %}<input type="hidden" name="next" value="{% url 'manager_dashboard' %}"><select name="location_id" onchange="this.form.submit()">{% for location in locations %}<option value="{{ location.id }}" {% if location.id == active_location.id %}selected{% endif %}>{{ location.name }}</option>{% endfor %}</select></form>
-    <a class="button secondary small" href="{% url 'manager_settings' %}">App & Inhalte verwalten</a>
+    <a class="button secondary small" href="{% url 'manager_settings' %}">App und Inhalte verwalten</a>
   </div>
 </section>
 
 <section class="stats-grid">
-  <article class="stat-card"><div class="stat-accent"></div><span>Member Cards</span><strong>{{ wallet_count }}</strong></article>
+  <article class="stat-card"><div class="stat-accent"></div><span>Mitgliedskarten</span><strong>{{ wallet_count }}</strong></article>
   <article class="stat-card"><div class="stat-accent"></div><span>Kundenguthaben</span><strong>{{ total_balance|floatformat:2 }} €</strong></article>
   <article class="stat-card"><div class="stat-accent"></div><span>Aktive Angebote</span><strong>{{ offer_count }}</strong></article>
   <article class="stat-card"><div class="stat-accent"></div><span>Neue Meldungen</span><strong>{{ unread_notification_count }}</strong></article>
@@ -26,39 +26,39 @@
 {% if notifications %}
 <section class="panel notification-panel">
   <div class="section-heading"><div><span class="eyebrow">Sofortmeldungen</span><h2>Neue Zahlungen</h2></div></div>
-  <div class="notification-list">{% for notification in notifications %}<article><div><strong>{{ notification.title }}</strong><span>{{ notification.body }} · {{ notification.created_at|date:"H:i:s" }}</span></div><form method="post" action="{% url 'mark_notification_read' notification.id %}">{% csrf_token %}<button class="link-button">Gelesen</button></form></article>{% endfor %}</div>
+  <div class="notification-list">{% for notification in notifications %}<article><div><strong>{{ notification.title }}</strong><span>{{ notification.body }} · {{ notification.created_at|date:"H:i:s" }}</span></div><form method="post" action="{% url 'mark_notification_read' notification.id %}">{% csrf_token %}<button class="link-button">Als gelesen markieren</button></form></article>{% endfor %}</div>
 </section>
 {% endif %}
 
 <section class="manager-grid">
   <article class="panel">
     <div class="section-heading">
-      <div><span class="eyebrow">Members</span><h2>Karten verwalten</h2></div>
-      <div class="manager-heading-actions"><button class="button primary small" type="button" id="open-manager-scanner">QR scannen</button><button class="button secondary small" type="button" data-dialog-open="new-wallet">Neue Karte</button></div>
+      <div><span class="eyebrow">Mitglieder</span><h2>Karten verwalten</h2></div>
+      <div class="manager-heading-actions"><button class="button primary small" type="button" id="open-manager-scanner">QR-Code scannen</button><button class="button secondary small" type="button" data-dialog-open="new-wallet">Neue Karte</button></div>
     </div>
-    <form method="get" class="search-bar"><input type="search" name="q" value="{{ query }}" placeholder="Member-Nr., Name, Telefon, E-Mail oder Kartencode"><button class="button secondary small">Suchen</button></form>
-    <div class="wallet-table-wrap"><table class="data-table"><thead><tr><th>Member</th><th>Level</th><th>Status</th><th>Guthaben</th><th></th></tr></thead><tbody>
-      {% for wallet in wallets %}<tr><td><strong>{{ wallet.display_name }}</strong><span>Member-Nr. {{ wallet.member_number }} · {{ wallet.phone|default:wallet.email|default:"–" }}</span></td><td><span class="tier-badge {{ wallet.tier|lower }}">{{ wallet.get_tier_display }}</span><span>{{ wallet.monthly_topup_total|floatformat:2 }} € / Monat</span></td><td><span class="status-pill {{ wallet.status|lower }}">{{ wallet.get_status_display }}</span></td><td>{{ wallet.balance|floatformat:2 }} €</td><td><a class="text-link" href="{% url 'manager_wallet_detail' wallet.id %}">Öffnen →</a></td></tr>
-      {% empty %}<tr><td colspan="5" class="empty-state">Noch keine Member Cards vorhanden.</td></tr>{% endfor %}
+    <form method="get" class="search-bar"><input type="search" name="q" value="{{ query }}" placeholder="Mitgliedsnummer, Name, Telefon, E-Mail-Adresse oder Kartencode"><button class="button secondary small">Suchen</button></form>
+    <div class="wallet-table-wrap"><table class="data-table"><thead><tr><th>Mitglied</th><th>Stufe</th><th>Status</th><th>Guthaben</th><th></th></tr></thead><tbody>
+      {% for wallet in wallets %}<tr><td><strong>{{ wallet.display_name }}</strong><span>Mitgliedsnummer {{ wallet.member_number }} · {{ wallet.phone|default:wallet.email|default:"–" }}</span></td><td><span class="tier-badge {{ wallet.tier|lower }}">{{ wallet.tier|sams_label }}</span><span>{{ wallet.monthly_topup_total|floatformat:2 }} € / Monat</span></td><td><span class="status-pill {{ wallet.status|lower }}">{{ wallet.status|sams_label }}</span></td><td>{{ wallet.balance|floatformat:2 }} €</td><td><a class="text-link" href="{% url 'manager_wallet_detail' wallet.id %}">Öffnen →</a></td></tr>
+      {% empty %}<tr><td colspan="5" class="empty-state">Noch keine Mitgliedskarten vorhanden.</td></tr>{% endfor %}
     </tbody></table></div>
   </article>
 
   <article class="panel">
-    <div class="section-heading"><div><span class="eyebrow">Live Ledger</span><h2>Letzte Bewegungen</h2></div></div>
-    <div class="transaction-list compact">{% for entry in recent_entries %}<div class="transaction-row"><div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div><div class="transaction-main"><strong>{{ entry.wallet.display_name }}</strong><span>{{ entry.location.name|default:"Global" }} · {{ entry.get_entry_type_display }} · {{ entry.created_at|date:"d.m. H:i" }}</span><a class="bill-link" href="{% url 'bill_detail' entry.id %}">{{ entry.bill_number }} →</a></div><div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div></div>{% empty %}<div class="empty-state">Noch keine Transaktionen.</div>{% endfor %}</div>
+    <div class="section-heading"><div><span class="eyebrow">Aktuelles Kassenbuch</span><h2>Letzte Bewegungen</h2></div></div>
+    <div class="transaction-list compact">{% for entry in recent_entries %}<div class="transaction-row"><div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div><div class="transaction-main"><strong>{{ entry.wallet.display_name }}</strong><span>{{ entry.location.name|default:"Alle Standorte" }} · {{ entry.entry_type|sams_label }} · {{ entry.created_at|date:"d.m. H:i" }}</span><a class="bill-link" href="{% url 'bill_detail' entry.id %}">{{ entry.bill_number }} →</a></div><div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div></div>{% empty %}<div class="empty-state">Noch keine Transaktionen.</div>{% endfor %}</div>
   </article>
 </section>
 
 <dialog id="scan-member" class="app-dialog manager-scan-dialog">
-  <div class="dialog-head"><div><span class="eyebrow">Member Finder</span><h2>Member Card scannen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div>
+  <div class="dialog-head"><div><span class="eyebrow">Mitglied finden</span><h2>Mitgliedskarte scannen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div>
   <div id="manager-reader" class="scanner-box manager-scanner-box"><div class="scanner-placeholder"><strong>⌁</strong>QR-Code scannen</div></div>
   <div id="manager-scan-status" class="manager-scan-status" aria-live="polite"></div>
-  <form method="get" action="{% url 'manager_wallet_scan' %}" class="stack-form" id="manager-scan-form"><label>Kartencode<input id="manager-wallet-token" type="text" name="token" placeholder="UUID oder QR-Inhalt" required></label><button class="button primary full" type="submit">Member öffnen</button></form>
+  <form method="get" action="{% url 'manager_wallet_scan' %}" class="stack-form" id="manager-scan-form"><label>Kartencode<input id="manager-wallet-token" type="text" name="token" placeholder="UUID oder Inhalt des QR-Codes" required></label><button class="button primary full" type="submit">Mitglied öffnen</button></form>
 </dialog>
 
-<dialog id="new-wallet" class="app-dialog"><form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">{% csrf_token %}<div class="dialog-head"><div><span class="eyebrow">New Member</span><h2>Member Card anlegen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div><label>Name<input name="display_name" required></label><label>Telefon<input name="phone"></label><label>E-Mail<input type="email" name="email"></label><button class="button primary full" type="submit">Member Card erstellen</button></form></dialog>
+<dialog id="new-wallet" class="app-dialog"><form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">{% csrf_token %}<div class="dialog-head"><div><span class="eyebrow">Neues Mitglied</span><h2>Mitgliedskarte anlegen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div><label>Name<input name="display_name" required></label><label>Telefon<input name="phone"></label><label>E-Mail-Adresse<input type="email" name="email"></label><button class="button primary full" type="submit">Mitgliedskarte erstellen</button></form></dialog>
 {% endblock %}
 {% block scripts %}
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script>(function(){const o=document.getElementById('open-manager-scanner'),d=document.getElementById('scan-member'),f=document.getElementById('manager-scan-form'),i=document.getElementById('manager-wallet-token'),st=document.getElementById('manager-scan-status');let s,r=false;o?.addEventListener('click',async()=>{d.showModal();if(!window.Html5Qrcode){st.textContent='Scanner nicht verfügbar.';return;}s=new Html5Qrcode('manager-reader');try{await s.start({facingMode:'environment'},{fps:10,qrbox:240},async text=>{if(r)return;r=true;const m=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);if(!m){r=false;st.textContent='Kein gültiger Member-Code.';return;}i.value=m[0];await s.stop();f.requestSubmit();});}catch(e){st.textContent='Kamera konnte nicht gestartet werden.';}});d?.addEventListener('close',async()=>{try{if(s)await s.stop();}catch(e){}r=false;});})();</script>
+<script>(function(){const o=document.getElementById('open-manager-scanner'),d=document.getElementById('scan-member'),f=document.getElementById('manager-scan-form'),i=document.getElementById('manager-wallet-token'),st=document.getElementById('manager-scan-status');let s,r=false;o?.addEventListener('click',async()=>{d.showModal();if(!window.Html5Qrcode){st.textContent='Scanner nicht verfügbar.';return;}s=new Html5Qrcode('manager-reader');try{await s.start({facingMode:'environment'},{fps:10,qrbox:240},async text=>{if(r)return;r=true;const m=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);if(!m){r=false;st.textContent='Kein gültiger Mitgliedscode.';return;}i.value=m[0];await s.stop();f.requestSubmit();});}catch(e){st.textContent='Kamera konnte nicht gestartet werden.';}});d?.addEventListener('close',async()=>{try{if(s)await s.stop();}catch(e){}r=false;});})();</script>
 {% endblock %}
