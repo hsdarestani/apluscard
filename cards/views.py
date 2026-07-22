@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from django.conf import settings
@@ -6,7 +7,6 @@ from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.http import HttpResponse, JsonResponse
@@ -15,10 +15,12 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import BusinessSettingsForm, CustomerRegistrationForm, LocationForm, ManagerMoneyActionForm, MoneyActionForm, OfferForm, PaymentConfirmForm, WalletCreateForm
+from .emailing import send_verification_email
+from .forms import BusinessSettingsForm, CustomerRegistrationForm, LocationForm, ManagerChargeForm, ManagerMoneyActionForm, MoneyActionForm, OfferForm, PaymentConfirmForm, WalletCreateForm
 from .models import AppNotification, Business, LedgerEntry, Location, MemberProfile, Membership, Offer, PaymentRequest, ReviewStatus, Wallet
 from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, active_offers_for, create_payment_request, finalize_payment_request, get_active_membership, get_business_settings, post_wallet_entry, require_role, set_wallet_status
 
+logger = logging.getLogger(__name__)
 EMAIL_VERIFICATION_SALT = "sams-member-email-verification"
 
 
@@ -38,9 +40,12 @@ def _verification_token(user):
 
 
 def _send_verification_email(request, user):
-    token = _verification_token(user)
-    url = request.build_absolute_uri(reverse("verify_email", args=[token]))
-    send_mail("SAMS Member E-Mail bestätigen", f"Hallo {user.first_name or 'SAMS Member'},\n\nbitte bestätige deine E-Mail-Adresse über diesen Link:\n{url}\n\nDer Link ist 48 Stunden gültig.", settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=True)
+    try:
+        send_verification_email(request, user)
+    except Exception:
+        logger.exception("Verification email failed for user_id=%s", user.pk)
+        return False
+    return True
 
 
 @transaction.atomic
@@ -59,8 +64,10 @@ def register_customer(request):
             display_name = f"{user.first_name} {user.last_name}".strip() or user.email
             Wallet.objects.create(business=business, owner=user, display_name=display_name, phone=form.cleaned_data["phone"], email=user.email)
             auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            _send_verification_email(request, user)
-            messages.success(request, "Deine Member Card ist erstellt. Bitte bestätige jetzt deine E-Mail-Adresse.")
+            if _send_verification_email(request, user):
+                messages.success(request, "Deine Member Card ist erstellt. Bitte bestätige jetzt deine E-Mail-Adresse.")
+            else:
+                messages.warning(request, "Deine Member Card ist erstellt. Die Bestätigungs-E-Mail konnte gerade nicht versendet werden. Bitte nutze gleich ‚Link erneut senden‘.")
             return redirect("customer_dashboard")
     else:
         form = CustomerRegistrationForm()
@@ -90,9 +97,10 @@ def resend_verification(request):
         raise PermissionDenied
     if profile.email_verified:
         messages.info(request, "Deine E-Mail-Adresse ist bereits bestätigt.")
+    elif _send_verification_email(request, request.user):
+        messages.success(request, "Ein neuer Bestätigungslink wurde an deine E-Mail-Adresse versendet.")
     else:
-        _send_verification_email(request, request.user)
-        messages.success(request, "Ein neuer Bestätigungslink wurde versendet.")
+        messages.error(request, "Die E-Mail konnte nicht versendet werden. Bitte das SAMS-Team kontaktieren.")
     return redirect("customer_dashboard")
 
 
@@ -174,7 +182,7 @@ def customer_dashboard(request):
     if location:
         review_status, _ = ReviewStatus.objects.get_or_create(wallet=wallet, location=location)
         should_request_review = not review_status.is_completed and bool(location.google_review_url) and wallet.ledger_entries.filter(location=location, entry_type=LedgerEntry.Type.PURCHASE).exists()
-    return render(request, "cards/customer_dashboard.html", {"wallet": wallet, "profile": getattr(request.user, "member_profile", None), "entries": entries, "locations": _locations_for(wallet.business), "active_location": location, "pending_payments": pending_payments, "tip_options": settings_obj.tip_options(), "offers": offers, "review_status": review_status, "should_request_review": should_request_review})
+    return render(request, "cards/customer_dashboard.html", {"wallet": wallet, "profile": getattr(request.user, "member_profile", None), "entries": entries, "locations": _locations_for(wallet.business), "active_location": location, "pending_payments": pending_payments, "tip_choices": settings_obj.tip_choices(), "offers": offers, "review_status": review_status, "should_request_review": should_request_review})
 
 
 @login_required
@@ -183,10 +191,10 @@ def customer_confirm_payment(request, payment_id):
     payment = get_object_or_404(PaymentRequest.objects.select_related("wallet", "business", "location"), pk=payment_id, wallet__owner=request.user)
     form = PaymentConfirmForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Bitte eine Trinkgeld-Option auswählen.")
+        messages.error(request, "Bitte einen Trinkgeldbetrag auswählen.")
         return redirect("customer_dashboard")
     try:
-        payment = finalize_payment_request(payment=payment, confirmed_by=request.user, tip_percentage=form.cleaned_data["tip_percentage"], ip_address=client_ip(request))
+        payment = finalize_payment_request(payment=payment, confirmed_by=request.user, tip_amount=form.cleaned_data["tip_amount"], ip_address=client_ip(request))
     except (ValidationError, PermissionDenied) as exc:
         detail = " ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
         messages.error(request, detail)
@@ -215,7 +223,7 @@ def staff_dashboard(request):
     location = _active_location(request, membership.business)
     settings_obj = get_business_settings(membership.business)
     recent_entries = LedgerEntry.objects.filter(business=membership.business, performed_by=request.user, entry_type__in=[LedgerEntry.Type.PURCHASE, LedgerEntry.Type.TIP]).select_related("wallet", "location")[:30]
-    return render(request, "cards/staff_dashboard.html", {"membership": membership, "form": MoneyActionForm(), "recent_entries": recent_entries, "locations": _locations_for(membership.business), "active_location": location, "settings": settings_obj, "tip_options": settings_obj.tip_options()})
+    return render(request, "cards/staff_dashboard.html", {"membership": membership, "form": MoneyActionForm(), "recent_entries": recent_entries, "locations": _locations_for(membership.business), "active_location": location, "settings": settings_obj, "tip_choices": settings_obj.tip_choices()})
 
 
 @login_required
@@ -226,19 +234,19 @@ def staff_charge(request):
         raise PermissionDenied
     form = MoneyActionForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Bitte Eingaben prüfen.")
+        messages.error(request, "Bitte Betrag, Standort und Trinkgeld prüfen.")
         return redirect("staff_dashboard")
     wallet = get_object_or_404(Wallet.objects.select_related("business", "owner", "owner__member_profile"), business=membership.business, qr_token=form.cleaned_data["wallet_token"])
     location = get_object_or_404(Location, business=membership.business, pk=form.cleaned_data["location_id"], is_active=True)
     try:
-        payment = create_payment_request(wallet=wallet, location=location, actor=request.user, amount=form.cleaned_data["amount"], tip_percentage=form.cleaned_data.get("tip_percentage") or 0, description=form.cleaned_data["description"], order_reference=form.cleaned_data["order_reference"], ip_address=client_ip(request))
+        payment = create_payment_request(wallet=wallet, location=location, actor=request.user, amount=form.cleaned_data["amount"], tip_amount=form.cleaned_data.get("tip_amount") or 0, description=form.cleaned_data["description"], order_reference=form.cleaned_data["order_reference"], ip_address=client_ip(request))
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:
         if payment.status == PaymentRequest.Status.PENDING:
-            messages.success(request, f"Zahlungsanfrage an Member {wallet.member_number} gesendet.")
+            messages.success(request, f"Ausnahmsweise wurde eine Zahlungsfreigabe an Mitglied {wallet.member_number} gesendet.")
         else:
-            messages.success(request, f"Zahlung {payment.total_amount:.2f} € erfolgreich abgeschlossen.")
+            messages.success(request, f"{payment.base_amount:.2f} € Zahlung + {payment.tip_amount:.2f} € Trinkgeld wurden abgebucht.")
     return redirect("staff_dashboard")
 
 
@@ -286,7 +294,7 @@ def manager_settings(request):
     settings_obj = get_business_settings(membership.business)
     settings_form = BusinessSettingsForm(instance=settings_obj)
     location_form = LocationForm()
-    offer_form = OfferForm(business=membership.business, scheduling_enabled=settings_obj.offer_scheduling_enabled)
+    offer_form = OfferForm(business=membership.business, scheduling_enabled=True)
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "settings":
@@ -310,14 +318,11 @@ def manager_settings(request):
         elif action == "offer":
             if not can_manage_content:
                 raise PermissionDenied
-            offer_form = OfferForm(request.POST, request.FILES, business=membership.business, scheduling_enabled=settings_obj.offer_scheduling_enabled)
+            offer_form = OfferForm(request.POST, request.FILES, business=membership.business, scheduling_enabled=True)
             if offer_form.is_valid():
                 offer = offer_form.save(commit=False)
                 offer.business = membership.business
                 offer.created_by = request.user
-                if not settings_obj.offer_scheduling_enabled:
-                    offer.starts_at = None
-                    offer.ends_at = None
                 offer.save()
                 messages.success(request, "Angebot wurde veröffentlicht.")
                 return redirect("manager_settings")
@@ -346,8 +351,9 @@ def manager_wallet_create(request):
 def manager_wallet_detail(request, wallet_id):
     wallet = get_object_or_404(Wallet.objects.select_related("business", "owner", "owner__member_profile"), pk=wallet_id)
     membership = require_role(request.user, wallet.business, MANAGER_ROLES)
-    entries = wallet.ledger_entries.select_related("performed_by", "location")[:100]
-    return render(request, "cards/manager_wallet_detail.html", {"wallet": wallet, "entries": entries, "action_form": ManagerMoneyActionForm(), "is_owner": membership.role == Membership.Role.OWNER})
+    entries = wallet.ledger_entries.select_related("performed_by", "location").prefetch_related("transaction_cases")[:100]
+    settings_obj = get_business_settings(wallet.business)
+    return render(request, "cards/manager_wallet_detail.html", {"wallet": wallet, "entries": entries, "action_form": ManagerMoneyActionForm(), "charge_form": ManagerChargeForm(), "is_owner": membership.role == Membership.Role.OWNER, "locations": _locations_for(wallet.business), "tip_choices": settings_obj.tip_choices()})
 
 
 def _manager_money_action(request, wallet_id, entry_type):
@@ -362,8 +368,29 @@ def _manager_money_action(request, wallet_id, entry_type):
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:
-        label = "aufgeladen" if entry_type == LedgerEntry.Type.TOPUP else "erstattet"
-        messages.success(request, f"{abs(entry.amount):.2f} € wurden {label}. Beleg {entry.bill_number} wurde erstellt.")
+        if entry_type == LedgerEntry.Type.TOPUP:
+            messages.success(request, f"{entry.amount:.2f} € wurden als neues Prepaid-Guthaben hinzugefügt. Beleg {entry.bill_number}.")
+        else:
+            messages.success(request, f"{entry.amount:.2f} € wurden als Rückgabe/Korrektur gutgeschrieben. Beleg {entry.bill_number}.")
+    return redirect("manager_wallet_detail", wallet_id=wallet.pk)
+
+
+@login_required
+@require_POST
+def manager_charge(request, wallet_id):
+    wallet = get_object_or_404(Wallet.objects.select_related("business", "owner", "owner__member_profile"), pk=wallet_id)
+    require_role(request.user, wallet.business, OWNER_ROLES)
+    form = ManagerChargeForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Bitte Standort, Betrag und Trinkgeld prüfen.")
+        return redirect("manager_wallet_detail", wallet_id=wallet.pk)
+    location = get_object_or_404(Location, pk=form.cleaned_data["location_id"], business=wallet.business, is_active=True)
+    try:
+        payment = create_payment_request(wallet=wallet, location=location, actor=request.user, amount=form.cleaned_data["amount"], tip_amount=form.cleaned_data.get("tip_amount") or 0, description=form.cleaned_data["description"], order_reference=form.cleaned_data["order_reference"], ip_address=client_ip(request), force_immediate=True)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+    else:
+        messages.success(request, f"{payment.base_amount:.2f} € Zahlung + {payment.tip_amount:.2f} € Trinkgeld wurden sofort abgebucht.")
     return redirect("manager_wallet_detail", wallet_id=wallet.pk)
 
 
