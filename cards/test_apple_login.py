@@ -46,7 +46,7 @@ class AppleCustomerFlowTests(TestCase):
 
     def test_apple_customer_can_complete_profile_and_receive_wallet(self):
         response = self.client.post(reverse("complete_customer_profile"), self.payload())
-        self.assertRedirects(response, reverse("customer_dashboard"))
+        self.assertRedirects(response, reverse("customer_dashboard"), fetch_redirect_response=False)
         wallet = Wallet.objects.get(owner=self.user)
         profile = MemberProfile.objects.get(user=self.user)
         self.assertEqual(wallet.business, self.business)
@@ -54,6 +54,11 @@ class AppleCustomerFlowTests(TestCase):
         self.assertTrue(profile.age_confirmed)
         self.assertTrue(profile.email_verified)
         self.assertEqual(LegalAcceptance.objects.filter(user=self.user).count(), 2)
+        self.assertRedirects(
+            self.client.get(reverse("customer_dashboard")),
+            reverse("customer_location_select"),
+            fetch_redirect_response=False,
+        )
 
     def test_repeated_profile_completion_never_creates_a_second_wallet(self):
         first = self.client.post(reverse("complete_customer_profile"), self.payload())
@@ -86,7 +91,7 @@ class AppleCustomerFlowTests(TestCase):
         self.assertEqual(response.url, reverse("dashboard"))
         dashboard = self.client.get(reverse("dashboard"))
         self.assertEqual(dashboard.status_code, 302)
-        self.assertEqual(dashboard.url, reverse("customer_dashboard"))
+        self.assertEqual(dashboard.url, reverse("customer_location_select"))
 
 
 class AppleCallbackSecurityTests(TestCase):
