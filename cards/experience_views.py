@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
@@ -8,11 +7,11 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .experience_forms import TransactionCaseForm, TransactionCaseReviewForm
+from .experience_forms import LocationVisualForm, TransactionCaseForm, TransactionCaseReviewForm
 from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
 from .models import AppNotification, LedgerEntry, Membership, Wallet
-from .services import MANAGER_ROLES, STAFF_ROLES, get_active_membership
+from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, get_active_membership, require_role
 from .views import client_ip
 from .wallet_pass import build_pkpass
 
@@ -50,13 +49,15 @@ def customer_location_select(request):
 
 @login_required
 def notification_center(request):
-    notifications = request.user.app_notifications.select_related("business", "location")[:250]
+    notifications_query = request.user.app_notifications.select_related("business", "location")
+    unread_count = notifications_query.filter(is_read=False).count()
+    notifications = notifications_query[:250]
     return render(
         request,
         "cards/notification_center.html",
         {
             "notifications": notifications,
-            "unread_count": notifications.filter(is_read=False).count() if hasattr(notifications, "filter") else 0,
+            "unread_count": unread_count,
         },
     )
 
@@ -69,7 +70,7 @@ def notification_read(request, notification_id):
         notification.is_read = True
         notification.save(update_fields=["is_read"])
     target = notification.data.get("url") if isinstance(notification.data, dict) else None
-    if target and url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}, require_https=False):
+    if target and target.startswith("/"):
         return redirect(target)
     return redirect(_safe_next(request, "notification_center"))
 
@@ -96,6 +97,22 @@ def apple_wallet_pass(request):
     return response
 
 
+@login_required
+@require_POST
+def location_visual_update(request):
+    membership = get_active_membership(request.user)
+    if not membership:
+        raise PermissionDenied
+    require_role(request.user, membership.business, OWNER_ROLES)
+    form = LocationVisualForm(request.POST, request.FILES, business=membership.business)
+    if form.is_valid():
+        visual = form.save()
+        messages.success(request, f"Foto und Beschreibung für {visual.location.name} wurden gespeichert.")
+    else:
+        messages.error(request, "Standortbild konnte nicht gespeichert werden. Bitte Datei und Angaben prüfen.")
+    return redirect("manager_settings")
+
+
 def _case_access(user, transaction_case):
     if transaction_case.wallet.owner_id == user.id:
         return "customer"
@@ -116,7 +133,6 @@ def transaction_case_create(request, entry_id):
         LedgerEntry.objects.select_related("business", "location", "wallet", "wallet__owner", "performed_by"),
         pk=entry_id,
     )
-    # Permission is checked before rendering and again atomically by the service.
     if entry.wallet.owner_id != request.user.id:
         membership = get_active_membership(request.user, entry.business)
         if not membership or membership.role not in STAFF_ROLES or entry.performed_by_id != request.user.id:
@@ -182,9 +198,7 @@ def transaction_cases(request):
         cases = TransactionCase.objects.filter(business=membership.business)
         title = "Transaktionsfälle der Verwaltung"
     elif membership and membership.role in STAFF_ROLES:
-        cases = TransactionCase.objects.filter(business=membership.business).filter(
-            opened_by=request.user
-        )
+        cases = TransactionCase.objects.filter(business=membership.business, opened_by=request.user)
         title = "Meine Korrekturanfragen"
     elif wallet:
         cases = TransactionCase.objects.filter(wallet=wallet)
