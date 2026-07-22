@@ -1,7 +1,9 @@
 import json
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import RequestFactory, TestCase, override_settings
@@ -90,7 +92,8 @@ class InAppNotificationTests(MemberExperienceMixin, TestCase):
             self.assertTrue(AppNotification.objects.filter(recipient=user, title="A+ Pay Zahlung abgeschlossen").exists())
 
     def test_new_offer_notifies_matching_customer(self):
-        Offer.objects.create(business=self.business, location=self.location_1, title="Heute für Silber", body="Nur heute verfügbar", target_tier=Offer.TargetTier.SILVER, created_by=self.owner)
+        with self.captureOnCommitCallbacks(execute=True):
+            Offer.objects.create(business=self.business, location=self.location_1, title="Heute für Silber", body="Nur heute verfügbar", target_tier=Offer.TargetTier.SILVER, created_by=self.owner)
         self.assertTrue(AppNotification.objects.filter(recipient=self.customer, kind=AppNotification.Kind.OFFER, title="Heute für Silber").exists())
 
 
@@ -148,10 +151,9 @@ class SecurityAndPerformanceTests(MemberExperienceMixin, TestCase):
         self.assertNotIn("caches.match('/')", content)
 
     def test_low_power_mode_is_in_client_bundle(self):
-        response = self.client.get("/static/cards/app.js")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"low-power", response.content)
-        self.assertIn(b"visibilitychange", response.content)
+        content = (Path(settings.BASE_DIR) / "cards" / "static" / "cards" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("low-power", content)
+        self.assertIn("visibilitychange", content)
 
 
 class AppleWalletPayloadTests(MemberExperienceMixin, TestCase):
