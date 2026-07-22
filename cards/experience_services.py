@@ -140,6 +140,8 @@ def _opened_by_role(entry, user):
     if entry.wallet.owner_id == user.id:
         return TransactionCase.OpenedByRole.CUSTOMER
     membership = get_active_membership(user, entry.business)
+    if membership and membership.role in MANAGER_ROLES:
+        return TransactionCase.OpenedByRole.MANAGEMENT
     if membership and membership.role in STAFF_ROLES and entry.performed_by_id == user.id:
         return TransactionCase.OpenedByRole.STAFF
     raise PermissionDenied("Du darfst für diese Transaktion keinen Fall eröffnen.")
@@ -211,9 +213,6 @@ def create_transaction_case(*, entry, opened_by, reason, description, requested_
 @transaction.atomic
 def review_transaction_case(*, transaction_case, reviewer, action, manager_note="", approved_amount=None, ip_address=None):
     case_id = transaction_case.pk
-    # PostgreSQL darf FOR UPDATE nicht auf die nullable Seite eines OUTER JOIN
-    # anwenden. Deshalb wird ausschließlich die Fallzeile gesperrt und die
-    # benötigten Beziehungen anschließend in einer separaten Abfrage geladen.
     TransactionCase.objects.select_for_update().only("pk").get(pk=case_id)
     transaction_case = TransactionCase.objects.select_related(
         "business",
