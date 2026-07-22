@@ -17,7 +17,7 @@ from .models import Business, Location, MemberProfile, Wallet
 class LegalPrivacyFlowTests(TestCase):
     def setUp(self):
         self.business = Business.objects.create(name="SAMS Club Lounge", slug="shisha-bar")
-        Location.objects.create(
+        self.location = Location.objects.create(
             business=self.business,
             name="SAMS Mitte",
             slug="mitte",
@@ -49,6 +49,11 @@ class LegalPrivacyFlowTests(TestCase):
             "marketing_push_consent": "on",
         }
 
+    def select_location(self):
+        session = self.client.session
+        session["active_location_id"] = str(self.location.pk)
+        session.save()
+
     def test_public_legal_pages_exist_per_app(self):
         routes = [
             reverse("app_terms", args=[self.business.slug]),
@@ -71,7 +76,7 @@ class LegalPrivacyFlowTests(TestCase):
 
     def test_registration_records_versions_and_optional_marketing_choice(self):
         response = self.client.post(reverse("register"), self.registration_payload())
-        self.assertRedirects(response, reverse("customer_dashboard"))
+        self.assertRedirects(response, reverse("customer_dashboard"), fetch_redirect_response=False)
         user = get_user_model().objects.get(email="kunde@example.com")
         wallet = Wallet.objects.get(owner=user)
         self.assertTrue(has_current_acceptances(user, self.business))
@@ -81,6 +86,11 @@ class LegalPrivacyFlowTests(TestCase):
         )
         self.assertEqual(wallet.business, self.business)
         self.assertTrue(PrivacyPreference.objects.get(user=user, business=self.business).marketing_push_enabled)
+        self.assertRedirects(
+            self.client.get(reverse("customer_dashboard")),
+            reverse("customer_location_select"),
+            fetch_redirect_response=False,
+        )
 
     def test_existing_customer_is_redirected_when_version_changes(self):
         user = get_user_model().objects.create_user(username="alt@example.com", email="alt@example.com", password="Passwort-2026!")
@@ -93,6 +103,7 @@ class LegalPrivacyFlowTests(TestCase):
             request=self.client.get(reverse("terms")).wsgi_request,
             source=LegalAcceptance.Source.RECONFIRMATION,
         )
+        self.select_location()
         self.assertEqual(self.client.get(reverse("customer_dashboard")).status_code, 200)
         self.legal.terms_version = "2.0"
         self.legal.save(update_fields=["terms_version"])
@@ -118,9 +129,14 @@ class LegalPrivacyFlowTests(TestCase):
                 "acknowledge_privacy": "on",
             },
         )
-        self.assertRedirects(response, reverse("customer_dashboard"))
+        self.assertRedirects(response, reverse("customer_dashboard"), fetch_redirect_response=False)
         self.assertTrue(Wallet.objects.filter(owner=user, business=self.business).exists())
         self.assertTrue(has_current_acceptances(user, self.business))
+        self.assertRedirects(
+            self.client.get(reverse("customer_dashboard")),
+            reverse("customer_location_select"),
+            fetch_redirect_response=False,
+        )
 
     def test_public_account_deletion_request_can_be_submitted(self):
         response = self.client.post(
