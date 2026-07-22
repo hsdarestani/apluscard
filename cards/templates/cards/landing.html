@@ -1,5 +1,10 @@
 {% extends 'cards/base.html' %}
 {% block title %}SAMS Club Lounge · Deine Lounge in der Tasche{% endblock %}
+{% block head %}
+<style>
+  .location-section{margin-top:34px}.location-section-head{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:18px}.public-location-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.public-location-card{position:relative;overflow:hidden;padding:24px;min-height:220px}.public-location-card:before{content:"";position:absolute;inset:-40% 28% 42% -18%;background:radial-gradient(circle,rgba(172,76,255,.22),transparent 66%);pointer-events:none}.public-location-card>*{position:relative}.public-location-card h3{margin:8px 0 18px;font-size:1.28rem}.public-location-card address{font-style:normal;color:var(--muted);line-height:1.75;white-space:normal}.public-location-card a{display:inline-flex;margin-top:18px;font-weight:750;text-decoration:none}.location-number{display:inline-flex;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:999px;color:var(--muted);font-size:.78rem}@media(max-width:840px){.public-location-grid{grid-template-columns:1fr}.location-section-head{align-items:flex-start;flex-direction:column}.public-location-card{min-height:auto}}
+</style>
+{% endblock %}
 {% block content %}
 <section class="hero">
   <div class="hero-copy">
@@ -62,5 +67,32 @@
     <h2>Angebote & Mitteilungen</h2>
     <p>Erhalte standortbezogene Aktionen, Neuigkeiten und persönliche Vorteile direkt in der App.</p>
   </article>
+</section>
+
+<section class="location-section" aria-labelledby="locations-title">
+  <div class="location-section-head">
+    <div><span class="eyebrow">Bad Vilbel</span><h2 id="locations-title">Unsere drei Standorte</h2></div>
+    <p class="muted">Dein Guthaben und deine Mitgliedsvorteile gelten standortübergreifend.</p>
+  </div>
+  <div class="public-location-grid">
+    <article class="panel public-location-card">
+      <span class="location-number">Standort 01</span>
+      <h3>Sams Club Lounge</h3>
+      <address>Frankfurter Straße 198<br>61118 Bad Vilbel</address>
+      <a href="tel:+4961015969952">06101 / 5969952 anrufen</a>
+    </article>
+    <article class="panel public-location-card">
+      <span class="location-number">Standort 02</span>
+      <h3>Sams Club Lounge CITY</h3>
+      <address>Frankfurter Straße 38<br>61118 Bad Vilbel</address>
+      <a href="tel:+4961015969440">06101 / 5969440 anrufen</a>
+    </article>
+    <article class="panel public-location-card">
+      <span class="location-number">Standort 03</span>
+      <h3>DIMA Sportsbar</h3>
+      <address>Frankfurter Straße 36<br>61118 Bad Vilbel</address>
+      <a href="tel:+4961015969440">06101 / 5969440 anrufen</a>
+    </article>
+  </div>
 </section>
 {% endblock %}
