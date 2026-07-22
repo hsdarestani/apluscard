@@ -123,14 +123,15 @@ restic backup "$WORK_DIR" \
   --host "$HOST_TAG" \
   --tag apluscard \
   --tag production \
-  --tag daily \
+  --tag scheduled \
   --exclude-caches
 
 restic forget \
   --host "$HOST_TAG" \
   --tag apluscard \
-  --keep-daily 14 \
-  --keep-weekly 8 \
+  --keep-within 7d \
+  --keep-daily 30 \
+  --keep-weekly 12 \
   --keep-monthly 12 \
   --keep-yearly 3
 
