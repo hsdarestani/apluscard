@@ -1,0 +1,39 @@
+{% extends 'cards/base.html' %}
+{% load experience_tags %}
+{% block title %}Standort wählen · SAMS Club Lounge{% endblock %}
+{% block content %}
+<section class="location-choice-head">
+  <span class="eyebrow">Willkommen bei SAMS</span>
+  <h1>Wo möchtest du<br><span class="gradient-text">heute hin?</span></h1>
+  <p>Wähle deinen aktuellen Standort. Dein Mitgliedsguthaben und deine Karte gelten weiterhin an allen drei Standorten.</p>
+</section>
+
+<section class="location-choice-grid">
+  {% for location in locations %}
+  <form method="post" class="location-choice-card">{% csrf_token %}
+    <input type="hidden" name="location_id" value="{{ location.id }}">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <button type="submit" aria-label="{{ location.name }} auswählen">
+      <span class="location-choice-media">
+        {% if location.visual.image %}
+          <img src="{{ location.visual.image.url }}" alt="{{ location.name }}" loading="eager">
+        {% else %}
+          <span class="location-choice-fallback"><strong>{{ location.name|slice:":1" }}</strong><small>Foto folgt</small></span>
+        {% endif %}
+        <span class="location-choice-overlay"></span>
+      </span>
+      <span class="location-choice-copy">
+        <span class="location-choice-number">0{{ forloop.counter }}</span>
+        <strong>{{ location.name }}</strong>
+        {% if location.visual.short_description %}<small>{{ location.visual.short_description }}</small>{% endif %}
+        <span>{{ location.address|location_address_only|linebreaksbr }}</span>
+        {% with phone=location.address|location_phone %}{% if phone %}<em>{{ phone }}</em>{% endif %}{% endwith %}
+        <b>Standort auswählen →</b>
+      </span>
+    </button>
+  </form>
+  {% empty %}
+  <div class="empty-state">Aktuell ist kein Standort freigeschaltet.</div>
+  {% endfor %}
+</section>
+{% endblock %}
