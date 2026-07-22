@@ -24,6 +24,7 @@ jobs:
       SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
       RESTIC_REPOSITORY_INPUT: ${{ secrets.BACKUP_RESTIC_REPOSITORY }}
       RESTIC_PASSWORD_INPUT: ${{ secrets.BACKUP_RESTIC_PASSWORD }}
+      RCLONE_CONFIG_BASE64_INPUT: ${{ secrets.BACKUP_RCLONE_CONFIG_BASE64 }}
       AWS_ACCESS_KEY_ID_INPUT: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY_INPUT: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION_INPUT: ${{ secrets.BACKUP_AWS_DEFAULT_REGION }}
@@ -39,26 +40,37 @@ jobs:
           test -n "$SSHPASS" || (echo "HETZNER_PASSWORD fehlt." && exit 1)
           test -n "$RESTIC_REPOSITORY_INPUT" || (echo "BACKUP_RESTIC_REPOSITORY fehlt." && exit 1)
           test -n "$RESTIC_PASSWORD_INPUT" || (echo "BACKUP_RESTIC_PASSWORD fehlt." && exit 1)
-          test -n "$AWS_ACCESS_KEY_ID_INPUT" || (echo "BACKUP_AWS_ACCESS_KEY_ID fehlt." && exit 1)
-          test -n "$AWS_SECRET_ACCESS_KEY_INPUT" || (echo "BACKUP_AWS_SECRET_ACCESS_KEY fehlt." && exit 1)
+          test "${#RESTIC_PASSWORD_INPUT}" -ge 24 || (echo "BACKUP_RESTIC_PASSWORD muss mindestens 24 Zeichen lang sein." && exit 1)
 
           case "$RESTIC_REPOSITORY_INPUT" in
-            s3:*) ;;
-            *) echo "BACKUP_RESTIC_REPOSITORY muss ein S3-kompatibles Restic-Ziel sein und mit s3: beginnen."; exit 1 ;;
+            rclone:*)
+              test -n "$RCLONE_CONFIG_BASE64_INPUT" || (echo "BACKUP_RCLONE_CONFIG_BASE64 fehlt." && exit 1)
+              PROVIDER="Google Drive über rclone"
+              ;;
+            s3:*)
+              test -n "$AWS_ACCESS_KEY_ID_INPUT" || (echo "BACKUP_AWS_ACCESS_KEY_ID fehlt." && exit 1)
+              test -n "$AWS_SECRET_ACCESS_KEY_INPUT" || (echo "BACKUP_AWS_SECRET_ACCESS_KEY fehlt." && exit 1)
+              PROVIDER="S3-kompatibler Object Storage"
+              ;;
+            *)
+              echo "BACKUP_RESTIC_REPOSITORY muss mit rclone: oder s3: beginnen."
+              exit 1
+              ;;
           esac
-          test "${#RESTIC_PASSWORD_INPUT}" -ge 24 || (echo "BACKUP_RESTIC_PASSWORD muss mindestens 24 Zeichen lang sein." && exit 1)
 
           umask 077
           PAYLOAD_FILE="$RUNNER_TEMP/apluscard-backup.payload"
           {
             printf 'RESTIC_REPOSITORY_B64=%s\n' "$(printf '%s' "$RESTIC_REPOSITORY_INPUT" | base64 -w0)"
             printf 'RESTIC_PASSWORD_B64=%s\n' "$(printf '%s' "$RESTIC_PASSWORD_INPUT" | base64 -w0)"
+            printf 'RCLONE_CONFIG_SECRET_B64=%s\n' "$(printf '%s' "$RCLONE_CONFIG_BASE64_INPUT" | base64 -w0)"
             printf 'AWS_ACCESS_KEY_ID_B64=%s\n' "$(printf '%s' "$AWS_ACCESS_KEY_ID_INPUT" | base64 -w0)"
             printf 'AWS_SECRET_ACCESS_KEY_B64=%s\n' "$(printf '%s' "$AWS_SECRET_ACCESS_KEY_INPUT" | base64 -w0)"
             printf 'AWS_DEFAULT_REGION_B64=%s\n' "$(printf '%s' "${AWS_DEFAULT_REGION_INPUT:-auto}" | base64 -w0)"
           } > "$PAYLOAD_FILE"
           chmod 600 "$PAYLOAD_FILE"
           echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
+          echo "provider=$PROVIDER" >> "$GITHUB_OUTPUT"
           echo "Backup-Secrets wurden geprüft; Werte werden nicht protokolliert."
 
       - name: SSH-Werkzeuge installieren
@@ -92,32 +104,56 @@ jobs:
           test -f .backup-secrets.payload || (echo "Backup-Payload fehlt." && exit 1)
           . ./.backup-secrets.payload
 
-          decode_value() { printf '%s' "$1" | base64 --decode; }
+          decode_value() {
+            if [[ -n "${1:-}" ]]; then
+              printf '%s' "$1" | base64 --decode
+            fi
+          }
+
           RESTIC_REPOSITORY_VALUE="$(decode_value "$RESTIC_REPOSITORY_B64")"
           RESTIC_PASSWORD_VALUE="$(decode_value "$RESTIC_PASSWORD_B64")"
+          RCLONE_CONFIG_BASE64_VALUE="$(decode_value "$RCLONE_CONFIG_SECRET_B64")"
           AWS_ACCESS_KEY_ID_VALUE="$(decode_value "$AWS_ACCESS_KEY_ID_B64")"
           AWS_SECRET_ACCESS_KEY_VALUE="$(decode_value "$AWS_SECRET_ACCESS_KEY_B64")"
           AWS_DEFAULT_REGION_VALUE="$(decode_value "$AWS_DEFAULT_REGION_B64")"
 
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y restic jq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y restic rclone jq
+
+          RCLONE_CONFIG_FILE="/root/.config/rclone/rclone.conf"
+          if [[ "$RESTIC_REPOSITORY_VALUE" == rclone:* ]]; then
+            test -n "$RCLONE_CONFIG_BASE64_VALUE" || (echo "Rclone-Konfiguration fehlt." && exit 1)
+            install -m 700 -d "$(dirname "$RCLONE_CONFIG_FILE")"
+            printf '%s' "$RCLONE_CONFIG_BASE64_VALUE" | base64 --decode > "$RCLONE_CONFIG_FILE"
+            chmod 600 "$RCLONE_CONFIG_FILE"
+
+            REMOTE_SPEC="${RESTIC_REPOSITORY_VALUE#rclone:}"
+            REMOTE_NAME="${REMOTE_SPEC%%:*}"
+            test -n "$REMOTE_NAME" || (echo "Rclone-Remote fehlt im Repository-Pfad." && exit 1)
+            rclone --config "$RCLONE_CONFIG_FILE" listremotes | grep -Fxq "${REMOTE_NAME}:"
+            rclone --config "$RCLONE_CONFIG_FILE" lsf "${REMOTE_NAME}:" --max-depth 1 >/dev/null
+          fi
 
           umask 077
           BACKUP_ENV_TEMP="$(mktemp)"
           {
             printf 'RESTIC_REPOSITORY=%q\n' "$RESTIC_REPOSITORY_VALUE"
             printf 'RESTIC_PASSWORD=%q\n' "$RESTIC_PASSWORD_VALUE"
-            printf 'AWS_ACCESS_KEY_ID=%q\n' "$AWS_ACCESS_KEY_ID_VALUE"
-            printf 'AWS_SECRET_ACCESS_KEY=%q\n' "$AWS_SECRET_ACCESS_KEY_VALUE"
-            printf 'AWS_DEFAULT_REGION=%q\n' "$AWS_DEFAULT_REGION_VALUE"
             printf 'RESTIC_CACHE_DIR=%q\n' "/var/cache/restic"
             printf 'BACKUP_HOST_TAG=%q\n' "apluscard-production"
+            if [[ "$RESTIC_REPOSITORY_VALUE" == rclone:* ]]; then
+              printf 'RCLONE_CONFIG=%q\n' "$RCLONE_CONFIG_FILE"
+            else
+              printf 'AWS_ACCESS_KEY_ID=%q\n' "$AWS_ACCESS_KEY_ID_VALUE"
+              printf 'AWS_SECRET_ACCESS_KEY=%q\n' "$AWS_SECRET_ACCESS_KEY_VALUE"
+              printf 'AWS_DEFAULT_REGION=%q\n' "${AWS_DEFAULT_REGION_VALUE:-auto}"
+            fi
           } > "$BACKUP_ENV_TEMP"
           chmod 600 "$BACKUP_ENV_TEMP"
           mv "$BACKUP_ENV_TEMP" .backup.env
           rm -f .backup-secrets.payload
 
-          chmod 700 ops/backup/backup.sh ops/backup/restore-drill.sh ops/backup/restore-production.sh
+          chmod 700 ops/backup/common.sh ops/backup/backup.sh ops/backup/restore-drill.sh ops/backup/restore-production.sh
           install -m 644 ops/backup/systemd/apluscard-backup.service /etc/systemd/system/apluscard-backup.service
           install -m 644 ops/backup/systemd/apluscard-backup.timer /etc/systemd/system/apluscard-backup.timer
           install -m 644 ops/backup/systemd/apluscard-restore-drill.service /etc/systemd/system/apluscard-restore-drill.service
@@ -150,9 +186,11 @@ jobs:
         uses: actions/github-script@v7
         env:
           BACKUP_JOB_STATUS: ${{ job.status }}
+          BACKUP_PROVIDER: ${{ steps.backup-payload.outputs.provider }}
         with:
           script: |
             const success = process.env.BACKUP_JOB_STATUS === 'success';
+            const provider = process.env.BACKUP_PROVIDER || 'nicht erkannt';
             const lines = success ? [
               '# Production Backup & Disaster Recovery Status',
               '',
@@ -161,7 +199,7 @@ jobs:
               '- دیتابیس PostgreSQL: هر ۶ ساعت Backup می‌شود',
               '- فایل‌های Media: هر ۶ ساعت Backup می‌شوند',
               '- تنظیمات Production: فقط به‌شکل رمزنگاری‌شده Backup می‌شوند',
-              '- مقصد: Object Storage خارج از سرور',
+              `- مقصد: ${provider}`,
               '- رمزنگاری: Restic قبل از خروج داده از سرور',
               '- نگهداری: تمام Snapshotهای ۷ روز اخیر، سپس ۳۰ روزانه، ۱۲ هفتگی، ۱۲ ماهانه و ۳ سالانه',
               '- Restore Drill: با دیتابیس موقت با موفقیت اجرا شد',
@@ -174,6 +212,7 @@ jobs:
               '',
               '❌ **راه‌اندازی یا Restore Drill ناموفق بود**',
               '',
+              `- مقصد درخواستی: ${provider}`,
               '- هیچ داده یا Secret در این گزارش منتشر نشده است.',
               '- مرحله شکست‌خورده Workflow باید بررسی شود.',
               '',
