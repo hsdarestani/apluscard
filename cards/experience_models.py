@@ -44,6 +44,7 @@ class TransactionCase(models.Model):
     class OpenedByRole(models.TextChoices):
         CUSTOMER = "CUSTOMER", "Kunde"
         STAFF = "STAFF", "Mitarbeiter"
+        MANAGEMENT = "MANAGEMENT", "Verwaltung"
 
     class Reason(models.TextChoices):
         WRONG_AMOUNT = "WRONG_AMOUNT", "Falscher Betrag"
