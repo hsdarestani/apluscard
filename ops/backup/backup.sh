@@ -139,7 +139,7 @@ if [[ "$(date -u +%u)" == "7" ]]; then
   restic prune
 fi
 
-SNAPSHOT_ID="$(restic snapshots --json --latest 1 --host "$HOST_TAG" --tag apluscard | jq -r '.[0].short_id // .[0].id // empty')"
+SNAPSHOT_ID="$(restic snapshots --json --host "$HOST_TAG" --tag apluscard | jq -r 'sort_by(.time) | last | .short_id // .id // empty')"
 [[ -n "$SNAPSHOT_ID" ]] || { echo "Neue Snapshot-ID konnte nicht ermittelt werden." >&2; exit 1; }
 
 DB_BYTES="$(stat -c %s "$WORK_DIR/database.dump")"
