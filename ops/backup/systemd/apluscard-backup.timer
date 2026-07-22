@@ -1,9 +1,12 @@
 [Unit]
-Description=Run Apluscard production backup every day
+Description=Run Apluscard production backup every six hours
 
 [Timer]
-OnCalendar=*-*-* 03:20:00
-RandomizedDelaySec=15m
+OnCalendar=*-*-* 00:20:00
+OnCalendar=*-*-* 06:20:00
+OnCalendar=*-*-* 12:20:00
+OnCalendar=*-*-* 18:20:00
+RandomizedDelaySec=10m
 Persistent=true
 Unit=apluscard-backup.service
 
