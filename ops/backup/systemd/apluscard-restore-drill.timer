@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Apluscard restore drill every Sunday
+
+[Timer]
+OnCalendar=Sun *-*-* 05:10:00
+RandomizedDelaySec=20m
+Persistent=true
+Unit=apluscard-restore-drill.service
+
+[Install]
+WantedBy=timers.target

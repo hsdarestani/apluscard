@@ -1,0 +1,47 @@
+name: Backup Scripts Tests
+
+on:
+  pull_request:
+    paths:
+      - "ops/backup/**"
+      - ".github/workflows/configure-production-backups.yml"
+      - ".github/workflows/monitor-production-backups.yml"
+      - ".github/workflows/backup-scripts-test.yml"
+  push:
+    branches: [main]
+    paths:
+      - "ops/backup/**"
+      - ".github/workflows/configure-production-backups.yml"
+      - ".github/workflows/monitor-production-backups.yml"
+      - ".github/workflows/backup-scripts-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+      - name: Bash-Syntax prüfen
+        run: |
+          bash -n ops/backup/backup.sh
+          bash -n ops/backup/restore-drill.sh
+          bash -n ops/backup/restore-production.sh
+      - name: Kritische ShellCheck-Fehler ausschließen
+        run: |
+          shellcheck -x -S error \
+            ops/backup/backup.sh \
+            ops/backup/restore-drill.sh \
+            ops/backup/restore-production.sh
+      - name: Schutzmaßnahmen im Production-Restore prüfen
+        run: |
+          grep -Fq 'RESTORE_PRODUCTION' ops/backup/restore-production.sh
+          grep -Fq 'dropdb --force' ops/backup/restore-production.sh
+          grep -Fq 'sha256sum -c SHA256SUMS' ops/backup/restore-production.sh
+          grep -Fq 'pg_restore' ops/backup/restore-drill.sh
+          grep -Fq 'last-restore-drill.json' ops/backup/restore-drill.sh

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Apluscard production backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=apluscard-backup.service
+
+[Install]
+WantedBy=timers.target

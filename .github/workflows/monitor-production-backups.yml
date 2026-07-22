@@ -1,0 +1,161 @@
+name: Monitor Production Backups
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: apluscard-backup-monitor
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+
+    steps:
+      - name: SSH-Werkzeuge installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Hetzner-Schlüssel vertrauen
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD fehlt." && exit 1)
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Sicheren Status vom Server lesen
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'python3 -' > "$RUNNER_TEMP/backup-status.json" <<'PY'
+          import json
+          from pathlib import Path
+          import subprocess
+
+          state_dir = Path("/var/lib/apluscard-backup")
+
+          def read_json(name):
+              path = state_dir / name
+              if not path.exists():
+                  return None
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  return {"status": "invalid"}
+
+          def systemctl(*args):
+              result = subprocess.run(["systemctl", *args], text=True, capture_output=True)
+              return result.stdout.strip() or result.stderr.strip()
+
+          print(json.dumps({
+              "configured": Path("/root/apluscard/.backup.env").exists(),
+              "backup": read_json("last-backup.json"),
+              "restore_drill": read_json("last-restore-drill.json"),
+              "backup_timer_enabled": systemctl("is-enabled", "apluscard-backup.timer"),
+              "backup_timer_active": systemctl("is-active", "apluscard-backup.timer"),
+              "drill_timer_enabled": systemctl("is-enabled", "apluscard-restore-drill.timer"),
+              "drill_timer_active": systemctl("is-active", "apluscard-restore-drill.timer"),
+          }))
+          PY
+
+      - name: Alter und Ergebnis bewerten
+        id: evaluate
+        run: |
+          python3 - "$RUNNER_TEMP/backup-status.json" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+          source, output = sys.argv[1:]
+          payload = json.load(open(source, encoding="utf-8"))
+          now = datetime.now(timezone.utc)
+
+          def age_hours(record):
+              if not record or not record.get("completed_at"):
+                  return None
+              return (now - datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))).total_seconds() / 3600
+
+          backup = payload.get("backup")
+          drill = payload.get("restore_drill")
+          backup_age = age_hours(backup)
+          drill_age = age_hours(drill)
+          timers_ok = all(payload.get(key) in {"enabled", "active"} for key in (
+              "backup_timer_enabled", "backup_timer_active", "drill_timer_enabled", "drill_timer_active"
+          ))
+          healthy = bool(
+              payload.get("configured")
+              and backup and backup.get("status") == "success"
+              and drill and drill.get("status") == "success"
+              and backup_age is not None and backup_age <= 36
+              and drill_age is not None and drill_age <= 192
+              and timers_ok
+          )
+
+          values = {
+              "healthy": str(healthy).lower(),
+              "configured": str(bool(payload.get("configured"))).lower(),
+              "backup_age": "unknown" if backup_age is None else f"{backup_age:.1f}",
+              "drill_age": "unknown" if drill_age is None else f"{drill_age:.1f}",
+              "snapshot": (backup or {}).get("snapshot_id", "unknown"),
+              "backup_status": (backup or {}).get("status", "missing"),
+              "drill_status": (drill or {}).get("status", "missing"),
+              "timers_ok": str(timers_ok).lower(),
+          }
+          with open(output, "a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  handle.write(f"{key}={value}\n")
+          if not healthy:
+              raise SystemExit("Backup-Monitoring ist nicht gesund.")
+          PY
+
+      - name: Status in GitHub aktualisieren
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          HEALTHY: ${{ steps.evaluate.outputs.healthy }}
+          CONFIGURED: ${{ steps.evaluate.outputs.configured }}
+          BACKUP_AGE: ${{ steps.evaluate.outputs.backup_age }}
+          DRILL_AGE: ${{ steps.evaluate.outputs.drill_age }}
+          SNAPSHOT: ${{ steps.evaluate.outputs.snapshot }}
+          BACKUP_STATUS: ${{ steps.evaluate.outputs.backup_status }}
+          DRILL_STATUS: ${{ steps.evaluate.outputs.drill_status }}
+          TIMERS_OK: ${{ steps.evaluate.outputs.timers_ok }}
+        with:
+          script: |
+            const healthy = process.env.HEALTHY === 'true';
+            const body = [
+              '# Production Backup & Disaster Recovery Status',
+              '',
+              healthy ? '✅ **سالم و قابل بازیابی**' : '❌ **نیازمند بررسی فوری**',
+              '',
+              `- تنظیم شده: ${process.env.CONFIGURED || 'unknown'}`,
+              `- آخرین Backup: ${process.env.BACKUP_STATUS || 'unknown'} · ${process.env.BACKUP_AGE || 'unknown'} ساعت قبل`,
+              `- آخرین Snapshot: ${process.env.SNAPSHOT || 'unknown'}`,
+              `- آخرین Restore Drill: ${process.env.DRILL_STATUS || 'unknown'} · ${process.env.DRILL_AGE || 'unknown'} ساعت قبل`,
+              `- Timerها فعال: ${process.env.TIMERS_OK || 'unknown'}`,
+              '- محتوا: PostgreSQL، Media و Production configuration رمزنگاری‌شده',
+              '- Retention: ۱۴ روزانه، ۸ هفتگی، ۱۲ ماهانه، ۳ سالانه',
+              '- هیچ داده مشتری یا Secret در GitHub منتشر نشده است',
+              '',
+              `Monitor: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join('\n');
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 25,
+              body,
+            });
