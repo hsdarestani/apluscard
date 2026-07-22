@@ -24,13 +24,11 @@ set -a
 source "$BACKUP_ENV"
 set +a
 
-required=(RESTIC_REPOSITORY RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY)
-for variable in "${required[@]}"; do
-  [[ -n "${!variable:-}" ]] || { echo "$variable fehlt in $BACKUP_ENV" >&2; exit 1; }
-done
-
-for command in docker restic sha256sum; do
-  command -v "$command" >/dev/null 2>&1 || { echo "$command ist nicht installiert." >&2; exit 1; }
+# shellcheck source=ops/backup/common.sh
+source "$APP_DIR/ops/backup/common.sh"
+backup_configure_backend
+for command in docker sha256sum tar curl; do
+  backup_require_command "$command"
 done
 
 mkdir -p "$APP_DIR" /var/lib/apluscard-backup
@@ -110,4 +108,4 @@ done
 docker compose exec -T web python manage.py check
 docker compose exec -T web python manage.py migrate --check
 
-echo "Production wurde erfolgreich aus Snapshot $SNAPSHOT_ID wiederhergestellt."
+echo "Production wurde erfolgreich aus Snapshot $SNAPSHOT_ID über $BACKUP_BACKEND_TYPE wiederhergestellt."
