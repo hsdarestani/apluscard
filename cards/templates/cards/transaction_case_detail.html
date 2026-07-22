@@ -1,0 +1,38 @@
+{% extends 'cards/base.html' %}
+{% load sams_de %}
+{% block title %}{{ case.case_number }} · SAMS Club Lounge{% endblock %}
+{% block content %}
+<a class="back-link" href="{% url 'transaction_cases' %}">← Alle Transaktionsfälle</a>
+<section class="dashboard-head">
+  <div><span class="eyebrow">{{ case.case_number }}</span><h1>{{ case.get_reason_display }}</h1><p class="muted">Eröffnet von {{ case.opened_by.get_full_name|default:case.opened_by.username }} am {{ case.created_at|date:"d.m.Y H:i" }}.</p></div>
+  <div class="dashboard-context"><span class="status-pill {{ case.status|lower }}">{{ case.get_status_display }}</span></div>
+</section>
+<section class="case-layout">
+  <article class="panel case-transaction-summary">
+    <span class="eyebrow">Originaltransaktion</span>
+    <h2>{{ case.ledger_entry.entry_type|sams_label }} · {{ case.ledger_entry.amount|floatformat:2 }} €</h2>
+    <dl>
+      <div><dt>Mitglied</dt><dd>{{ case.wallet.display_name }} · {{ case.wallet.member_number }}</dd></div>
+      <div><dt>Standort</dt><dd>{{ case.location.name|default:"Alle Standorte" }}</dd></div>
+      <div><dt>Beleg</dt><dd><a class="text-link" href="{% url 'bill_detail' case.ledger_entry.id %}">{{ case.ledger_entry.bill_number }}</a></dd></div>
+      <div><dt>Ausgeführt von</dt><dd>{{ case.ledger_entry.performed_by.get_full_name|default:case.ledger_entry.performed_by.username }}</dd></div>
+      {% if case.requested_amount %}<div><dt>Beantragte Erstattung</dt><dd>{{ case.requested_amount|floatformat:2 }} €</dd></div>{% endif %}
+    </dl>
+    <h3>Beschreibung</h3><p>{{ case.description|linebreaksbr }}</p>
+    {% if case.manager_note %}<h3>Entscheidung der Verwaltung</h3><p>{{ case.manager_note|linebreaksbr }}</p>{% endif %}
+    {% if case.refund_entry %}<div class="platform-alert"><strong>{{ case.approved_amount|floatformat:2 }} € erstattet</strong><span><a class="text-link" href="{% url 'bill_detail' case.refund_entry.id %}">Erstattungsbeleg {{ case.refund_entry.bill_number }} öffnen →</a></span></div>{% endif %}
+  </article>
+  {% if access == 'manager' and case.can_be_reviewed %}
+  <article class="panel">
+    <span class="eyebrow">Verwaltungsentscheidung</span>
+    <form method="post" action="{% url 'transaction_case_review' case.id %}" class="stack-form">{% csrf_token %}
+      {% for field in review_form %}<label><span>{{ field.label }}</span>{{ field }}{{ field.errors }}</label>{% endfor %}
+      {% if not can_approve %}<div class="platform-alert warning"><strong>Erstattung nur durch den Inhaber</strong><span>Du kannst den Fall prüfen oder ablehnen. Die Gutschrift muss der Inhaber freigeben.</span></div>{% endif %}
+      <button class="button primary full" type="submit">Entscheidung speichern</button>
+    </form>
+  </article>
+  {% else %}
+  <article class="panel"><span class="eyebrow">Bearbeitungsstatus</span><h2>{{ case.get_status_display }}</h2><p class="muted">Du erhältst eine In-App-Mitteilung, sobald sich der Status ändert oder eine Erstattung gebucht wurde.</p></article>
+  {% endif %}
+</section>
+{% endblock %}
