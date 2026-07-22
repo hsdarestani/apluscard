@@ -51,3 +51,4 @@ jobs:
               issue_number: 30,
               body: `# Diagnose PR #29\n\nExit-Code: ${process.env.EXIT_CODE}\n\n\`\`\`text\n${report}\n\`\`\``,
             });
+# Trigger: payment-ui-diagnosis
