@@ -44,14 +44,14 @@ def normalize_amount(value):
     return amount
 
 
-def normalize_tip_percentage(value):
+def normalize_tip_amount(value):
     try:
-        percentage = Decimal(str(value or "0")).quantize(Decimal("0.01"))
+        amount = Decimal(str(value or "0")).quantize(Decimal("0.01"))
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValidationError("Ungültige Trinkgeld-Auswahl.") from exc
-    if percentage < 0 or percentage > 100:
-        raise ValidationError("Ungültige Trinkgeld-Auswahl.")
-    return percentage
+    if amount < 0 or amount > Decimal("100.00"):
+        raise ValidationError("Das Trinkgeld muss zwischen 0 und 100 Euro liegen.")
+    return amount
 
 
 def _month_start(moment=None):
@@ -88,8 +88,6 @@ def _assert_wallet_payable(wallet):
 @transaction.atomic
 def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", order_reference="", idempotency_key="", ip_address=None, location=None, payment_request=None):
     amount = normalize_amount(amount)
-    # Nur die Wallet-Zeile sperren. Nullable Beziehungen würden bei PostgreSQL
-    # mit SELECT FOR UPDATE erneut zu einem Outer-Join-Fehler führen.
     locked_wallet = Wallet.objects.select_for_update().select_related("business").get(pk=wallet.pk)
     if entry_type in DEBIT_TYPES:
         _assert_wallet_payable(locked_wallet)
@@ -153,16 +151,36 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
 
 
 @transaction.atomic
-def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_percentage=Decimal("0.00"), tip_employee=None, ip_address=None):
+def create_payment_request(
+    *,
+    wallet,
+    location,
+    actor,
+    amount,
+    description="",
+    order_reference="",
+    tip_amount=Decimal("0.00"),
+    tip_employee=None,
+    ip_address=None,
+    force_immediate=False,
+    tip_percentage=None,
+):
+    """Create a charge. `tip_percentage` is accepted only as a legacy alias."""
     require_role(actor, wallet.business, STAFF_ROLES)
     if location.business_id != wallet.business_id or not location.is_active:
         raise ValidationError("Ungültiger Standort.")
     settings_obj = get_business_settings(wallet.business)
     amount = normalize_amount(amount)
+    if tip_percentage is not None and tip_amount in (None, "", Decimal("0.00"), 0, "0"):
+        tip_amount = tip_percentage
+    selected_tip = normalize_tip_amount(tip_amount)
+    allowed_tips = {normalize_tip_amount(value) for value in settings_obj.tip_options()}
+    if selected_tip not in allowed_tips:
+        raise ValidationError("Bitte einen der angebotenen Trinkgeldbeträge wählen.")
     payable_wallet = Wallet.objects.select_related("owner", "owner__member_profile").get(pk=wallet.pk)
     _assert_wallet_payable(payable_wallet)
-    if payable_wallet.balance < amount:
-        raise ValidationError("Nicht genügend Guthaben.")
+    if payable_wallet.balance < amount + selected_tip:
+        raise ValidationError("Nicht genügend Guthaben für Zahlung und Trinkgeld.")
     tip_recipient = settings_obj.tip_allocation
     if tip_recipient == BusinessSettings.TipAllocation.EMPLOYEE:
         tip_employee = tip_employee or actor
@@ -170,29 +188,31 @@ def create_payment_request(*, wallet, location, actor, amount, description="", o
             raise ValidationError("Der ausgewählte Mitarbeiter gehört nicht zu SAMS.")
     else:
         tip_employee = None
+    confirmation_required = bool(settings_obj.require_customer_confirmation and not force_immediate)
     payment = PaymentRequest.objects.create(
         business=wallet.business,
         location=location,
         wallet=wallet,
         created_by=actor,
         base_amount=amount,
+        tip_selected_amount=selected_tip,
         tip_recipient=tip_recipient,
         tip_employee=tip_employee,
         description=description.strip(),
         order_reference=order_reference.strip(),
-        customer_confirmation_required=settings_obj.require_customer_confirmation,
-        expires_at=timezone.now() + timedelta(minutes=10),
+        customer_confirmation_required=confirmation_required,
+        expires_at=timezone.now() + timedelta(minutes=10) if confirmation_required else None,
     )
-    if not settings_obj.require_customer_confirmation:
-        finalize_payment_request(payment=payment, confirmed_by=actor, tip_percentage=tip_percentage, ip_address=ip_address)
-    else:
+    if confirmation_required:
         from .experience_services import notify_payment_created
         notify_payment_created(payment)
+    else:
+        finalize_payment_request(payment=payment, confirmed_by=actor, tip_amount=selected_tip, ip_address=ip_address)
     return payment
 
 
 @transaction.atomic
-def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_address=None):
+def finalize_payment_request(*, payment, confirmed_by, tip_amount=None, ip_address=None, tip_percentage=None):
     payment = PaymentRequest.objects.select_for_update().select_related("business", "location", "wallet").get(pk=payment.pk)
     if payment.status != PaymentRequest.Status.PENDING:
         raise ValidationError("Diese Zahlungsanfrage wurde bereits bearbeitet.")
@@ -203,12 +223,13 @@ def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_addres
     if payment.customer_confirmation_required and payment.wallet.owner_id != confirmed_by.id:
         raise PermissionDenied("Nur der betroffene Member kann diese Zahlung bestätigen.")
     settings_obj = get_business_settings(payment.business)
-    percentage = normalize_tip_percentage(tip_percentage)
-    allowed = {normalize_tip_percentage(value) for value in settings_obj.tip_options()}
-    if percentage not in allowed:
-        raise ValidationError("Bitte eine der angebotenen Trinkgeld-Optionen wählen.")
-    tip_amount = (payment.base_amount * percentage / Decimal("100")).quantize(Decimal("0.01"))
-    if payment.wallet.balance < payment.base_amount + tip_amount:
+    if tip_amount is None:
+        tip_amount = tip_percentage if tip_percentage is not None else payment.tip_selected_amount
+    selected_tip = normalize_tip_amount(tip_amount)
+    allowed = {normalize_tip_amount(value) for value in settings_obj.tip_options()}
+    if selected_tip not in allowed:
+        raise ValidationError("Bitte einen der angebotenen Trinkgeldbeträge wählen.")
+    if payment.wallet.balance < payment.base_amount + selected_tip:
         raise ValidationError("Nicht genügend Guthaben für Zahlung und Trinkgeld.")
     purchase = post_wallet_entry(
         wallet=payment.wallet,
@@ -222,7 +243,7 @@ def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_addres
         ip_address=ip_address,
     )
     tip_entry = None
-    if tip_amount > 0:
+    if selected_tip > 0:
         tip_description = "Trinkgeld für das Team"
         if payment.tip_employee_id:
             tip_description = f"Trinkgeld für {payment.tip_employee.get_full_name() or payment.tip_employee.username}"
@@ -231,19 +252,19 @@ def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_addres
             location=payment.location,
             payment_request=payment,
             entry_type=LedgerEntry.Type.TIP,
-            amount=tip_amount,
+            amount=selected_tip,
             actor=payment.created_by,
             description=tip_description,
             order_reference=payment.order_reference,
             ip_address=ip_address,
         )
-    payment.tip_percentage = percentage
-    payment.tip_amount = tip_amount
+    payment.tip_selected_amount = selected_tip
+    payment.tip_amount = selected_tip
     payment.purchase_entry = purchase
     payment.tip_entry = tip_entry
     payment.status = PaymentRequest.Status.CONFIRMED
     payment.confirmed_at = timezone.now()
-    payment.save(update_fields=["tip_percentage", "tip_amount", "purchase_entry", "tip_entry", "status", "confirmed_at"])
+    payment.save(update_fields=["tip_selected_amount", "tip_amount", "purchase_entry", "tip_entry", "status", "confirmed_at"])
     from .experience_services import notify_payment_finalized
     notify_payment_finalized(payment)
     AuditEvent.objects.create(
@@ -257,7 +278,7 @@ def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_addres
             "location_id": str(payment.location_id),
             "member_number": payment.wallet.member_number,
             "base_amount": str(payment.base_amount),
-            "tip_amount": str(tip_amount),
+            "tip_amount": str(selected_tip),
             "tip_recipient": payment.tip_recipient,
             "tip_employee_id": payment.tip_employee_id,
         },
