@@ -19,63 +19,87 @@
 - Backup: چهار بار در روز، حدود ساعت‌های 00:20، 06:20، 12:20 و 18:20 سرور با تأخیر تصادفی حداکثر ۱۰ دقیقه
 - Restore Drill: هر یکشنبه حدود ساعت 05:10
 
-این فاصله برای موجودی و تراکنش‌های مالی مناسب‌تر از Backup روزانه است.
+## مقصد فعلی بدون Payment
+
+مقصد پیشنهادی فعلی یک Google Account اختصاصی با Google Drive رایگان است.
+
+- Google Drive از طریق `rclone` متصل می‌شود.
+- Restic از Backend رسمی `rclone:` استفاده می‌کند.
+- Google فقط Chunkهای رمزنگاری‌شده Restic را می‌بیند.
+- فایل خام دیتابیس یا `.env` به‌صورت خوانا وارد Drive نمی‌شود.
+- حساب Google باید فقط برای Backup استفاده شود تا فضای Gmail و Photos ظرفیت Drive را مصرف نکنند.
+
+راهنمای کامل راه‌اندازی Windows:
+
+```text
+docs/BACKUP-GOOGLE-DRIVE-SETUP-FA.md
+```
+
+زیرساخت همچنان از S3-compatible Storage هم پشتیبانی می‌کند تا در آینده بدون بازنویسی اسکریپت‌ها به مقصد پولی یا مقصد دوم منتقل شود.
 
 ## معماری فعلی و 3-2-1
 
-مرحله‌ای که این PR راه‌اندازی می‌کند شامل دو محل مستقل است:
+بعد از فعال‌سازی Google Drive دو محل مستقل داریم:
 
 - نسخه اصلی روی PostgreSQL و Media Volume سرور Production
-- Snapshotهای تاریخی رمزنگاری‌شده روی Object Storage خارج از سرور
+- Snapshotهای تاریخی رمزنگاری‌شده در Google Drive خارج از سرور
 
-این ساختار خرابی کامل سرور را پوشش می‌دهد، اما برای تعریف **سخت‌گیرانه 3-2-1** یک کپی مستقل سوم هم لازم است. بعد از فعال‌شدن مقصد اول، یکی از این دو گزینه اضافه می‌شود:
+این ساختار خرابی کامل سرور را پوشش می‌دهد، اما برای تعریف سخت‌گیرانه **3-2-1** یک کپی مستقل سوم هم لازم است. در آینده یکی از این گزینه‌ها اضافه می‌شود:
 
-- مقصد Restic دوم روی Provider دیگری؛ یا
-- Backup/Snapshot مستقل Hetzner در کنار Object Storage متعلق به Provider دیگر
-
-Object Storage اول بهتر است متعلق به Provider دیگری غیر از سرور اصلی باشد؛ مثلاً Cloudflare R2 یا Backblaze B2 در کنار سرور Hetzner.
+- هارد اکسترنال رمزنگاری‌شده که ماهانه Sync شود
+- Google Account دوم
+- Snapshot مستقل Hetzner
+- Object Storage یک Provider دیگر
 
 ## Retention
 
-- تمام Snapshotهای ۷ روز اخیر، یعنی تقریباً ۲۸ نقطه بازیابی شش‌ساعته
+- تمام Snapshotهای ۷ روز اخیر، تقریباً ۲۸ نقطه بازیابی شش‌ساعته
 - ۳۰ نسخه روزانه
 - ۱۲ نسخه هفتگی
 - ۱۲ نسخه ماهانه
 - ۳ نسخه سالانه
 
+Retention واقعی تا زمانی قابل اجراست که ظرفیت Google Drive کافی باشد. Restic Deduplication باعث می‌شود فقط Blockهای تغییرکرده دوباره ذخیره شوند، ولی مانیتور پرشدن فضا همچنان ضروری است.
+
 Prune فقط هفته‌ای یک‌بار اجرا می‌شود تا فشار I/O روزانه ایجاد نشود.
 
-## Secretهای GitHub
+## Secretهای GitHub برای Google Drive
 
-در مسیر زیر:
+مسیر:
 
 ```text
 Repository → Settings → Secrets and variables → Actions
 ```
 
-این Secretها ایجاد می‌شوند:
+این سه Secret لازم‌اند:
 
 ```text
 BACKUP_RESTIC_REPOSITORY
 BACKUP_RESTIC_PASSWORD
+BACKUP_RCLONE_CONFIG_BASE64
+```
+
+مقدار Repository:
+
+```text
+rclone:gdrive:apluscard-production-backups
+```
+
+`BACKUP_RESTIC_PASSWORD` باید حداقل ۲۴ کاراکتر تصادفی داشته باشد. این رمز Recovery Key اصلی است و باید علاوه بر GitHub Secrets در Password Manager مالک کسب‌وکار نیز نگهداری شود.
+
+`BACKUP_RCLONE_CONFIG_BASE64` نسخه Base64 فایل `rclone.conf` است. این فایل OAuth Token حساب Google را دارد و نباید در Repository یا پیام عمومی قرار بگیرد.
+
+Secretهای زیر فقط برای مقصدهای S3 هستند و در حالت Google Drive لازم نیستند:
+
+```text
 BACKUP_AWS_ACCESS_KEY_ID
 BACKUP_AWS_SECRET_ACCESS_KEY
 BACKUP_AWS_DEFAULT_REGION
 ```
 
-نمونه مقصد:
-
-```text
-s3:https://S3-ENDPOINT/apluscard-production-backups
-```
-
-`BACKUP_RESTIC_PASSWORD` باید حداقل ۲۴ کاراکتر تصادفی داشته باشد. این رمز Recovery Key اصلی Repository است و باید علاوه بر GitHub Secrets در Password Manager مالک کسب‌وکار نیز نگهداری شود.
-
-هیچ مقدار Secret نباید در Repository، Issue، پیام عمومی یا `.env.example` قرار بگیرد.
-
 ## راه‌اندازی اولیه
 
-بعد از ساخت Bucket خصوصی و Secretها:
+بعد از اتصال rclone و ایجاد سه Secret:
 
 ```text
 GitHub → Actions → Configure Production Backups → Run workflow
@@ -84,15 +108,18 @@ GitHub → Actions → Configure Production Backups → Run workflow
 Workflow به‌صورت خودکار:
 
 1. Secretها را بدون چاپ مقدار بررسی می‌کند.
-2. Restic و ابزارها را روی سرور نصب می‌کند.
-3. فایل root-only به نام `/root/apluscard/.backup.env` می‌سازد.
-4. Systemd Timerهای Backup و Restore Drill را فعال می‌کند.
-5. اولین Backup واقعی را می‌گیرد.
-6. همان Backup را در دیتابیس موقت Restore می‌کند.
-7. Migrationها و Walletها را Query می‌کند.
-8. نتیجه را در Issue شماره 25 ثبت می‌کند.
+2. Restic، rclone و ابزارهای لازم را روی سرور نصب می‌کند.
+3. OAuth Config را در `/root/.config/rclone/rclone.conf` با دسترسی root-only ذخیره می‌کند.
+4. فایل `/root/apluscard/.backup.env` را با سطح دسترسی 600 می‌سازد.
+5. Systemd Timerهای Backup و Restore Drill را فعال می‌کند.
+6. اولین Backup واقعی را می‌گیرد.
+7. همان Backup را در دیتابیس موقت Restore می‌کند.
+8. Migrationها و Walletها را Query می‌کند.
+9. نتیجه را در Issue شماره 25 ثبت می‌کند.
 
-## محتوای Snapshot
+## محتوای منطقی هر Snapshot
+
+قبل از رمزنگاری، Snapshot شامل این موارد است:
 
 ```text
 database.dump
@@ -104,11 +131,11 @@ SHA256SUMS
 
 - `database.dump`: خروجی PostgreSQL با فرمت Custom و قابل انتقال
 - `media.tar.gz`: محتوای Media Volume
-- `production.env`: تنظیمات کامل Production داخل Repository رمزنگاری‌شده Restic
-- `metadata.json`: تاریخ و Commit کد
+- `production.env`: تنظیمات کامل Production
+- `metadata.json`: تاریخ، Commit کد و نوع Backend
 - `SHA256SUMS`: تشخیص Corruption
 
-Backup خام دیتابیس یا `.env` هیچ‌وقت به GitHub Artifact فرستاده نمی‌شود.
+Restic همه این فایل‌ها را به Chunkهای رمزنگاری‌شده تبدیل می‌کند. Backup خام دیتابیس یا `.env` هیچ‌وقت به GitHub Artifact یا Google Drive به‌صورت مستقیم و خوانا فرستاده نمی‌شود.
 
 ## Restore Drill هفتگی
 
@@ -118,7 +145,7 @@ ops/backup/restore-drill.sh
 
 این تست به دیتابیس اصلی دست نمی‌زند:
 
-1. آخرین Snapshot را دانلود می‌کند.
+1. آخرین Snapshot را از Google Drive دانلود می‌کند.
 2. Hash تمام فایل‌ها را بررسی می‌کند.
 3. آرشیو Media را تست می‌کند.
 4. یک PostgreSQL Database موقت می‌سازد.
@@ -137,7 +164,7 @@ Workflow `Monitor Production Backups` هر روز اجرا می‌شود و ای
 - هر دو Timer فعال باشند.
 - آخرین Backup و Drill وضعیت `success` داشته باشند.
 
-خلاصه امن در Issue شماره 25 ثبت می‌شود.
+خلاصه امن در Issue شماره 25 ثبت می‌شود و هیچ Secret یا داده مشتری در آن قرار نمی‌گیرد.
 
 ## دستورات وضعیت سرور
 
@@ -148,6 +175,12 @@ systemctl status apluscard-restore-drill.timer
 cat /var/lib/apluscard-backup/last-backup.json
 cat /var/lib/apluscard-backup/last-restore-drill.json
 journalctl -u apluscard-backup.service --no-pager -n 150
+```
+
+تست مستقیم اتصال Google Drive:
+
+```bash
+rclone --config /root/.config/rclone/rclone.conf lsd gdrive:
 ```
 
 اجرای دستی:
@@ -161,7 +194,7 @@ systemctl start apluscard-restore-drill.service
 
 ### ۱. نصب پیش‌نیازها
 
-Docker، Docker Compose، Git، Restic و jq نصب شوند.
+Docker، Docker Compose، Git، Restic، rclone و jq نصب شوند.
 
 ### ۲. دریافت کد
 
@@ -172,25 +205,45 @@ cd /root/apluscard
 
 Repository باید Private و Clone با دسترسی امن انجام شود.
 
-### ۳. ایجاد `.backup.env`
+### ۳. بازیابی تنظیمات rclone
 
-Recovery Secretها از GitHub Secrets و Password Manager گرفته شوند:
+محتوای Secret `BACKUP_RCLONE_CONFIG_BASE64` در یک متغیر موقت قرار گیرد و Decode شود:
 
 ```bash
-RESTIC_REPOSITORY='s3:https://S3-ENDPOINT/apluscard-production-backups'
+install -m 700 -d /root/.config/rclone
+printf '%s' 'BASE64_RCLONE_CONFIG' | base64 --decode > /root/.config/rclone/rclone.conf
+chmod 600 /root/.config/rclone/rclone.conf
+```
+
+اتصال تست شود:
+
+```bash
+rclone --config /root/.config/rclone/rclone.conf lsd gdrive:
+```
+
+### ۴. ایجاد `.backup.env`
+
+```bash
+RESTIC_REPOSITORY='rclone:gdrive:apluscard-production-backups'
 RESTIC_PASSWORD='RESTIC-RECOVERY-PASSWORD'
-AWS_ACCESS_KEY_ID='ACCESS-KEY'
-AWS_SECRET_ACCESS_KEY='SECRET-KEY'
-AWS_DEFAULT_REGION='auto'
+RCLONE_CONFIG='/root/.config/rclone/rclone.conf'
 RESTIC_CACHE_DIR='/var/cache/restic'
 BACKUP_HOST_TAG='apluscard-production'
 ```
+
+فایل در مسیر زیر ذخیره شود:
+
+```text
+/root/apluscard/.backup.env
+```
+
+سطح دسترسی:
 
 ```bash
 chmod 600 /root/apluscard/.backup.env
 ```
 
-### ۴. Restore کامل
+### ۵. Restore کامل
 
 ```bash
 cd /root/apluscard
@@ -217,9 +270,11 @@ RESTORE_PRODUCTION=YES ./ops/backup/restore-production.sh SNAPSHOT_ID
 
 ## قواعد امنیتی
 
-- Bucket کاملاً Private باشد.
-- Access Key فقط به Bucket مخصوص Backup دسترسی داشته باشد.
-- Restic Password با رمز S3 متفاوت باشد.
+- حساب Google مخصوص Backup باشد.
+- روی حساب Google، تأیید دومرحله‌ای فعال شود.
+- فایل `rclone.conf` مثل Password نگهداری شود.
+- Restic Password جدا از رمز Google باشد.
 - Recovery Key در GitHub Secrets و یک Password Manager مستقل نگهداری شود.
+- Repository روی Private باشد.
 - حداقل سالی یک‌بار Restore کامل روی سرور جداگانه تمرین شود.
-- قبل از Rotation کلیدهای Object Storage، دسترسی Restic تست شود.
+- قبل از تغییر یا حذف دسترسی Google، Restore Drill اجرا شود.

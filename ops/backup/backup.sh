@@ -18,12 +18,13 @@ write_status() {
   local db_bytes="${3:-0}"
   local media_bytes="${4:-0}"
   local git_commit="${5:-unknown}"
+  local backend="${6:-unknown}"
   local timestamp
   timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local temp
   temp="$(mktemp "$STATE_DIR/status.XXXXXX")"
   cat > "$temp" <<JSON
-{"status":"$status","completed_at":"$timestamp","snapshot_id":"$snapshot_id","database_bytes":$db_bytes,"media_bytes":$media_bytes,"git_commit":"$git_commit"}
+{"status":"$status","completed_at":"$timestamp","snapshot_id":"$snapshot_id","database_bytes":$db_bytes,"media_bytes":$media_bytes,"git_commit":"$git_commit","backend":"$backend"}
 JSON
   chmod 600 "$temp"
   mv "$temp" "$STATUS_FILE"
@@ -47,13 +48,11 @@ set -a
 source "$BACKUP_ENV"
 set +a
 
-required=(RESTIC_REPOSITORY RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY)
-for variable in "${required[@]}"; do
-  [[ -n "${!variable:-}" ]] || { echo "$variable fehlt in $BACKUP_ENV" >&2; exit 1; }
-done
-
-for command in docker restic flock sha256sum jq; do
-  command -v "$command" >/dev/null 2>&1 || { echo "$command ist nicht installiert." >&2; exit 1; }
+# shellcheck source=ops/backup/common.sh
+source "$APP_DIR/ops/backup/common.sh"
+backup_configure_backend
+for command in docker flock sha256sum jq tar; do
+  backup_require_command "$command"
 done
 
 exec 9>"$LOCK_FILE"
@@ -96,7 +95,7 @@ test -s "$WORK_DIR/media.tar.gz" || { echo "Media-Archiv ist leer." >&2; exit 1;
 tar -tzf "$WORK_DIR/media.tar.gz" >/dev/null
 
 # The production configuration contains secrets, but Restic encrypts every byte
-# before it leaves the server. The separate Restic password remains in GitHub Secrets.
+# before it leaves the server. The separate Restic password remains outside Git.
 install -m 600 .env "$WORK_DIR/production.env"
 
 cat > "$WORK_DIR/metadata.json" <<JSON
@@ -105,6 +104,7 @@ cat > "$WORK_DIR/metadata.json" <<JSON
   "created_at": "$TIMESTAMP",
   "git_commit": "$GIT_COMMIT",
   "postgres_image": "postgres:16-alpine",
+  "backup_backend": "$BACKUP_BACKEND_TYPE",
   "contents": ["database.dump", "media.tar.gz", "production.env"]
 }
 JSON
@@ -145,7 +145,7 @@ SNAPSHOT_ID="$(restic snapshots --json --host "$HOST_TAG" --tag apluscard | jq -
 
 DB_BYTES="$(stat -c %s "$WORK_DIR/database.dump")"
 MEDIA_BYTES="$(stat -c %s "$WORK_DIR/media.tar.gz")"
-write_status "success" "$SNAPSHOT_ID" "$DB_BYTES" "$MEDIA_BYTES" "$GIT_COMMIT"
+write_status "success" "$SNAPSHOT_ID" "$DB_BYTES" "$MEDIA_BYTES" "$GIT_COMMIT" "$BACKUP_BACKEND_TYPE"
 SUCCESS=1
 
-echo "Backup erfolgreich: Snapshot $SNAPSHOT_ID"
+echo "Backup erfolgreich: Snapshot $SNAPSHOT_ID über $BACKUP_BACKEND_TYPE"

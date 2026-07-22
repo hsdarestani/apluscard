@@ -18,11 +18,12 @@ write_status() {
   local snapshot_id="${2:-}"
   local migrations="${3:-0}"
   local wallets="${4:-0}"
+  local backend="${5:-unknown}"
   local timestamp temp
   timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   temp="$(mktemp "$STATE_DIR/drill.XXXXXX")"
   cat > "$temp" <<JSON
-{"status":"$status","completed_at":"$timestamp","snapshot_id":"$snapshot_id","django_migrations":$migrations,"wallets":$wallets}
+{"status":"$status","completed_at":"$timestamp","snapshot_id":"$snapshot_id","django_migrations":$migrations,"wallets":$wallets,"backend":"$backend"}
 JSON
   chmod 600 "$temp"
   mv "$temp" "$STATUS_FILE"
@@ -48,13 +49,11 @@ set -a
 source "$BACKUP_ENV"
 set +a
 
-required=(RESTIC_REPOSITORY RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY)
-for variable in "${required[@]}"; do
-  [[ -n "${!variable:-}" ]] || { echo "$variable fehlt in $BACKUP_ENV" >&2; exit 1; }
-done
-
-for command in docker restic flock sha256sum jq; do
-  command -v "$command" >/dev/null 2>&1 || { echo "$command ist nicht installiert." >&2; exit 1; }
+# shellcheck source=ops/backup/common.sh
+source "$APP_DIR/ops/backup/common.sh"
+backup_configure_backend
+for command in docker flock sha256sum jq tar; do
+  backup_require_command "$command"
 done
 
 exec 9>"$LOCK_FILE"
@@ -90,7 +89,7 @@ WALLETS="$(docker compose exec -T db sh -lc 'psql --username="$POSTGRES_USER" --
 [[ "$MIGRATIONS" =~ ^[0-9]+$ && "$MIGRATIONS" -gt 0 ]] || { echo "Restore enthält keine Django-Migrationen." >&2; exit 1; }
 [[ "$WALLETS" =~ ^[0-9]+$ ]] || { echo "Wallet-Anzahl konnte nicht geprüft werden." >&2; exit 1; }
 
-write_status "success" "$SNAPSHOT_ID" "$MIGRATIONS" "$WALLETS"
+write_status "success" "$SNAPSHOT_ID" "$MIGRATIONS" "$WALLETS" "$BACKUP_BACKEND_TYPE"
 SUCCESS=1
 
-echo "Restore-Drill erfolgreich: Snapshot $SNAPSHOT_ID, Migrationen $MIGRATIONS, Wallets $WALLETS"
+echo "Restore-Drill erfolgreich: Snapshot $SNAPSHOT_ID, Migrationen $MIGRATIONS, Wallets $WALLETS, Backend $BACKUP_BACKEND_TYPE"
