@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -12,8 +13,60 @@ from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
 from .models import AppNotification, LedgerEntry, Membership, Wallet
 from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, get_active_membership, require_role
-from .views import client_ip
 from .wallet_pass import build_pkpass
+
+
+def client_ip(request):
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
+    return forwarded.split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR")
+
+
+def service_worker(request):
+    content = """
+const CACHE = 'sams-lounge-v8';
+const ASSETS = [
+  '/static/cards/app.css',
+  '/static/cards/app.js',
+  '/static/cards/registration.css',
+  '/static/cards/ledger.css',
+  '/static/cards/sams-platform.css',
+  '/static/cards/legal.css',
+  '/static/cards/experience.css',
+  '/static/cards/icon.svg',
+  '/manifest.webmanifest'
+];
+self.addEventListener('install', event => {
+  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
+});
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
+});
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+  const isAsset = url.pathname.startsWith('/static/') || url.pathname === '/manifest.webmanifest';
+  if (!isAsset) return;
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      const fresh = fetch(event.request).then(response => {
+        if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
+        return response;
+      });
+      return cached || fresh;
+    })
+  );
+});
+""".strip()
+    response = HttpResponse(content, content_type="application/javascript")
+    response["Service-Worker-Allowed"] = "/"
+    response["Cache-Control"] = "no-cache, no-store"
+    return response
 
 
 def _safe_next(request, default="dashboard"):
@@ -198,8 +251,10 @@ def transaction_cases(request):
         cases = TransactionCase.objects.filter(business=membership.business)
         title = "Transaktionsfälle der Verwaltung"
     elif membership and membership.role in STAFF_ROLES:
-        cases = TransactionCase.objects.filter(business=membership.business, opened_by=request.user)
-        title = "Meine Korrekturanfragen"
+        cases = TransactionCase.objects.filter(business=membership.business).filter(
+            Q(opened_by=request.user) | Q(ledger_entry__performed_by=request.user)
+        ).distinct()
+        title = "Meine Korrekturanfragen und betroffenen Zahlungen"
     elif wallet:
         cases = TransactionCase.objects.filter(wallet=wallet)
         title = "Meine Transaktionsfälle"
