@@ -1,0 +1,19 @@
+{% extends 'cards/base.html' %}
+{% block title %}Transaktionsfälle · SAMS Club Lounge{% endblock %}
+{% block content %}
+<section class="dashboard-head">
+  <div><span class="eyebrow">Prüfung und Erstattung</span><h1>{{ title }}</h1><p class="muted">Alle Meldungen bleiben mit Originalbeleg, Entscheidung und Erstattungsbuchung nachvollziehbar.</p></div>
+  <div class="dashboard-context"><a class="button secondary small" href="{% url 'dashboard' %}">Zur Übersicht</a></div>
+</section>
+<section class="panel">
+  <div class="case-list">
+    {% for case in cases %}
+    <a class="case-list-row" href="{% url 'transaction_case_detail' case.id %}">
+      <div><strong>{{ case.case_number }}</strong><span>{{ case.get_reason_display }} · {{ case.location.name|default:"Alle Standorte" }}</span></div>
+      <div><strong>{{ case.wallet.display_name }}</strong><span>Mitglied {{ case.wallet.member_number }} · Beleg {{ case.ledger_entry.bill_number }}</span></div>
+      <div><span class="status-pill {{ case.status|lower }}">{{ case.get_status_display }}</span><small>{{ case.created_at|date:"d.m.Y H:i" }}</small></div>
+    </a>
+    {% empty %}<div class="empty-state">Noch keine Transaktionsfälle vorhanden.</div>{% endfor %}
+  </div>
+</section>
+{% endblock %}
