@@ -17,5 +17,5 @@ IOSchedulingPriority=7
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/root/apluscard /var/lib/apluscard-backup /var/lock
+ReadWritePaths=/root/apluscard /var/lib/apluscard-backup /var/cache/restic /var/lock
 TimeoutStartSec=3h
