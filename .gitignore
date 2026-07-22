@@ -1,4 +1,9 @@
 .env
+.backup.env
+.backup-secrets.payload
+*.restic-cache/
+backups/
+restore-work/
 .venv/
 __pycache__/
 *.py[cod]
