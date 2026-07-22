@@ -53,6 +53,42 @@ window.addEventListener('appinstalled', () => {
   installButton?.classList.remove('visible');
 });
 
+const notificationButton = document.getElementById('notification-button');
+const notificationCount = document.getElementById('notification-count');
+let previousNotificationCount = Number(notificationCount?.textContent || 0);
+let notificationTimer = null;
+
+async function refreshNotificationCount() {
+  if (!notificationButton || document.hidden) return;
+  try {
+    const response = await fetch(notificationButton.dataset.countUrl, {
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (!response.ok) return;
+    const payload = await response.json();
+    const count = Number(payload.count || 0);
+    if (notificationCount) {
+      notificationCount.textContent = String(count);
+      notificationCount.hidden = count === 0;
+    }
+    notificationButton.classList.toggle('has-new-notification', count > previousNotificationCount);
+    previousNotificationCount = count;
+  } catch (_) {}
+}
+
+if (notificationButton) {
+  const interval = lowPowerMode ? 90000 : 45000;
+  notificationTimer = window.setInterval(refreshNotificationCount, interval);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshNotificationCount();
+  });
+  window.addEventListener('pagehide', () => {
+    if (notificationTimer) window.clearInterval(notificationTimer);
+  }, { once: true });
+}
+
 document.addEventListener('click', event => {
   const appleButton = event.target.closest('a.apple-login-button');
   if (appleButton) {
