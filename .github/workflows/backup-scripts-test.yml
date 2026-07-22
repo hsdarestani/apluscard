@@ -7,6 +7,7 @@ on:
       - ".github/workflows/configure-production-backups.yml"
       - ".github/workflows/monitor-production-backups.yml"
       - ".github/workflows/backup-scripts-test.yml"
+      - "docs/BACKUP-*.md"
   push:
     branches: [main]
     paths:
@@ -14,6 +15,7 @@ on:
       - ".github/workflows/configure-production-backups.yml"
       - ".github/workflows/monitor-production-backups.yml"
       - ".github/workflows/backup-scripts-test.yml"
+      - "docs/BACKUP-*.md"
 
 permissions:
   contents: read
@@ -29,12 +31,14 @@ jobs:
           sudo apt-get install -y shellcheck
       - name: Bash-Syntax prüfen
         run: |
+          bash -n ops/backup/common.sh
           bash -n ops/backup/backup.sh
           bash -n ops/backup/restore-drill.sh
           bash -n ops/backup/restore-production.sh
       - name: Kritische ShellCheck-Fehler ausschließen
         run: |
           shellcheck -x -S error \
+            ops/backup/common.sh \
             ops/backup/backup.sh \
             ops/backup/restore-drill.sh \
             ops/backup/restore-production.sh
@@ -45,3 +49,10 @@ jobs:
           grep -Fq 'sha256sum -c SHA256SUMS' ops/backup/restore-production.sh
           grep -Fq 'pg_restore' ops/backup/restore-drill.sh
           grep -Fq 'last-restore-drill.json' ops/backup/restore-drill.sh
+      - name: Google-Drive- und S3-Unterstützung prüfen
+        run: |
+          grep -Fq 'rclone:*)' ops/backup/common.sh
+          grep -Fq 's3:*)' ops/backup/common.sh
+          grep -Fq 'BACKUP_RCLONE_CONFIG_BASE64' .github/workflows/configure-production-backups.yml
+          grep -Fq 'rclone:gdrive:apluscard-production-backups' docs/BACKUP-GOOGLE-DRIVE-SETUP-FA.md
+          grep -Fq 'apt-get install -y restic rclone jq' .github/workflows/configure-production-backups.yml
