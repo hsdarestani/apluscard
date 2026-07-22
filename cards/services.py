@@ -151,21 +151,8 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
 
 
 @transaction.atomic
-def create_payment_request(
-    *,
-    wallet,
-    location,
-    actor,
-    amount,
-    description="",
-    order_reference="",
-    tip_amount=Decimal("0.00"),
-    tip_employee=None,
-    ip_address=None,
-    force_immediate=False,
-    tip_percentage=None,
-):
-    """Create a charge. `tip_percentage` is accepted only as a legacy alias."""
+def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_amount=Decimal("0.00"), tip_employee=None, ip_address=None, force_immediate=False, tip_percentage=None):
+    """Create a charge. `tip_percentage` remains a temporary numeric alias."""
     require_role(actor, wallet.business, STAFF_ROLES)
     if location.business_id != wallet.business_id or not location.is_active:
         raise ValidationError("Ungültiger Standort.")
@@ -206,9 +193,8 @@ def create_payment_request(
     if confirmation_required:
         from .experience_services import notify_payment_created
         notify_payment_created(payment)
-    else:
-        finalize_payment_request(payment=payment, confirmed_by=actor, tip_amount=selected_tip, ip_address=ip_address)
-    return payment
+        return payment
+    return finalize_payment_request(payment=payment, confirmed_by=actor, tip_amount=selected_tip, ip_address=ip_address)
 
 
 @transaction.atomic
@@ -231,33 +217,13 @@ def finalize_payment_request(*, payment, confirmed_by, tip_amount=None, ip_addre
         raise ValidationError("Bitte einen der angebotenen Trinkgeldbeträge wählen.")
     if payment.wallet.balance < payment.base_amount + selected_tip:
         raise ValidationError("Nicht genügend Guthaben für Zahlung und Trinkgeld.")
-    purchase = post_wallet_entry(
-        wallet=payment.wallet,
-        location=payment.location,
-        payment_request=payment,
-        entry_type=LedgerEntry.Type.PURCHASE,
-        amount=payment.base_amount,
-        actor=payment.created_by,
-        description=payment.description or f"Zahlung bei {payment.location.name}",
-        order_reference=payment.order_reference,
-        ip_address=ip_address,
-    )
+    purchase = post_wallet_entry(wallet=payment.wallet, location=payment.location, payment_request=payment, entry_type=LedgerEntry.Type.PURCHASE, amount=payment.base_amount, actor=payment.created_by, description=payment.description or f"Zahlung bei {payment.location.name}", order_reference=payment.order_reference, ip_address=ip_address)
     tip_entry = None
     if selected_tip > 0:
         tip_description = "Trinkgeld für das Team"
         if payment.tip_employee_id:
             tip_description = f"Trinkgeld für {payment.tip_employee.get_full_name() or payment.tip_employee.username}"
-        tip_entry = post_wallet_entry(
-            wallet=payment.wallet,
-            location=payment.location,
-            payment_request=payment,
-            entry_type=LedgerEntry.Type.TIP,
-            amount=selected_tip,
-            actor=payment.created_by,
-            description=tip_description,
-            order_reference=payment.order_reference,
-            ip_address=ip_address,
-        )
+        tip_entry = post_wallet_entry(wallet=payment.wallet, location=payment.location, payment_request=payment, entry_type=LedgerEntry.Type.TIP, amount=selected_tip, actor=payment.created_by, description=tip_description, order_reference=payment.order_reference, ip_address=ip_address)
     payment.tip_selected_amount = selected_tip
     payment.tip_amount = selected_tip
     payment.purchase_entry = purchase
@@ -274,14 +240,7 @@ def finalize_payment_request(*, payment, confirmed_by, tip_amount=None, ip_addre
         object_type="payment_request",
         object_id=str(payment.pk),
         ip_address=ip_address,
-        details={
-            "location_id": str(payment.location_id),
-            "member_number": payment.wallet.member_number,
-            "base_amount": str(payment.base_amount),
-            "tip_amount": str(selected_tip),
-            "tip_recipient": payment.tip_recipient,
-            "tip_employee_id": payment.tip_employee_id,
-        },
+        details={"location_id": str(payment.location_id), "member_number": payment.wallet.member_number, "base_amount": str(payment.base_amount), "tip_amount": str(selected_tip), "tip_recipient": payment.tip_recipient, "tip_employee_id": payment.tip_employee_id},
     )
     return payment
 
