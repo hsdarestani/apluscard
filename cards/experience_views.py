@@ -23,7 +23,7 @@ def client_ip(request):
 
 def service_worker(request):
     content = """
-const CACHE = 'sams-lounge-v8';
+const CACHE = 'sams-lounge-v9';
 const ASSETS = [
   '/static/cards/app.css',
   '/static/cards/app.js',
@@ -71,11 +71,7 @@ self.addEventListener('fetch', event => {
 
 def _safe_next(request, default="dashboard"):
     candidate = request.POST.get("next") or request.GET.get("next")
-    if candidate and url_has_allowed_host_and_scheme(
-        candidate,
-        allowed_hosts={request.get_host()},
-        require_https=request.is_secure(),
-    ):
+    if candidate and url_has_allowed_host_and_scheme(candidate, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
         return candidate
     return reverse(default)
 
@@ -89,15 +85,7 @@ def customer_location_select(request):
         request.session["active_location_id"] = str(location.pk)
         messages.success(request, f"{location.name} wurde als aktueller Standort ausgewählt.")
         return redirect(_safe_next(request, "customer_dashboard"))
-    return render(
-        request,
-        "cards/customer_location_select.html",
-        {
-            "wallet": wallet,
-            "locations": locations,
-            "next_url": _safe_next(request, "customer_dashboard"),
-        },
-    )
+    return render(request, "cards/customer_location_select.html", {"wallet": wallet, "locations": locations, "next_url": _safe_next(request, "customer_dashboard")})
 
 
 @login_required
@@ -105,14 +93,7 @@ def notification_center(request):
     notifications_query = request.user.app_notifications.select_related("business", "location")
     unread_count = notifications_query.filter(is_read=False).count()
     notifications = notifications_query[:250]
-    return render(
-        request,
-        "cards/notification_center.html",
-        {
-            "notifications": notifications,
-            "unread_count": unread_count,
-        },
-    )
+    return render(request, "cards/notification_center.html", {"notifications": notifications, "unread_count": unread_count})
 
 
 @login_required
@@ -172,36 +153,25 @@ def _case_access(user, transaction_case):
     membership = get_active_membership(user, transaction_case.business)
     if membership and membership.role in MANAGER_ROLES:
         return "manager"
-    if membership and membership.role in STAFF_ROLES and (
-        transaction_case.opened_by_id == user.id
-        or transaction_case.ledger_entry.performed_by_id == user.id
-    ):
+    if membership and membership.role in STAFF_ROLES and (transaction_case.opened_by_id == user.id or transaction_case.ledger_entry.performed_by_id == user.id):
         return "staff"
     raise PermissionDenied
 
 
 @login_required
 def transaction_case_create(request, entry_id):
-    entry = get_object_or_404(
-        LedgerEntry.objects.select_related("business", "location", "wallet", "wallet__owner", "performed_by"),
-        pk=entry_id,
-    )
+    entry = get_object_or_404(LedgerEntry.objects.select_related("business", "location", "wallet", "wallet__owner", "performed_by"), pk=entry_id)
     if entry.wallet.owner_id != request.user.id:
         membership = get_active_membership(request.user, entry.business)
-        if not membership or membership.role not in STAFF_ROLES or entry.performed_by_id != request.user.id:
+        if not membership:
+            raise PermissionDenied
+        if membership.role not in MANAGER_ROLES and not (membership.role in STAFF_ROLES and entry.performed_by_id == request.user.id):
             raise PermissionDenied
 
     form = TransactionCaseForm(request.POST or None, ledger_entry=entry)
     if request.method == "POST" and form.is_valid():
         try:
-            transaction_case = create_transaction_case(
-                entry=entry,
-                opened_by=request.user,
-                reason=form.cleaned_data["reason"],
-                description=form.cleaned_data["description"],
-                requested_amount=form.cleaned_data.get("requested_amount"),
-                ip_address=client_ip(request),
-            )
+            transaction_case = create_transaction_case(entry=entry, opened_by=request.user, reason=form.cleaned_data["reason"], description=form.cleaned_data["description"], requested_amount=form.cleaned_data.get("requested_amount"), ip_address=client_ip(request))
         except (ValidationError, PermissionDenied) as exc:
             detail = " ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
             messages.error(request, detail)
@@ -213,34 +183,11 @@ def transaction_case_create(request, entry_id):
 
 @login_required
 def transaction_case_detail(request, case_id):
-    transaction_case = get_object_or_404(
-        TransactionCase.objects.select_related(
-            "business",
-            "location",
-            "wallet",
-            "wallet__owner",
-            "ledger_entry",
-            "ledger_entry__performed_by",
-            "opened_by",
-            "reviewed_by",
-            "refund_entry",
-        ),
-        pk=case_id,
-    )
+    transaction_case = get_object_or_404(TransactionCase.objects.select_related("business", "location", "wallet", "wallet__owner", "ledger_entry", "ledger_entry__performed_by", "opened_by", "reviewed_by", "refund_entry"), pk=case_id)
     access = _case_access(request.user, transaction_case)
     membership = get_active_membership(request.user, transaction_case.business)
     review_form = TransactionCaseReviewForm(transaction_case=transaction_case)
-    return render(
-        request,
-        "cards/transaction_case_detail.html",
-        {
-            "case": transaction_case,
-            "access": access,
-            "membership": membership,
-            "review_form": review_form,
-            "can_approve": bool(membership and membership.role == Membership.Role.OWNER),
-        },
-    )
+    return render(request, "cards/transaction_case_detail.html", {"case": transaction_case, "access": access, "membership": membership, "review_form": review_form, "can_approve": bool(membership and membership.role == Membership.Role.OWNER)})
 
 
 @login_required
@@ -249,19 +196,24 @@ def transaction_cases(request):
     wallet = Wallet.objects.filter(owner=request.user).first()
     if membership and membership.role in MANAGER_ROLES:
         cases = TransactionCase.objects.filter(business=membership.business)
-        title = "Transaktionsfälle der Verwaltung"
+        entries = LedgerEntry.objects.filter(business=membership.business)
+        title = "Transaktionen und Prüffälle der Verwaltung"
+        role_context = "management"
     elif membership and membership.role in STAFF_ROLES:
-        cases = TransactionCase.objects.filter(business=membership.business).filter(
-            Q(opened_by=request.user) | Q(ledger_entry__performed_by=request.user)
-        ).distinct()
-        title = "Meine Korrekturanfragen und betroffenen Zahlungen"
+        cases = TransactionCase.objects.filter(business=membership.business).filter(Q(opened_by=request.user) | Q(ledger_entry__performed_by=request.user)).distinct()
+        entries = LedgerEntry.objects.filter(business=membership.business, performed_by=request.user)
+        title = "Meine Zahlungen und Korrekturanfragen"
+        role_context = "staff"
     elif wallet:
         cases = TransactionCase.objects.filter(wallet=wallet)
-        title = "Meine Transaktionsfälle"
+        entries = LedgerEntry.objects.filter(wallet=wallet)
+        title = "Meine Transaktionen und Prüffälle"
+        role_context = "customer"
     else:
         raise PermissionDenied
     cases = cases.select_related("wallet", "ledger_entry", "location", "opened_by", "reviewed_by")[:250]
-    return render(request, "cards/transaction_case_list.html", {"cases": cases, "title": title})
+    entries = entries.select_related("wallet", "location", "performed_by").prefetch_related("transaction_cases")[:150]
+    return render(request, "cards/transaction_case_list.html", {"cases": cases, "entries": entries, "title": title, "role_context": role_context})
 
 
 @login_required
@@ -274,14 +226,7 @@ def transaction_case_review(request, case_id):
     form = TransactionCaseReviewForm(request.POST, transaction_case=transaction_case)
     if form.is_valid():
         try:
-            review_transaction_case(
-                transaction_case=transaction_case,
-                reviewer=request.user,
-                action=form.cleaned_data["action"],
-                manager_note=form.cleaned_data.get("manager_note", ""),
-                approved_amount=form.cleaned_data.get("approved_amount"),
-                ip_address=client_ip(request),
-            )
+            review_transaction_case(transaction_case=transaction_case, reviewer=request.user, action=form.cleaned_data["action"], manager_note=form.cleaned_data.get("manager_note", ""), approved_amount=form.cleaned_data.get("approved_amount"), ip_address=client_ip(request))
         except (ValidationError, PermissionDenied) as exc:
             detail = " ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
             messages.error(request, detail)
