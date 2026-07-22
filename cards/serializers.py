@@ -1,14 +1,36 @@
 from decimal import Decimal
 
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
+from .experience_models import TransactionCase
 from .models import AppNotification, LedgerEntry, Location, Membership, Offer, PaymentRequest, PushDevice, Wallet
 
 
 class LocationSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    short_description = serializers.SerializerMethodField()
+
     class Meta:
         model = Location
-        fields = ["id", "name", "slug", "address", "google_review_url", "instagram_url", "tiktok_url", "position"]
+        fields = ["id", "name", "slug", "address", "image_url", "short_description", "google_review_url", "instagram_url", "tiktok_url", "position"]
+
+    def _visual(self, obj):
+        try:
+            return obj.visual
+        except ObjectDoesNotExist:
+            return None
+
+    def get_image_url(self, obj):
+        visual = self._visual(obj)
+        if not visual or not visual.image:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(visual.image.url) if request else visual.image.url
+
+    def get_short_description(self, obj):
+        visual = self._visual(obj)
+        return visual.short_description if visual else ""
 
 
 class LedgerEntrySerializer(serializers.ModelSerializer):
@@ -86,6 +108,52 @@ class AppNotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = AppNotification
         fields = ["id", "kind", "title", "body", "data", "location_name", "is_read", "created_at"]
+
+
+class TransactionCaseSerializer(serializers.ModelSerializer):
+    reason_label = serializers.CharField(source="get_reason_display", read_only=True)
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+    member_number = serializers.CharField(source="wallet.member_number", read_only=True)
+    member_name = serializers.CharField(source="wallet.display_name", read_only=True)
+    bill_number = serializers.CharField(source="ledger_entry.bill_number", read_only=True)
+    original_amount = serializers.DecimalField(source="ledger_entry.amount", max_digits=12, decimal_places=2, read_only=True)
+    location_name = serializers.CharField(source="location.name", read_only=True)
+    opened_by_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TransactionCase
+        fields = [
+            "id", "case_number", "reason", "reason_label", "status", "status_label",
+            "member_number", "member_name", "ledger_entry_id", "bill_number", "original_amount",
+            "location_name", "description", "requested_amount", "approved_amount", "manager_note",
+            "opened_by_role", "opened_by_name", "reviewed_by_name", "refund_entry_id",
+            "created_at", "reviewed_at", "updated_at",
+        ]
+
+    def get_opened_by_name(self, obj):
+        return obj.opened_by.get_full_name() or obj.opened_by.username
+
+    def get_reviewed_by_name(self, obj):
+        if not obj.reviewed_by:
+            return None
+        return obj.reviewed_by.get_full_name() or obj.reviewed_by.username
+
+
+class TransactionCaseCreateSerializer(serializers.Serializer):
+    reason = serializers.ChoiceField(choices=TransactionCase.Reason.choices)
+    description = serializers.CharField(min_length=8, max_length=2000)
+    requested_amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"), required=False, allow_null=True)
+
+
+class TransactionCaseReviewSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=[
+        TransactionCase.Status.IN_REVIEW,
+        TransactionCase.Status.APPROVED,
+        TransactionCase.Status.REJECTED,
+    ])
+    approved_amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"), required=False, allow_null=True)
+    manager_note = serializers.CharField(max_length=2000, required=False, allow_blank=True)
 
 
 class PushDeviceSerializer(serializers.ModelSerializer):
