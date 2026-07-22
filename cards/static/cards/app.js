@@ -1,9 +1,22 @@
+const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+const narrowScreen = window.matchMedia('(max-width: 900px)').matches;
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const limitedDevice = typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 4;
+const lowPowerMode = coarsePointer || narrowScreen || reducedMotion || limitedDevice;
+if (lowPowerMode) document.documentElement.classList.add('low-power');
+
+document.addEventListener('visibilitychange', () => {
+  document.documentElement.classList.toggle('app-paused', document.hidden);
+});
+window.addEventListener('pagehide', () => document.documentElement.classList.add('app-paused'));
+window.addEventListener('pageshow', () => document.documentElement.classList.remove('app-paused'));
+
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}), { once: true });
 }
 
-// The SAMS interface is laid out like an installed app. Prevent accidental
-// pinch/double-tap zoom that can leave fixed navigation and dialogs misaligned.
+// The interface behaves like an installed app. Prevent accidental pinch and
+// double-tap zoom without running a continuous animation or polling loop.
 document.addEventListener('gesturestart', event => event.preventDefault(), { passive: false });
 document.addEventListener('gesturechange', event => event.preventDefault(), { passive: false });
 document.addEventListener('gestureend', event => event.preventDefault(), { passive: false });
@@ -77,7 +90,7 @@ document.querySelectorAll('dialog').forEach(dialog => {
   });
 });
 
-if ('IntersectionObserver' in window) {
+if (!lowPowerMode && 'IntersectionObserver' in window) {
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
@@ -91,7 +104,7 @@ if ('IntersectionObserver' in window) {
   document.querySelectorAll('.feature-card, .stat-card, .quick-action').forEach((element, index) => {
     element.style.opacity = '0';
     element.style.transform = 'translateY(14px)';
-    element.style.transition = `opacity .45s ease ${index * 45}ms, transform .45s ease ${index * 45}ms`;
+    element.style.transition = `opacity .35s ease ${Math.min(index, 5) * 35}ms, transform .35s ease ${Math.min(index, 5) * 35}ms`;
     observer.observe(element);
   });
 }
