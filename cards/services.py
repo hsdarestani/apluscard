@@ -6,7 +6,7 @@ from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from .models import AppNotification, AuditEvent, BusinessSettings, LedgerEntry, Membership, Offer, PaymentRequest, Wallet
+from .models import AuditEvent, BusinessSettings, LedgerEntry, Membership, Offer, PaymentRequest, Wallet
 
 OWNER_ROLES = {Membership.Role.OWNER}
 MANAGER_ROLES = {Membership.Role.OWNER, Membership.Role.MANAGER}
@@ -88,8 +88,8 @@ def _assert_wallet_payable(wallet):
 @transaction.atomic
 def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", order_reference="", idempotency_key="", ip_address=None, location=None, payment_request=None):
     amount = normalize_amount(amount)
-    # Only the wallet row must be locked. Joining nullable owner/profile tables
-    # here makes PostgreSQL reject FOR UPDATE on the nullable side of an outer join.
+    # Nur die Wallet-Zeile sperren. Nullable Beziehungen würden bei PostgreSQL
+    # mit SELECT FOR UPDATE erneut zu einem Outer-Join-Fehler führen.
     locked_wallet = Wallet.objects.select_for_update().select_related("business").get(pk=wallet.pk)
     if entry_type in DEBIT_TYPES:
         _assert_wallet_payable(locked_wallet)
@@ -111,18 +111,45 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
         raise ValidationError("Nicht genügend Guthaben.")
     locked_wallet.balance = after
     locked_wallet.save(update_fields=["balance", "updated_at"])
-    entry = LedgerEntry.objects.create(business=locked_wallet.business, location=location, wallet=locked_wallet, payment_request=payment_request, entry_type=entry_type, amount=signed_amount, balance_before=before, balance_after=after, description=description.strip(), order_reference=order_reference.strip(), idempotency_key=idempotency_key.strip(), performed_by=actor)
-    AuditEvent.objects.create(actor=actor, business=locked_wallet.business, action=f"wallet.{entry_type.lower()}", object_type="wallet", object_id=str(locked_wallet.pk), ip_address=ip_address, details={"ledger_entry_id": str(entry.pk), "bill_number": entry.bill_number, "member_number": locked_wallet.member_number, "location_id": str(location.pk) if location else None, "payment_request_id": str(payment_request.pk) if payment_request else None, "amount": str(signed_amount), "balance_before": str(before), "balance_after": str(after), "order_reference": order_reference, "description": description})
+    entry = LedgerEntry.objects.create(
+        business=locked_wallet.business,
+        location=location,
+        wallet=locked_wallet,
+        payment_request=payment_request,
+        entry_type=entry_type,
+        amount=signed_amount,
+        balance_before=before,
+        balance_after=after,
+        description=description.strip(),
+        order_reference=order_reference.strip(),
+        idempotency_key=idempotency_key.strip(),
+        performed_by=actor,
+    )
+    AuditEvent.objects.create(
+        actor=actor,
+        business=locked_wallet.business,
+        action=f"wallet.{entry_type.lower()}",
+        object_type="wallet",
+        object_id=str(locked_wallet.pk),
+        ip_address=ip_address,
+        details={
+            "ledger_entry_id": str(entry.pk),
+            "bill_number": entry.bill_number,
+            "member_number": locked_wallet.member_number,
+            "location_id": str(location.pk) if location else None,
+            "payment_request_id": str(payment_request.pk) if payment_request else None,
+            "amount": str(signed_amount),
+            "balance_before": str(before),
+            "balance_after": str(after),
+            "order_reference": order_reference,
+            "description": description,
+        },
+    )
     if entry_type == LedgerEntry.Type.TOPUP:
         recalculate_wallet_tier(locked_wallet)
+    from .experience_services import notify_entry_posted
+    notify_entry_posted(entry)
     return entry
-
-
-def _create_owner_payment_notifications(payment):
-    owners = Membership.objects.filter(business=payment.business, role=Membership.Role.OWNER, is_active=True).select_related("user")
-    notifications = [AppNotification(recipient=item.user, business=payment.business, location=payment.location, kind=AppNotification.Kind.PAYMENT, title="Neue A+ Pay Zahlung", body=f"{payment.wallet.display_name} hat {payment.base_amount:.2f} € + {payment.tip_amount:.2f} € Trinkgeld bei {payment.location.name} bezahlt.", data={"payment_request_id": str(payment.pk), "wallet_id": str(payment.wallet_id), "member_number": payment.wallet.member_number, "location_id": str(payment.location_id), "base_amount": str(payment.base_amount), "tip_amount": str(payment.tip_amount), "total_amount": str(payment.total_amount)}) for item in owners]
-    if notifications:
-        AppNotification.objects.bulk_create(notifications)
 
 
 @transaction.atomic
@@ -143,16 +170,29 @@ def create_payment_request(*, wallet, location, actor, amount, description="", o
             raise ValidationError("Der ausgewählte Mitarbeiter gehört nicht zu SAMS.")
     else:
         tip_employee = None
-    payment = PaymentRequest.objects.create(business=wallet.business, location=location, wallet=wallet, created_by=actor, base_amount=amount, tip_recipient=tip_recipient, tip_employee=tip_employee, description=description.strip(), order_reference=order_reference.strip(), customer_confirmation_required=settings_obj.require_customer_confirmation, expires_at=timezone.now() + timedelta(minutes=10))
+    payment = PaymentRequest.objects.create(
+        business=wallet.business,
+        location=location,
+        wallet=wallet,
+        created_by=actor,
+        base_amount=amount,
+        tip_recipient=tip_recipient,
+        tip_employee=tip_employee,
+        description=description.strip(),
+        order_reference=order_reference.strip(),
+        customer_confirmation_required=settings_obj.require_customer_confirmation,
+        expires_at=timezone.now() + timedelta(minutes=10),
+    )
     if not settings_obj.require_customer_confirmation:
         finalize_payment_request(payment=payment, confirmed_by=actor, tip_percentage=tip_percentage, ip_address=ip_address)
+    else:
+        from .experience_services import notify_payment_created
+        notify_payment_created(payment)
     return payment
 
 
 @transaction.atomic
 def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_address=None):
-    # Lock only the payment row and non-nullable relations. Optional owner/profile
-    # data is loaded lazily when the wallet validation needs it.
     payment = PaymentRequest.objects.select_for_update().select_related("business", "location", "wallet").get(pk=payment.pk)
     if payment.status != PaymentRequest.Status.PENDING:
         raise ValidationError("Diese Zahlungsanfrage wurde bereits bearbeitet.")
@@ -170,13 +210,33 @@ def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_addres
     tip_amount = (payment.base_amount * percentage / Decimal("100")).quantize(Decimal("0.01"))
     if payment.wallet.balance < payment.base_amount + tip_amount:
         raise ValidationError("Nicht genügend Guthaben für Zahlung und Trinkgeld.")
-    purchase = post_wallet_entry(wallet=payment.wallet, location=payment.location, payment_request=payment, entry_type=LedgerEntry.Type.PURCHASE, amount=payment.base_amount, actor=payment.created_by, description=payment.description or f"Zahlung bei {payment.location.name}", order_reference=payment.order_reference, ip_address=ip_address)
+    purchase = post_wallet_entry(
+        wallet=payment.wallet,
+        location=payment.location,
+        payment_request=payment,
+        entry_type=LedgerEntry.Type.PURCHASE,
+        amount=payment.base_amount,
+        actor=payment.created_by,
+        description=payment.description or f"Zahlung bei {payment.location.name}",
+        order_reference=payment.order_reference,
+        ip_address=ip_address,
+    )
     tip_entry = None
     if tip_amount > 0:
         tip_description = "Trinkgeld für das Team"
         if payment.tip_employee_id:
             tip_description = f"Trinkgeld für {payment.tip_employee.get_full_name() or payment.tip_employee.username}"
-        tip_entry = post_wallet_entry(wallet=payment.wallet, location=payment.location, payment_request=payment, entry_type=LedgerEntry.Type.TIP, amount=tip_amount, actor=payment.created_by, description=tip_description, order_reference=payment.order_reference, ip_address=ip_address)
+        tip_entry = post_wallet_entry(
+            wallet=payment.wallet,
+            location=payment.location,
+            payment_request=payment,
+            entry_type=LedgerEntry.Type.TIP,
+            amount=tip_amount,
+            actor=payment.created_by,
+            description=tip_description,
+            order_reference=payment.order_reference,
+            ip_address=ip_address,
+        )
     payment.tip_percentage = percentage
     payment.tip_amount = tip_amount
     payment.purchase_entry = purchase
@@ -184,8 +244,24 @@ def finalize_payment_request(*, payment, confirmed_by, tip_percentage, ip_addres
     payment.status = PaymentRequest.Status.CONFIRMED
     payment.confirmed_at = timezone.now()
     payment.save(update_fields=["tip_percentage", "tip_amount", "purchase_entry", "tip_entry", "status", "confirmed_at"])
-    _create_owner_payment_notifications(payment)
-    AuditEvent.objects.create(actor=confirmed_by, business=payment.business, action="payment.confirmed", object_type="payment_request", object_id=str(payment.pk), ip_address=ip_address, details={"location_id": str(payment.location_id), "member_number": payment.wallet.member_number, "base_amount": str(payment.base_amount), "tip_amount": str(tip_amount), "tip_recipient": payment.tip_recipient, "tip_employee_id": payment.tip_employee_id})
+    from .experience_services import notify_payment_finalized
+    notify_payment_finalized(payment)
+    AuditEvent.objects.create(
+        actor=confirmed_by,
+        business=payment.business,
+        action="payment.confirmed",
+        object_type="payment_request",
+        object_id=str(payment.pk),
+        ip_address=ip_address,
+        details={
+            "location_id": str(payment.location_id),
+            "member_number": payment.wallet.member_number,
+            "base_amount": str(payment.base_amount),
+            "tip_amount": str(tip_amount),
+            "tip_recipient": payment.tip_recipient,
+            "tip_employee_id": payment.tip_employee_id,
+        },
+    )
     return payment
 
 

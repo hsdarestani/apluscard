@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="{% static 'cards/ledger.css' %}">
   <link rel="stylesheet" href="{% static 'cards/sams-platform.css' %}">
   <link rel="stylesheet" href="{% static 'cards/legal.css' %}">
+  <link rel="stylesheet" href="{% static 'cards/experience.css' %}">
   <style>html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;}</style>
   {% block head %}{% endblock %}
 </head>
@@ -32,6 +33,9 @@
     <div class="topbar-actions">
       <button class="button secondary small install-button" id="install-app" type="button">App installieren</button>
       {% if user.is_authenticated %}
+        <a class="notification-button" id="notification-button" data-count-url="{% url 'unread_notification_count' %}" href="{% url 'notification_center' %}" aria-label="Mitteilungen">
+          <span>●</span><b>Mitteilungen</b><em id="notification-count" {% if not global_unread_notification_count %}hidden{% endif %}>{{ global_unread_notification_count|default:0 }}</em>
+        </a>
         <span class="user-chip">{{ user.get_full_name|default:user.username }}</span>
         <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link-button" type="submit">Abmelden</button></form>
       {% else %}
@@ -57,8 +61,8 @@
   {% if user.is_authenticated %}
   <nav class="mobile-nav" aria-label="Navigation für Mobilgeräte">
     <a href="{% url 'dashboard' %}" class="active"><span>⌂</span><span>Start</span></a>
-    <a href="{% url 'dashboard' %}"><span>▣</span><span>Guthaben</span></a>
-    <a href="{% url 'dashboard' %}"><span>◇</span><span>Angebote</span></a>
+    <a href="{% url 'notification_center' %}"><span>●</span><span>Mitteilungen</span></a>
+    <a href="{% url 'transaction_cases' %}"><span>◇</span><span>Prüffälle</span></a>
     <a href="{% url 'privacy_choices' %}"><span>◎</span><span>Datenschutz</span></a>
   </nav>
   {% endif %}

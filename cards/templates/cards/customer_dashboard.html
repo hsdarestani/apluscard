@@ -1,5 +1,5 @@
 {% extends 'cards/base.html' %}
-{% load sams_de %}
+{% load sams_de experience_tags %}
 {% block title %}Meine Mitgliedskarte · SAMS Club Lounge{% endblock %}
 {% block content %}
 <section class="dashboard-head">
@@ -21,14 +21,9 @@
 </section>
 {% endif %}
 
-<section class="location-strip">
-  <div><span class="eyebrow">Aktiver Standort</span><strong>{{ active_location.name|default:"Standort wählen" }}</strong></div>
-  <form method="post" action="{% url 'select_location' %}" class="inline-select">{% csrf_token %}
-    <input type="hidden" name="next" value="{% url 'customer_dashboard' %}">
-    <select name="location_id" aria-label="SAMS Standort" onchange="this.form.submit()">
-      {% for location in locations %}<option value="{{ location.id }}" {% if location.id == active_location.id %}selected{% endif %}>{{ location.name }}</option>{% endfor %}
-    </select>
-  </form>
+<section class="location-strip location-strip-simple">
+  <div><span class="eyebrow">Dein aktueller Standort</span><strong>{{ active_location.name|default:"Standort wählen" }}</strong>{% if active_location %}<small>{{ active_location.address|location_address_only }}</small>{% endif %}</div>
+  <a class="button secondary" href="{% url 'customer_location_select' %}?next={% url 'customer_dashboard' %}">Standort mit Bildern wechseln</a>
 </section>
 
 {% for payment in pending_payments %}
@@ -52,9 +47,13 @@
     <div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div>
     <div class="wallet-bonus">Diesen Monat aufgeladen: {{ wallet.monthly_topup_total|floatformat:2 }} €</div>
     <div class="tier-progress"><span style="width:{% if wallet.tier == 'PLATINUM' %}100{% elif wallet.tier == 'GOLD' %}72{% else %}35{% endif %}%"></span></div>
-    <div class="qr-frame"><div id="customer-qr" class="qr-box" data-token="{{ wallet.qr_token }}"></div></div>
+    <div class="qr-frame"><div class="qr-box"><img src="{{ wallet.qr_token|qr_data_uri }}" width="194" height="194" alt="QR-Code der Mitgliedskarte"></div></div>
     <div class="wallet-code">Mitgliedsnummer {{ wallet.member_number }}</div>
     <div class="member-line"><span>Für alle SAMS Standorte</span><span>✦ {{ wallet.tier|sams_label }}</span></div>
+    <div class="wallet-actions">
+      {% if apple_wallet_enabled %}<a class="apple-wallet-button" href="{% url 'apple_wallet_pass' %}"><span>＋</span><strong>Zu Apple Wallet hinzufügen</strong></a>{% endif %}
+      <a class="button secondary full" href="{% url 'transaction_cases' %}">Meine Prüffälle</a>
+    </div>
   </article>
 
   <div class="dashboard-stack">
@@ -75,7 +74,7 @@
       <div class="offer-grid">
         {% for offer in offers %}
         <article class="offer-card">
-          {% if offer.image %}<img src="{{ offer.image.url }}" alt="{{ offer.title }}">{% endif %}
+          {% if offer.image %}<img src="{{ offer.image.url }}" alt="{{ offer.title }}" loading="lazy">{% endif %}
           <div><small>{{ offer.location.name|default:"Alle Standorte" }} · {{ offer.target_tier|sams_label }}</small><h3>{{ offer.title }}</h3><p>{{ offer.body|linebreaksbr }}</p></div>
         </article>
         {% empty %}<div class="empty-state">Für diesen Standort gibt es aktuell keine neuen Angebote.</div>{% endfor %}
@@ -84,12 +83,12 @@
     </article>
 
     <article class="panel" id="transactions">
-      <div class="section-heading"><div><span class="eyebrow">Zahlungen</span><h2>Transaktionen & Belege</h2></div></div>
+      <div class="section-heading"><div><span class="eyebrow">Zahlungen</span><h2>Transaktionen & Belege</h2></div><a class="text-link" href="{% url 'transaction_cases' %}">Prüffälle öffnen →</a></div>
       <div class="transaction-list">
         {% for entry in entries %}
-        <div class="transaction-row">
+        <div class="transaction-row transaction-row-actions">
           <div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div>
-          <div class="transaction-main"><strong>{{ entry.entry_type|sams_label }}</strong><span>{{ entry.location.name|default:"SAMS" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span><a class="bill-link" href="{% url 'bill_detail' entry.id %}">Beleg {{ entry.bill_number }} öffnen →</a></div>
+          <div class="transaction-main"><strong>{{ entry.entry_type|sams_label }}</strong><span>{{ entry.location.name|default:"SAMS" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span><div class="transaction-links"><a class="bill-link" href="{% url 'bill_detail' entry.id %}">Beleg {{ entry.bill_number }} öffnen</a><a class="case-link" href="{% url 'transaction_case_create' entry.id %}">Transaktion melden</a></div></div>
           <div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</div>
         </div>
         {% empty %}<div class="empty-state">Deine erste SAMS-Aktivität erscheint hier.</div>{% endfor %}
@@ -97,8 +96,4 @@
     </article>
   </div>
 </section>
-{% endblock %}
-{% block scripts %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script>window.addEventListener('load',function(){const t=document.getElementById('customer-qr');if(t&&window.QRCode)new QRCode(t,{text:t.dataset.token,width:194,height:194,correctLevel:QRCode.CorrectLevel.H});});</script>
 {% endblock %}

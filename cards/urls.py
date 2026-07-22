@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, legal_views, manager_views, views
+from . import api, experience_views, legal_views, manager_views, notification_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
@@ -20,17 +20,28 @@ urlpatterns = [
     path("apps/<slug:business_slug>/konto-loeschen/", legal_views.account_deletion, name="app_account_deletion"),
     path("health/", views.health, name="health"),
     path("manifest.webmanifest", views.manifest, name="manifest"),
-    path("sw.js", views.service_worker, name="service_worker"),
+    path("sw.js", experience_views.service_worker, name="service_worker"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("location/select/", views.select_location, name="select_location"),
+    path("customer/standort-waehlen/", experience_views.customer_location_select, name="customer_location_select"),
     path("customer/", views.customer_dashboard, name="customer_dashboard"),
+    path("customer/apple-wallet/", experience_views.apple_wallet_pass, name="apple_wallet_pass"),
     path("customer/payments/<uuid:payment_id>/confirm/", views.customer_confirm_payment, name="customer_confirm_payment"),
     path("customer/reviews/<uuid:location_id>/complete/", views.mark_reviewed, name="mark_reviewed"),
+    path("mitteilungen/", experience_views.notification_center, name="notification_center"),
+    path("mitteilungen/anzahl/", notification_views.unread_notification_count, name="unread_notification_count"),
+    path("mitteilungen/alle-gelesen/", experience_views.notifications_read_all, name="notifications_read_all"),
+    path("mitteilungen/<int:notification_id>/lesen/", experience_views.notification_read, name="notification_read"),
+    path("transaktionsfaelle/", experience_views.transaction_cases, name="transaction_cases"),
+    path("transaktionen/<uuid:entry_id>/fall-erstellen/", experience_views.transaction_case_create, name="transaction_case_create"),
+    path("transaktionsfaelle/<uuid:case_id>/", experience_views.transaction_case_detail, name="transaction_case_detail"),
+    path("transaktionsfaelle/<uuid:case_id>/pruefen/", experience_views.transaction_case_review, name="transaction_case_review"),
     path("bills/<uuid:entry_id>/", views.bill_detail, name="bill_detail"),
     path("staff/", views.staff_dashboard, name="staff_dashboard"),
     path("staff/charge/", views.staff_charge, name="staff_charge"),
     path("manager/", views.manager_dashboard, name="manager_dashboard"),
     path("manager/settings/", views.manager_settings, name="manager_settings"),
+    path("manager/standortbild/", experience_views.location_visual_update, name="location_visual_update"),
     path("manager/rechtliches/", legal_views.manager_legal, name="manager_legal"),
     path("manager/notifications/<int:notification_id>/read/", views.mark_notification_read, name="mark_notification_read"),
     path("manager/wallets/create/", views.manager_wallet_create, name="manager_wallet_create"),
@@ -47,6 +58,10 @@ urlpatterns = [
     path("api/v1/payments/pending/", api.PendingPaymentsView.as_view(), name="api_pending_payments"),
     path("api/v1/payments/<uuid:payment_id>/confirm/", api.ConfirmPaymentView.as_view(), name="api_confirm_payment"),
     path("api/v1/notifications/", api.NotificationsView.as_view(), name="api_notifications"),
+    path("api/v1/transaction-cases/", api.TransactionCasesView.as_view(), name="api_transaction_cases"),
+    path("api/v1/transactions/<uuid:entry_id>/transaction-cases/", api.TransactionCaseCreateView.as_view(), name="api_transaction_case_create"),
+    path("api/v1/transaction-cases/<uuid:case_id>/", api.TransactionCaseDetailView.as_view(), name="api_transaction_case_detail"),
+    path("api/v1/transaction-cases/<uuid:case_id>/review/", api.TransactionCaseReviewView.as_view(), name="api_transaction_case_review"),
     path("api/v1/push-devices/", api.PushDeviceView.as_view(), name="api_push_devices"),
     path("api/v1/staff/charge/", api.StaffChargeView.as_view(), name="api_staff_charge"),
     path("api/v1/manager/topup/", api.ManagerTopupView.as_view(), name="api_manager_topup"),

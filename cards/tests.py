@@ -49,11 +49,10 @@ class PlatformMixin:
 class WalletServiceTests(PlatformMixin, TestCase):
     def setUp(self): self.create_platform()
 
-    def test_wallet_gets_unique_eight_digit_member_number(self):
+    def test_wallet_gets_sequential_member_number_from_101(self):
         second_wallet = Wallet.objects.create(business=self.business, display_name="Second")
-        self.assertEqual(len(self.wallet.member_number), 8)
-        self.assertTrue(self.wallet.member_number.isdigit())
-        self.assertNotEqual(self.wallet.member_number, second_wallet.member_number)
+        self.assertEqual(self.wallet.member_number, "101")
+        self.assertEqual(second_wallet.member_number, "102")
 
     def test_topup_and_purchase_update_shared_balance_across_locations(self):
         post_wallet_entry(wallet=self.wallet, entry_type=LedgerEntry.Type.TOPUP, amount="100", actor=self.owner)
@@ -144,12 +143,16 @@ class CustomerRegistrationTests(TestCase):
 
     def test_registration_creates_unverified_profile_wallet_and_session(self):
         response = self.client.post(reverse("register"), self.registration_payload())
-        self.assertRedirects(response, reverse("customer_dashboard"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("customer_dashboard"))
         user = get_user_model().objects.get(email="new.member@example.com")
         profile = user.member_profile; wallet = Wallet.objects.get(owner=user, business=self.business)
         self.assertFalse(profile.email_verified); self.assertTrue(profile.age_confirmed); self.assertEqual(profile.birth_date, date(1995, 5, 5)); self.assertEqual(wallet.display_name, "Lena Sommer")
+        self.assertEqual(wallet.member_number, "101")
         self.assertTrue(LegalAcceptance.objects.filter(user=user, document_type=LegalAcceptance.DocumentType.TERMS).exists())
         self.assertEqual(int(self.client.session["_auth_user_id"]), user.pk)
+        location_response = self.client.get(reverse("customer_dashboard"))
+        self.assertRedirects(location_response, reverse("customer_location_select"))
 
     def test_email_verification_link_activates_member(self):
         self.client.post(reverse("register"), self.registration_payload())

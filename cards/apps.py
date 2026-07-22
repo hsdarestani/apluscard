@@ -8,10 +8,12 @@ class CardsConfig(AppConfig):
 
     def import_models(self):
         super().import_models()
-        # Rechtliche Modelle liegen getrennt, gehören aber zur selben Django-App.
-        from . import legal_models  # noqa: F401
+        # Zusätzliche Modellgruppen gehören weiterhin zur Django-App `cards`.
+        from . import experience_models, legal_models  # noqa: F401
 
     def ready(self):
+        from . import experience_signals  # noqa: F401
+        from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
         from .models import (
             AppNotification,
             AuditEvent,
@@ -49,12 +51,15 @@ class CardsConfig(AppConfig):
         model_names = {
             Business: ("Betrieb", "Betriebe"),
             Location: ("Standort", "Standorte"),
+            LocationVisual: ("Standortbild", "Standortbilder"),
             BusinessSettings: ("Betriebseinstellung", "Betriebseinstellungen"),
             Membership: ("Berechtigung", "Berechtigungen"),
             MemberProfile: ("Mitgliederprofil", "Mitgliederprofile"),
             Wallet: ("Mitgliedsguthaben", "Mitgliedsguthaben"),
+            MemberNumberSequence: ("Nummernkreis", "Nummernkreise"),
             PaymentRequest: ("Zahlungsanfrage", "Zahlungsanfragen"),
             LedgerEntry: ("Transaktion", "Transaktionen"),
+            TransactionCase: ("Transaktionsfall", "Transaktionsfälle"),
             Offer: ("Angebot", "Angebote"),
             ReviewStatus: ("Bewertungsstatus", "Bewertungsstatus"),
             AppNotification: ("Mitteilung", "Mitteilungen"),

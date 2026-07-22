@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
 from .legal_models import AccountDeletionRequest, LegalAcceptance, LegalConfiguration, PrivacyPreference
 from .models import AppNotification, AuditEvent, Business, BusinessSettings, LedgerEntry, Location, MemberProfile, Membership, Offer, PaymentRequest, PushDevice, ReviewStatus, Wallet
 
@@ -17,9 +18,23 @@ class LocationAdmin(admin.ModelAdmin):
     search_fields = ("name", "address")
 
 
+@admin.register(LocationVisual)
+class LocationVisualAdmin(admin.ModelAdmin):
+    list_display = ("location", "short_description", "updated_at")
+    search_fields = ("location__name", "short_description")
+
+
 @admin.register(BusinessSettings)
 class BusinessSettingsAdmin(admin.ModelAdmin):
     list_display = ("business", "require_customer_confirmation", "tip_allocation", "gold_threshold", "platinum_threshold", "official_invoice_enabled")
+
+
+@admin.register(MemberNumberSequence)
+class MemberNumberSequenceAdmin(admin.ModelAdmin):
+    list_display = ("next_number", "updated_at")
+    readonly_fields = ("id", "updated_at")
+    def has_add_permission(self, request): return not MemberNumberSequence.objects.exists()
+    def has_delete_permission(self, request, obj=None): return False
 
 
 @admin.register(LegalConfiguration)
@@ -94,6 +109,14 @@ class LedgerEntryAdmin(admin.ModelAdmin):
     def has_add_permission(self, request): return False
     def has_change_permission(self, request, obj=None): return False
     def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(TransactionCase)
+class TransactionCaseAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "case_number", "business", "wallet", "reason", "status", "requested_amount", "approved_amount", "reviewed_by")
+    list_filter = ("business", "location", "reason", "status", "opened_by_role")
+    search_fields = ("case_number", "wallet__member_number", "wallet__display_name", "ledger_entry__bill_number", "description", "manager_note")
+    readonly_fields = ("id", "case_number", "business", "location", "wallet", "ledger_entry", "opened_by", "opened_by_role", "created_at", "updated_at", "refund_entry")
 
 
 @admin.register(Offer)

@@ -28,6 +28,7 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "cards.security_middleware.SecurityHeadersMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -35,6 +36,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "cards.legal_middleware.LegalAcceptanceMiddleware",
+    "cards.location_middleware.CustomerLocationSelectionMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -88,6 +90,7 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "1") == "1"
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "SAMS Club Lounge <noreply@smarbiz.sbs>")
 DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
+FILE_UPLOAD_PERMISSIONS = 0o640
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "login"
@@ -158,6 +161,19 @@ if APPLE_LOGIN_ENABLED:
         })
 SOCIALACCOUNT_PROVIDERS = {"apple": {"APPS": APPLE_PROVIDER_APPS}}
 
+# Apple Wallet uses a Pass Type ID certificate, not the Sign-in-with-Apple .p8 key.
+APPLE_WALLET_PASS_TYPE_ID = os.getenv("APPLE_WALLET_PASS_TYPE_ID", "").strip()
+APPLE_WALLET_TEAM_ID = os.getenv("APPLE_WALLET_TEAM_ID", APPLE_TEAM_ID).strip()
+APPLE_WALLET_P12_BASE64 = os.getenv("APPLE_WALLET_P12_BASE64", "").strip()
+APPLE_WALLET_P12_PASSWORD = os.getenv("APPLE_WALLET_P12_PASSWORD", "").strip()
+APPLE_WALLET_WWDR_CERT_BASE64 = os.getenv("APPLE_WALLET_WWDR_CERT_BASE64", "").strip()
+APPLE_WALLET_ENABLED = all([
+    APPLE_WALLET_PASS_TYPE_ID,
+    APPLE_WALLET_TEAM_ID,
+    APPLE_WALLET_P12_BASE64,
+    APPLE_WALLET_WWDR_CERT_BASE64,
+])
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication", "rest_framework.authentication.TokenAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
@@ -168,6 +184,14 @@ SESSION_COOKIE_SECURE = os.getenv("DJANGO_SECURE_COOKIES", "1") == "1"
 CSRF_COOKIE_SECURE = os.getenv("DJANGO_SECURE_COOKIES", "1") == "1"
 SESSION_COOKIE_SAMESITE = os.getenv("DJANGO_SESSION_COOKIE_SAMESITE", "None")
 CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_NAME = "__Host-sid" if SESSION_COOKIE_SECURE else "sid"
+CSRF_COOKIE_NAME = "__Host-ct" if CSRF_COOKIE_SECURE else "ct"
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 14
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin-allow-popups"
 SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "0"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
 SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
