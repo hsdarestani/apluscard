@@ -104,6 +104,12 @@ jobs:
               and timers_ok
           )
 
+          backend = (backup or {}).get("backend", "unknown")
+          backend_label = {
+              "rclone": "Google Drive / rclone",
+              "s3": "S3-compatible Object Storage",
+          }.get(backend, backend)
+
           values = {
               "healthy": str(healthy).lower(),
               "configured": str(bool(payload.get("configured"))).lower(),
@@ -112,6 +118,7 @@ jobs:
               "snapshot": (backup or {}).get("snapshot_id", "unknown"),
               "backup_status": (backup or {}).get("status", "missing"),
               "drill_status": (drill or {}).get("status", "missing"),
+              "backend": backend_label,
               "timers_ok": str(timers_ok).lower(),
           }
           with open(output, "a", encoding="utf-8") as handle:
@@ -133,6 +140,7 @@ jobs:
           SNAPSHOT: ${{ steps.evaluate.outputs.snapshot }}
           BACKUP_STATUS: ${{ steps.evaluate.outputs.backup_status }}
           DRILL_STATUS: ${{ steps.evaluate.outputs.drill_status }}
+          BACKEND: ${{ steps.evaluate.outputs.backend }}
           TIMERS_OK: ${{ steps.evaluate.outputs.timers_ok }}
         with:
           script: |
@@ -143,6 +151,7 @@ jobs:
               healthy ? '✅ **سالم و قابل بازیابی**' : '❌ **نیازمند بررسی فوری**',
               '',
               `- تنظیم شده: ${process.env.CONFIGURED || 'unknown'}`,
+              `- مقصد: ${process.env.BACKEND || 'unknown'}`,
               `- آخرین Backup: ${process.env.BACKUP_STATUS || 'unknown'} · ${process.env.BACKUP_AGE || 'unknown'} ساعت قبل`,
               `- آخرین Snapshot: ${process.env.SNAPSHOT || 'unknown'}`,
               `- آخرین Restore Drill: ${process.env.DRILL_STATUS || 'unknown'} · ${process.env.DRILL_AGE || 'unknown'} ساعت قبل`,
