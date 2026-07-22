@@ -1,0 +1,21 @@
+[Unit]
+Description=Apluscard weekly backup restore drill
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/apluscard
+Environment=APP_DIR=/root/apluscard
+Environment=BACKUP_ENV=/root/apluscard/.backup.env
+ExecStart=/root/apluscard/ops/backup/restore-drill.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/root/apluscard /var/lib/apluscard-backup /var/lock
+TimeoutStartSec=3h
