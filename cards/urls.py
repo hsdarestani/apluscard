@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, experience_views, legal_views, manager_views, views
+from . import api, experience_views, legal_views, manager_views, notification_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
@@ -29,6 +29,7 @@ urlpatterns = [
     path("customer/payments/<uuid:payment_id>/confirm/", views.customer_confirm_payment, name="customer_confirm_payment"),
     path("customer/reviews/<uuid:location_id>/complete/", views.mark_reviewed, name="mark_reviewed"),
     path("mitteilungen/", experience_views.notification_center, name="notification_center"),
+    path("mitteilungen/anzahl/", notification_views.unread_notification_count, name="unread_notification_count"),
     path("mitteilungen/alle-gelesen/", experience_views.notifications_read_all, name="notifications_read_all"),
     path("mitteilungen/<int:notification_id>/lesen/", experience_views.notification_read, name="notification_read"),
     path("transaktionsfaelle/", experience_views.transaction_cases, name="transaction_cases"),
