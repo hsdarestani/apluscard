@@ -64,7 +64,7 @@ cd "$APP_DIR"
 docker compose ps --status running db | grep -q db || { echo "PostgreSQL-Container läuft nicht." >&2; exit 1; }
 
 HOST_TAG="${BACKUP_HOST_TAG:-apluscard-production}"
-SNAPSHOT_ID="$(restic snapshots --json --latest 1 --host "$HOST_TAG" --tag apluscard | jq -r '.[0].short_id // .[0].id // empty')"
+SNAPSHOT_ID="$(restic snapshots --json --host "$HOST_TAG" --tag apluscard | jq -r 'sort_by(.time) | last | .short_id // .id // empty')"
 [[ -n "$SNAPSHOT_ID" ]] || { echo "Kein Apluscard-Backup gefunden." >&2; exit 1; }
 
 RESTORE_DIR="$(mktemp -d "$STATE_DIR/restore-drill.XXXXXX")"
