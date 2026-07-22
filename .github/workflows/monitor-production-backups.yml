@@ -99,7 +99,7 @@ jobs:
               payload.get("configured")
               and backup and backup.get("status") == "success"
               and drill and drill.get("status") == "success"
-              and backup_age is not None and backup_age <= 36
+              and backup_age is not None and backup_age <= 8
               and drill_age is not None and drill_age <= 192
               and timers_ok
           )
@@ -147,8 +147,9 @@ jobs:
               `- آخرین Snapshot: ${process.env.SNAPSHOT || 'unknown'}`,
               `- آخرین Restore Drill: ${process.env.DRILL_STATUS || 'unknown'} · ${process.env.DRILL_AGE || 'unknown'} ساعت قبل`,
               `- Timerها فعال: ${process.env.TIMERS_OK || 'unknown'}`,
+              '- RPO هدف: حداکثر ۶ ساعت',
               '- محتوا: PostgreSQL، Media و Production configuration رمزنگاری‌شده',
-              '- Retention: ۱۴ روزانه، ۸ هفتگی، ۱۲ ماهانه، ۳ سالانه',
+              '- Retention: تمام Snapshotهای ۷ روز اخیر، سپس ۳۰ روزانه، ۱۲ هفتگی، ۱۲ ماهانه و ۳ سالانه',
               '- هیچ داده مشتری یا Secret در GitHub منتشر نشده است',
               '',
               `Monitor: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
