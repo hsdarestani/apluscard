@@ -1,0 +1,170 @@
+.notification-button {
+  position: relative;
+  min-height: 40px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(255,255,255,.045);
+  font-size: 11px;
+  font-weight: 750;
+}
+.notification-button > span { color: #f263bd; font-size: 9px; }
+.notification-button em {
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  position: absolute;
+  right: -7px;
+  top: -8px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #f032a7;
+  color: white;
+  font-size: 9px;
+  font-style: normal;
+  box-shadow: 0 5px 20px rgba(240,50,167,.35);
+}
+
+.location-choice-head { max-width: 850px; margin: 18px auto 38px; text-align: center; }
+.location-choice-head h1 {
+  margin: 13px 0 20px;
+  font: clamp(48px, 8vw, 88px)/.94 Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+}
+.location-choice-head p { max-width: 680px; margin: 0 auto; color: var(--muted); line-height: 1.7; }
+.location-choice-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
+.location-choice-card { margin: 0; }
+.location-choice-card button {
+  width: 100%;
+  min-height: 520px;
+  padding: 0;
+  display: grid;
+  grid-template-rows: 270px 1fr;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  color: var(--text);
+  text-align: left;
+  background: #0c0814;
+  cursor: pointer;
+  box-shadow: 0 24px 70px rgba(0,0,0,.38);
+  transition: transform .2s ease, border-color .2s ease;
+}
+.location-choice-card button:hover { transform: translateY(-4px); border-color: rgba(240,50,167,.45); }
+.location-choice-media { position: relative; overflow: hidden; background: linear-gradient(135deg,#29133c,#0d0816); }
+.location-choice-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.location-choice-overlay { position: absolute; inset: 0; background: linear-gradient(180deg,transparent 45%,rgba(8,5,15,.85)); }
+.location-choice-fallback { width:100%;height:100%;display:grid;place-content:center;text-align:center;background:radial-gradient(circle at 70% 25%,rgba(240,50,167,.25),transparent 35%),linear-gradient(135deg,#24123a,#0a0711); }
+.location-choice-fallback strong { font: 96px/1 Impact,sans-serif; color: rgba(255,255,255,.16); }
+.location-choice-fallback small { color: var(--muted); text-transform: uppercase; letter-spacing: .16em; }
+.location-choice-copy { position: relative; padding: 25px; display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
+.location-choice-number { position:absolute;right:20px;top:16px;color:rgba(255,255,255,.12);font:58px/1 Impact,sans-serif; }
+.location-choice-copy > strong { max-width: 80%; font-size: 23px; line-height: 1.1; }
+.location-choice-copy > small { color: #f185c7; font-size: 11px; }
+.location-choice-copy > span:not(.location-choice-number) { color: var(--muted); line-height: 1.55; font-size: 12px; }
+.location-choice-copy em { color: #fff; font-style: normal; font-weight: 750; }
+.location-choice-copy b { margin-top: auto; color: #ff85cc; font-size: 12px; }
+.location-strip-simple small { display:block; margin-top:6px; color:var(--muted); white-space:pre-line; }
+
+.wallet-actions { position:relative;z-index:3;display:grid;gap:10px;margin-top:20px; }
+.apple-wallet-button {
+  min-height: 52px;
+  padding: 10px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  border-radius:14px;
+  background:#fff;
+  color:#050505;
+  font-size:13px;
+  box-shadow:0 12px 30px rgba(0,0,0,.3);
+}
+.apple-wallet-button span { font-size:22px; font-weight:300; }
+
+.transaction-links { display:flex;flex-wrap:wrap;gap:12px;margin-top:3px; }
+.case-link { color:#ff9dd8;font-size:10px;font-weight:750; }
+.transaction-row-actions { align-items:flex-start; }
+
+.notification-center { padding: 10px 26px; }
+.notification-list { display:grid; }
+.notification-item { display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:15px;align-items:center;padding:19px 0;border-bottom:1px solid var(--line);opacity:.72; }
+.notification-item:last-child { border-bottom:0; }
+.notification-item.unread { opacity:1; }
+.notification-symbol { width:42px;height:42px;display:grid;place-items:center;border-radius:14px;background:rgba(240,50,167,.1);border:1px solid rgba(240,50,167,.2);color:#ff8dce;font-weight:900; }
+.notification-item.unread .notification-symbol { background:var(--gradient);color:#fff; }
+.notification-copy { min-width:0; }
+.notification-copy strong { font-size:14px; }
+.notification-copy p { margin:6px 0;color:#c0b4c6;font-size:12px;line-height:1.55; }
+.notification-copy small { color:var(--muted-2);font-size:10px; }
+
+.case-layout { display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:20px;align-items:start; }
+.case-transaction-summary dl { display:grid;gap:0;margin:22px 0; }
+.case-transaction-summary dl div { display:grid;grid-template-columns:150px 1fr;gap:14px;padding:12px 0;border-bottom:1px solid var(--line); }
+.case-transaction-summary dt { color:var(--muted);font-size:11px; }
+.case-transaction-summary dd { margin:0;font-size:12px;font-weight:700; }
+.case-transaction-summary h3 { margin-top:24px;font-size:14px; }
+.case-transaction-summary p { color:#c8bdcd;line-height:1.7; }
+.case-list { display:grid; }
+.case-list-row { display:grid;grid-template-columns:1fr 1fr auto;gap:20px;align-items:center;padding:18px 0;border-bottom:1px solid var(--line); }
+.case-list-row:last-child { border-bottom:0; }
+.case-list-row > div { display:grid;gap:5px;min-width:0; }
+.case-list-row span,.case-list-row small { color:var(--muted);font-size:10px; }
+.status-pill.open,.status-pill.in_review { color:#ffd9a0;border-color:rgba(255,180,59,.25);background:rgba(255,180,59,.08); }
+.status-pill.approved { color:#b8ffe5;border-color:rgba(72,230,173,.25);background:rgba(72,230,173,.08); }
+.status-pill.rejected,.status-pill.cancelled { color:#ffc2d0;border-color:rgba(255,100,133,.25);background:rgba(255,100,133,.08); }
+
+.location-admin-image { width:100%;height:150px;object-fit:cover;border-radius:14px;margin-bottom:12px; }
+.location-admin-grid article p { margin:8px 0;color:#c7bbc9;font-size:11px;line-height:1.5; }
+.admin-details { margin-top:22px;padding-top:18px;border-top:1px solid var(--line); }
+.admin-details summary { cursor:pointer;color:var(--muted);font-size:12px; }
+
+/* Low-power mode: removes the largest continuous GPU/CPU costs on phones. */
+html.low-power { scroll-behavior:auto; }
+html.low-power body::before,
+html.low-power .ambient { display:none !important; }
+html.low-power .preview-phone,
+html.low-power .wallet-card::after,
+html.low-power .scanner-box::before,
+html.low-power .page-shell > * { animation:none !important; }
+html.low-power .topbar,
+html.low-power .button.secondary,
+html.low-power .feature-card,
+html.low-power .panel,
+html.low-power .stat-card { backdrop-filter:none !important;-webkit-backdrop-filter:none !important; }
+html.low-power .preview-phone { transform:none; }
+html.low-power .feature-card:hover,
+html.low-power .quick-action:hover,
+html.low-power .button:hover,
+html.low-power .location-choice-card button:hover { transform:none; }
+html.app-paused *,html.app-paused *::before,html.app-paused *::after { animation-play-state:paused !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,*::before,*::after { animation-duration:.001ms !important;animation-iteration-count:1 !important;scroll-behavior:auto !important;transition-duration:.001ms !important; }
+  .ambient { display:none !important; }
+  body::before { display:none !important; }
+}
+
+@media (max-width: 900px) {
+  .location-choice-grid { grid-template-columns:1fr;max-width:620px;margin:0 auto; }
+  .location-choice-card button { min-height:unset;grid-template-rows:210px auto; }
+  .case-layout { grid-template-columns:1fr; }
+  .case-list-row { grid-template-columns:1fr;gap:10px; }
+  .notification-item { grid-template-columns:40px minmax(0,1fr); }
+  .notification-item form { grid-column:2; }
+}
+
+@media (max-width: 700px) {
+  .topbar-actions .user-chip,.topbar-actions .notification-button b { display:none; }
+  .notification-button { min-width:40px;padding:0 11px;justify-content:center; }
+  .location-choice-head { margin-top:0; }
+  .location-choice-head h1 { font-size:46px; }
+  .location-choice-copy > strong { font-size:20px; }
+  .case-transaction-summary dl div { grid-template-columns:1fr;gap:5px; }
+  .notification-center { padding:6px 18px; }
+}
