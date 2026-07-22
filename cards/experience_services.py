@@ -210,7 +210,12 @@ def create_transaction_case(*, entry, opened_by, reason, description, requested_
 
 @transaction.atomic
 def review_transaction_case(*, transaction_case, reviewer, action, manager_note="", approved_amount=None, ip_address=None):
-    transaction_case = TransactionCase.objects.select_for_update().select_related(
+    case_id = transaction_case.pk
+    # PostgreSQL darf FOR UPDATE nicht auf die nullable Seite eines OUTER JOIN
+    # anwenden. Deshalb wird ausschließlich die Fallzeile gesperrt und die
+    # benötigten Beziehungen anschließend in einer separaten Abfrage geladen.
+    TransactionCase.objects.select_for_update().only("pk").get(pk=case_id)
+    transaction_case = TransactionCase.objects.select_related(
         "business",
         "location",
         "wallet",
@@ -218,7 +223,7 @@ def review_transaction_case(*, transaction_case, reviewer, action, manager_note=
         "ledger_entry",
         "ledger_entry__performed_by",
         "opened_by",
-    ).get(pk=transaction_case.pk)
+    ).get(pk=case_id)
     membership = require_role(reviewer, transaction_case.business, MANAGER_ROLES)
     if not transaction_case.can_be_reviewed:
         raise ValidationError("Dieser Fall wurde bereits abgeschlossen.")
