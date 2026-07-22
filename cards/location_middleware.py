@@ -19,6 +19,10 @@ class CustomerLocationSelectionMiddleware:
         "/rechtliches-bestaetigen/",
         "/customer/standort-waehlen/",
         "/mitteilungen/",
+        "/transaktionsfaelle/",
+        "/transaktionen/",
+        "/bills/",
+        "/api/",
     )
 
     def __init__(self, get_response):
