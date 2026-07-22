@@ -1,0 +1,25 @@
+{% extends 'cards/base.html' %}
+{% block title %}Mitteilungen · SAMS Club Lounge{% endblock %}
+{% block content %}
+<section class="dashboard-head">
+  <div><span class="eyebrow">Persönlicher Posteingang</span><h1>Deine<br><span class="gradient-text">Mitteilungen</span></h1><p class="muted">Zahlungen, Aufladungen, Angebote und Transaktionsfälle an einem Ort.</p></div>
+  <div class="dashboard-context"><span class="vip-chip">{{ unread_count }} ungelesen</span>{% if unread_count %}<form method="post" action="{% url 'notifications_read_all' %}">{% csrf_token %}<button class="button secondary small" type="submit">Alle als gelesen markieren</button></form>{% endif %}</div>
+</section>
+<section class="panel notification-center">
+  <div class="notification-list">
+    {% for notification in notifications %}
+    <article class="notification-item {% if not notification.is_read %}unread{% endif %}">
+      <div class="notification-symbol">{% if notification.kind == 'PAYMENT' %}€{% elif notification.kind == 'OFFER' %}✦{% elif notification.kind == 'BIRTHDAY' %}♢{% else %}●{% endif %}</div>
+      <div class="notification-copy">
+        <strong>{{ notification.title }}</strong>
+        <p>{{ notification.body }}</p>
+        <small>{% if notification.location %}{{ notification.location.name }} · {% endif %}{{ notification.created_at|date:"d.m.Y H:i" }}</small>
+      </div>
+      {% if not notification.is_read or notification.data.url %}
+      <form method="post" action="{% url 'notification_read' notification.id %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'notification_center' %}"><button class="button secondary small" type="submit">{% if notification.data.url %}Öffnen{% else %}Gelesen{% endif %}</button></form>
+      {% endif %}
+    </article>
+    {% empty %}<div class="empty-state">Noch keine Mitteilungen vorhanden.</div>{% endfor %}
+  </div>
+</section>
+{% endblock %}
