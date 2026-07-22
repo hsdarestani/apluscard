@@ -3,8 +3,8 @@
 {% block title %}Zahlungskasse · SAMS Club Lounge{% endblock %}
 {% block content %}
 <section class="dashboard-head">
-  <div><span class="eyebrow">{{ membership.business.name }}</span><h1>A+ Pay<br><span class="gradient-text">Zahlungskasse</span></h1><p class="muted">Jede SAMS-Mitgliedskarte kann an jedem Standort verwendet werden.</p></div>
-  <div class="dashboard-context"><span class="vip-chip">{{ active_location.name|default:"Standort wählen" }}</span><span class="role-pill">{{ membership.role|sams_label }}</span><a class="button secondary small" href="{% url 'notification_center' %}">Mitteilungen</a><a class="button secondary small" href="{% url 'transaction_cases' %}">Korrekturanfragen</a></div>
+  <div><span class="eyebrow">{{ membership.business.name }}</span><h1>A+ Pay<br><span class="gradient-text">Zahlungskasse</span></h1><p class="muted">Der abgestimmte Rechnungsbetrag wird direkt vom Mitgliedsguthaben abgebucht. Fehler können anschließend über einen Prüffall nachvollziehbar korrigiert werden.</p></div>
+  <div class="dashboard-context"><span class="vip-chip">{{ active_location.name|default:"Standort wählen" }}</span><span class="role-pill">{{ membership.role|sams_label }}</span><a class="button secondary small" href="{% url 'notification_center' %}">Mitteilungen</a><a class="button secondary small" href="{% url 'transaction_cases' %}">Transaktionen</a></div>
 </section>
 <section class="location-strip">
   <div><span class="eyebrow">Kassenstandort</span><strong>{{ active_location.name|default:"Nicht gewählt" }}</strong></div>
@@ -20,18 +20,18 @@
       <label>Kartencode<input id="wallet-token" type="text" name="wallet_token" placeholder="Code aus der Mitgliedskarte" required></label>
       <div class="two-col"><label>Betrag (€)<input type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="30.00" required></label><label>Bestellnummer<input type="text" name="order_reference" placeholder="KASSE-12345"></label></div>
       <label>Bestellung oder Beschreibung<input type="text" name="description" placeholder="Zum Beispiel: Bestellung laut Kasse"></label>
+      <fieldset class="tip-fieldset"><legend>Trinkgeld als fester Betrag</legend><p class="form-note">Den Kunden vor der Abbuchung fragen. Ein fester Eurobetrag ist transparenter als eine Prozentrechnung.</p><div class="tip-radio-grid">{% for tip in tip_choices %}<label><input type="radio" name="tip_amount" value="{{ tip.value }}" {% if forloop.first %}checked{% endif %}><span>{{ tip.label }}</span></label>{% endfor %}</div></fieldset>
       {% if settings.require_customer_confirmation %}
-        <input type="hidden" name="tip_percentage" value="0">
-        <div class="platform-alert"><strong>Kundenbestätigung aktiv</strong><span>Der Kunde wählt das Trinkgeld und bestätigt die Zahlung auf seinem eigenen Gerät.</span></div>
-        <button class="button primary full" type="submit">Zahlungsanfrage senden</button>
+        <div class="platform-alert warning"><strong>Ausnahmefreigabe aktiv</strong><span>Die Zahlung wird zunächst an den Kunden zur Freigabe geschickt. Für den normalen Lounge-Betrieb sollte diese Option ausgeschaltet bleiben.</span></div>
+        <button class="button primary full" type="submit">Zahlungsfreigabe senden</button>
       {% else %}
-        <fieldset class="tip-fieldset"><legend>Trinkgeld auswählen</legend><div class="tip-radio-grid">{% for tip in tip_options %}<label><input type="radio" name="tip_percentage" value="{{ tip }}" {% if forloop.first %}checked{% endif %}><span>{{ tip|floatformat:0 }}%</span></label>{% endfor %}</div></fieldset>
-        <button class="button primary full" type="submit">Zahlung sofort durchführen</button>
+        <div class="platform-alert"><strong>Direkte Abbuchung</strong><span>Nach dem Klick werden Rechnungsbetrag und gewähltes Trinkgeld sofort gebucht. Der Kunde erhält Beleg und Mitteilung und kann einen Prüffall eröffnen.</span></div>
+        <button class="button primary full" type="submit">Zahlung jetzt abbuchen</button>
       {% endif %}
     </form>
   </article>
   <article class="panel">
-    <div class="section-heading"><div><span class="eyebrow">Aktuelles Kassenbuch</span><h2>Meine Zahlungen</h2></div><a class="text-link" href="{% url 'transaction_cases' %}">Meine Fälle →</a></div>
+    <div class="section-heading"><div><span class="eyebrow">Aktuelles Kassenbuch</span><h2>Meine Zahlungen</h2></div><a class="text-link" href="{% url 'transaction_cases' %}">Alle öffnen →</a></div>
     <div class="transaction-list compact">{% for entry in recent_entries %}<div class="transaction-row transaction-row-actions"><div class="transaction-icon {{ entry.entry_type|lower }}">−</div><div class="transaction-main"><strong>{{ entry.wallet.display_name }} · {{ entry.wallet.member_number }}</strong><span>{{ entry.location.name }} · {{ entry.entry_type|sams_label }} · {{ entry.created_at|date:"H:i" }}</span><div class="transaction-links"><a class="bill-link" href="{% url 'bill_detail' entry.id %}">{{ entry.bill_number }} öffnen</a><a class="case-link" href="{% url 'transaction_case_create' entry.id %}">Korrektur anfragen</a></div></div><div class="transaction-amount negative">{{ entry.amount|floatformat:2 }} €</div></div>{% empty %}<div class="empty-state">Die erste Zahlung erscheint hier.</div>{% endfor %}</div>
   </article>
 </section>
@@ -41,7 +41,6 @@
 (function(){
   const button=document.getElementById('start-scanner');
   const input=document.getElementById('wallet-token');
-  const reader=document.getElementById('reader');
   let scanner=null,loading=false;
   const stop=async()=>{try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}scanner=null;button.disabled=false;};
   const loadLibrary=()=>new Promise((resolve,reject)=>{

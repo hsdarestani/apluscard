@@ -1,11 +1,14 @@
 {% extends 'cards/base.html' %}
-{% block title %}Transaktionsfälle · SAMS Club Lounge{% endblock %}
+{% load sams_de %}
+{% block title %}Transaktionen & Prüffälle · SAMS Club Lounge{% endblock %}
 {% block content %}
 <section class="dashboard-head">
-  <div><span class="eyebrow">Prüfung und Erstattung</span><h1>{{ title }}</h1><p class="muted">Alle Meldungen bleiben mit Originalbeleg, Entscheidung und Erstattungsbuchung nachvollziehbar.</p></div>
+  <div><span class="eyebrow">Kassenbuch, Prüfung und Erstattung</span><h1>{{ title }}</h1><p class="muted">Eine normale Kassenbuchbewegung ist noch kein Prüffall. Über „Prüffall anlegen“ kann eine konkrete Transaktion zur Bearbeitung gemeldet werden.</p></div>
   <div class="dashboard-context"><a class="button secondary small" href="{% url 'dashboard' %}">Zur Übersicht</a></div>
 </section>
-<section class="panel">
+
+<section class="panel case-section">
+  <div class="section-heading"><div><span class="eyebrow">Gemeldete Vorgänge</span><h2>Offene und bearbeitete Prüffälle</h2></div><span class="vip-chip">{{ cases|length }} Fälle</span></div>
   <div class="case-list">
     {% for case in cases %}
     <a class="case-list-row" href="{% url 'transaction_case_detail' case.id %}">
@@ -13,7 +16,29 @@
       <div><strong>{{ case.wallet.display_name }}</strong><span>Mitglied {{ case.wallet.member_number }} · Beleg {{ case.ledger_entry.bill_number }}</span></div>
       <div><span class="status-pill {{ case.status|lower }}">{{ case.get_status_display }}</span><small>{{ case.created_at|date:"d.m.Y H:i" }}</small></div>
     </a>
-    {% empty %}<div class="empty-state">Noch keine Transaktionsfälle vorhanden.</div>{% endfor %}
+    {% empty %}<div class="empty-state">Noch kein Vorgang wurde als fehlerhaft oder strittig gemeldet.</div>{% endfor %}
+  </div>
+</section>
+
+<section class="panel case-section">
+  <div class="section-heading"><div><span class="eyebrow">Kassenbuch</span><h2>Transaktionen zur Prüfung</h2></div><span class="muted">Letzte {{ entries|length }} Buchungen</span></div>
+  <div class="review-ledger-list">
+    {% for entry in entries %}
+    <article class="review-ledger-row">
+      <div class="transaction-icon {{ entry.entry_type|lower }}">{% if entry.amount > 0 %}+{% else %}−{% endif %}</div>
+      <div class="review-ledger-main">
+        <strong>{{ entry.wallet.display_name }} · Mitglied {{ entry.wallet.member_number }}</strong>
+        <span>{{ entry.entry_type|sams_label }} · {{ entry.location.name|default:"Alle Standorte" }} · {{ entry.created_at|date:"d.m.Y H:i" }}</span>
+        <small>Beleg {{ entry.bill_number }}{% if entry.description %} · {{ entry.description }}{% endif %}</small>
+        <div class="transaction-links">
+          <a class="bill-link" href="{% url 'bill_detail' entry.id %}">Beleg öffnen</a>
+          <a class="case-link" href="{% url 'transaction_case_create' entry.id %}">{% if role_context == 'customer' %}Transaktion melden{% elif role_context == 'staff' %}Korrektur anfragen{% else %}Prüffall anlegen{% endif %}</a>
+          {% for case in entry.transaction_cases.all %}<a class="case-existing" href="{% url 'transaction_case_detail' case.id %}">{{ case.case_number }} · {{ case.get_status_display }}</a>{% endfor %}
+        </div>
+      </div>
+      <div class="transaction-amount {% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €<small>Saldo {{ entry.balance_after|floatformat:2 }} €</small></div>
+    </article>
+    {% empty %}<div class="empty-state">Noch keine Kassenbuchtransaktionen vorhanden.</div>{% endfor %}
   </div>
 </section>
 {% endblock %}

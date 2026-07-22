@@ -29,13 +29,13 @@
 {% for payment in pending_payments %}
 <section class="payment-confirm-card">
   <div class="payment-confirm-head">
-    <div><span class="eyebrow">Zahlungsfreigabe</span><h2>{{ payment.base_amount|floatformat:2 }} € bestätigen</h2></div>
+    <div><span class="eyebrow">Ausnahme: Zahlungsfreigabe</span><h2>{{ payment.base_amount|floatformat:2 }} € bestätigen</h2></div>
     <span class="status-pill pending">{{ payment.location.name }}</span>
   </div>
   <p>{{ payment.description|default:"SAMS Zahlung" }}{% if payment.order_reference %} · {{ payment.order_reference }}{% endif %}</p>
-  <p class="muted">Wähle dein Trinkgeld vor der endgültigen Bestätigung. Das Trinkgeld wird separat verbucht.</p>
+  <p class="muted">Normalerweise wird eine abgestimmte Zahlung direkt an der Kasse abgebucht. Für diesen Vorgang wurde ausnahmsweise eine Kundenfreigabe angefordert. Wähle einen festen Trinkgeldbetrag in Euro.</p>
   <form method="post" action="{% url 'customer_confirm_payment' payment.id %}" class="tip-choice-form">{% csrf_token %}
-    {% for tip in tip_options %}<button type="submit" name="tip_percentage" value="{{ tip }}">{{ tip|floatformat:0 }}%</button>{% endfor %}
+    {% for tip in tip_choices %}<button type="submit" name="tip_amount" value="{{ tip.value }}">{{ tip.label }}</button>{% endfor %}
   </form>
 </section>
 {% endfor %}
@@ -52,7 +52,7 @@
     <div class="member-line"><span>Für alle SAMS Standorte</span><span>✦ {{ wallet.tier|sams_label }}</span></div>
     <div class="wallet-actions">
       {% if apple_wallet_enabled %}<a class="apple-wallet-button" href="{% url 'apple_wallet_pass' %}"><span>＋</span><strong>Zu Apple Wallet hinzufügen</strong></a>{% endif %}
-      <a class="button secondary full" href="{% url 'transaction_cases' %}">Meine Prüffälle</a>
+      <a class="button secondary full" href="{% url 'transaction_cases' %}">Transaktionen & Prüffälle</a>
     </div>
   </article>
 
@@ -83,7 +83,7 @@
     </article>
 
     <article class="panel" id="transactions">
-      <div class="section-heading"><div><span class="eyebrow">Zahlungen</span><h2>Transaktionen & Belege</h2></div><a class="text-link" href="{% url 'transaction_cases' %}">Prüffälle öffnen →</a></div>
+      <div class="section-heading"><div><span class="eyebrow">Zahlungen</span><h2>Transaktionen & Belege</h2></div><a class="text-link" href="{% url 'transaction_cases' %}">Alle Transaktionen öffnen →</a></div>
       <div class="transaction-list">
         {% for entry in entries %}
         <div class="transaction-row transaction-row-actions">

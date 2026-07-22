@@ -1,0 +1,119 @@
+name: Configure Production Email
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apluscard-production
+  cancel-in-progress: false
+
+jobs:
+  configure-email:
+    name: SMTP konfigurieren und Testmail versenden
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+      SMTP_HOST_INPUT: ${{ secrets.EMAIL_SMTP_HOST }}
+      SMTP_PORT_INPUT: ${{ secrets.EMAIL_SMTP_PORT }}
+      SMTP_PASSWORD_INPUT: ${{ secrets.EMAIL_SMTP_PASSWORD }}
+      SMTP_USE_SSL_INPUT: ${{ secrets.EMAIL_SMTP_USE_SSL }}
+
+    steps:
+      - name: SMTP-Secrets prüfen
+        id: email-payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD fehlt." && exit 1)
+          test -n "$SMTP_HOST_INPUT" || (echo "EMAIL_SMTP_HOST fehlt." && exit 1)
+          test -n "$SMTP_PASSWORD_INPUT" || (echo "EMAIL_SMTP_PASSWORD fehlt." && exit 1)
+          SMTP_PORT_VALUE="${SMTP_PORT_INPUT:-587}"
+          SMTP_USE_SSL_VALUE="${SMTP_USE_SSL_INPUT:-0}"
+          printf '%s' "$SMTP_PORT_VALUE" | grep -Eq '^[0-9]{2,5}$' || (echo "EMAIL_SMTP_PORT ist ungültig." && exit 1)
+          case "$SMTP_USE_SSL_VALUE" in 0|1) ;; *) echo "EMAIL_SMTP_USE_SSL muss 0 oder 1 sein."; exit 1 ;; esac
+          if [ "$SMTP_USE_SSL_VALUE" = "1" ]; then SMTP_USE_TLS_VALUE="0"; else SMTP_USE_TLS_VALUE="1"; fi
+          umask 077
+          PAYLOAD_FILE="$RUNNER_TEMP/email-secrets.payload"
+          {
+            printf 'EMAIL_HOST_B64=%s\n' "$(printf '%s' "$SMTP_HOST_INPUT" | base64 -w0)"
+            printf 'EMAIL_PORT_B64=%s\n' "$(printf '%s' "$SMTP_PORT_VALUE" | base64 -w0)"
+            printf 'EMAIL_PASSWORD_B64=%s\n' "$(printf '%s' "$SMTP_PASSWORD_INPUT" | base64 -w0)"
+            printf 'EMAIL_USE_SSL_B64=%s\n' "$(printf '%s' "$SMTP_USE_SSL_VALUE" | base64 -w0)"
+            printf 'EMAIL_USE_TLS_B64=%s\n' "$(printf '%s' "$SMTP_USE_TLS_VALUE" | base64 -w0)"
+          } > "$PAYLOAD_FILE"
+          chmod 600 "$PAYLOAD_FILE"
+          echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: SSH-Werkzeuge installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Server-Schlüssel vertrauen
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Geschützte SMTP-Konfiguration übertragen
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$APP_DIR'"
+          sshpass -e scp -P "$SSH_PORT" "${{ steps.email-payload.outputs.payload_file }}" "$SSH_USER@$SSH_HOST:$APP_DIR/.email-secrets.payload"
+
+      - name: SMTP konfigurieren und echte Testmail senden
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+          test -f .env || (echo "Produktionsdatei .env fehlt." && exit 1)
+          . ./.email-secrets.payload
+          decode_value() { printf '%s' "$1" | base64 --decode; }
+          EMAIL_HOST_VALUE="$(decode_value "$EMAIL_HOST_B64")"
+          EMAIL_PORT_VALUE="$(decode_value "$EMAIL_PORT_B64")"
+          EMAIL_PASSWORD_VALUE="$(decode_value "$EMAIL_PASSWORD_B64")"
+          EMAIL_USE_SSL_VALUE="$(decode_value "$EMAIL_USE_SSL_B64")"
+          EMAIL_USE_TLS_VALUE="$(decode_value "$EMAIL_USE_TLS_B64")"
+          ENV_TEMP="$(mktemp)"
+          grep -vE '^(EMAIL_BACKEND|EMAIL_HOST|EMAIL_PORT|EMAIL_HOST_USER|EMAIL_HOST_PASSWORD|EMAIL_USE_TLS|EMAIL_USE_SSL|EMAIL_TIMEOUT|DEFAULT_FROM_EMAIL|SERVER_EMAIL|EMAIL_REPLY_TO)=' .env > "$ENV_TEMP" || true
+          {
+            printf 'EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend\n'
+            printf 'EMAIL_HOST=%s\n' "$EMAIL_HOST_VALUE"
+            printf 'EMAIL_PORT=%s\n' "$EMAIL_PORT_VALUE"
+            printf 'EMAIL_HOST_USER=sams@aplus-solution.de\n'
+            printf 'EMAIL_HOST_PASSWORD=%s\n' "$EMAIL_PASSWORD_VALUE"
+            printf 'EMAIL_USE_TLS=%s\n' "$EMAIL_USE_TLS_VALUE"
+            printf 'EMAIL_USE_SSL=%s\n' "$EMAIL_USE_SSL_VALUE"
+            printf 'EMAIL_TIMEOUT=20\n'
+            printf 'DEFAULT_FROM_EMAIL=SAMS Club Lounge <sams@aplus-solution.de>\n'
+            printf 'SERVER_EMAIL=SAMS System <sams@aplus-solution.de>\n'
+            printf 'EMAIL_REPLY_TO=sams@aplus-solution.de\n'
+          } >> "$ENV_TEMP"
+          chmod 600 "$ENV_TEMP"
+          mv "$ENV_TEMP" .env
+          rm -f .email-secrets.payload
+          docker compose up -d --build --remove-orphans
+          healthy=0
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent http://127.0.0.1:8010/health/ >/dev/null; then healthy=1; break; fi
+            sleep 2
+          done
+          test "$healthy" -eq 1 || (docker compose logs --tail=200 web && exit 1)
+          docker compose exec -T web python manage.py check_email_delivery --to sams@aplus-solution.de
+          REMOTE
+
+      - name: Öffentliche Oberfläche prüfen
+        run: curl --fail --silent --show-error --max-time 30 https://cards.smarbiz.sbs/health/ >/dev/null

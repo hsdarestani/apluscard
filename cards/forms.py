@@ -103,19 +103,24 @@ class MoneyActionForm(forms.Form):
     wallet_token = forms.UUIDField(label="Kartencode")
     location_id = forms.UUIDField(label="Standort")
     amount = forms.DecimalField(label="Betrag", min_value=Decimal("0.01"), max_digits=12, decimal_places=2)
-    tip_percentage = forms.DecimalField(label="Trinkgeld", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=5, decimal_places=2, required=False)
+    tip_amount = forms.DecimalField(label="Trinkgeld in Euro", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=8, decimal_places=2, required=False)
     description = forms.CharField(label="Beschreibung", max_length=255, required=False)
     order_reference = forms.CharField(label="Bestellnummer", max_length=100, required=False)
 
 
 class PaymentConfirmForm(forms.Form):
-    tip_percentage = forms.DecimalField(label="Trinkgeld", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=5, decimal_places=2)
+    tip_amount = forms.DecimalField(label="Trinkgeld in Euro", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=8, decimal_places=2)
 
 
 class ManagerMoneyActionForm(forms.Form):
     amount = forms.DecimalField(label="Betrag", min_value=Decimal("0.01"), max_digits=12, decimal_places=2)
     description = forms.CharField(label="Beschreibung", max_length=255, required=False)
     order_reference = forms.CharField(label="Referenz", max_length=100, required=False)
+
+
+class ManagerChargeForm(ManagerMoneyActionForm):
+    location_id = forms.UUIDField(label="Standort")
+    tip_amount = forms.DecimalField(label="Trinkgeld in Euro", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=8, decimal_places=2, required=False)
 
 
 class WalletCreateForm(forms.ModelForm):
@@ -130,25 +135,31 @@ class BusinessSettingsForm(forms.ModelForm):
         model = BusinessSettings
         fields = ["require_customer_confirmation", "tip_option_1", "tip_option_2", "tip_option_3", "tip_option_4", "tip_allocation", "gold_threshold", "platinum_threshold", "birthday_bonus", "daily_summary_enabled", "weekly_summary_enabled", "offer_scheduling_enabled", "official_invoice_enabled", "legal_name", "legal_address", "tax_number", "vat_id"]
         labels = {
-            "require_customer_confirmation": "Bestätigung durch den Kunden erforderlich",
-            "tip_option_1": "Trinkgeldoption 1",
-            "tip_option_2": "Trinkgeldoption 2",
-            "tip_option_3": "Trinkgeldoption 3",
-            "tip_option_4": "Trinkgeldoption 4",
+            "require_customer_confirmation": "Ausnahmsweise Bestätigung durch den Kunden verlangen",
+            "tip_option_1": "Trinkgeldoption 1 (€)",
+            "tip_option_2": "Trinkgeldoption 2 (€)",
+            "tip_option_3": "Trinkgeldoption 3 (€)",
+            "tip_option_4": "Trinkgeldoption 4 (€)",
             "tip_allocation": "Zuordnung des Trinkgelds",
             "gold_threshold": "Grenze für Gold",
             "platinum_threshold": "Grenze für Platin",
             "birthday_bonus": "Geburtstagsbonus",
             "daily_summary_enabled": "Tägliche Zusammenfassung aktivieren",
             "weekly_summary_enabled": "Wöchentliche Zusammenfassung aktivieren",
-            "offer_scheduling_enabled": "Zeitgesteuerte Angebote aktivieren",
+            "offer_scheduling_enabled": "Zeitraum für Angebote verwenden",
             "official_invoice_enabled": "Offizielle Rechnung aktivieren",
             "legal_name": "Rechtlicher Firmenname",
             "legal_address": "Geschäftsanschrift",
             "tax_number": "Steuernummer",
             "vat_id": "Umsatzsteuer-Identifikationsnummer",
         }
-        widgets = {"legal_address": forms.Textarea(attrs={"rows": 3})}
+        widgets = {
+            "legal_address": forms.Textarea(attrs={"rows": 3}),
+            "tip_option_1": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.50"}),
+            "tip_option_2": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.50"}),
+            "tip_option_3": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.50"}),
+            "tip_option_4": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.50"}),
+        }
 
     def clean(self):
         cleaned = super().clean()
@@ -156,10 +167,15 @@ class BusinessSettingsForm(forms.ModelForm):
         platinum = cleaned.get("platinum_threshold")
         if gold is not None and platinum is not None and platinum <= gold:
             self.add_error("platinum_threshold", "Die Platin-Grenze muss über der Gold-Grenze liegen.")
+        tip_values = []
         for field in ("tip_option_1", "tip_option_2", "tip_option_3", "tip_option_4"):
             value = cleaned.get(field)
             if value is not None and (value < 0 or value > 100):
-                self.add_error(field, "Der Wert muss zwischen 0 und 100 Prozent liegen.")
+                self.add_error(field, "Der Betrag muss zwischen 0 und 100 Euro liegen.")
+            if value is not None:
+                tip_values.append(value)
+        if len(tip_values) != len(set(tip_values)):
+            self.add_error("tip_option_4", "Jede Trinkgeldoption muss einen eigenen Betrag haben.")
         return cleaned
 
 
@@ -191,21 +207,30 @@ class OfferForm(forms.ModelForm):
             "image": "Bild",
             "target_tier": "Zielstufe",
             "is_active": "Aktiv",
-            "starts_at": "Beginn",
-            "ends_at": "Ende",
+            "starts_at": "Beginn (optional)",
+            "ends_at": "Ende (optional)",
         }
-        widgets = {"body": forms.Textarea(attrs={"rows": 4}), "starts_at": forms.DateTimeInput(attrs={"type": "datetime-local"}), "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local"})}
+        widgets = {
+            "body": forms.Textarea(attrs={"rows": 4}),
+            "starts_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local"}),
+            "ends_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local"}),
+        }
 
-    def __init__(self, *args, business=None, scheduling_enabled=False, **kwargs):
+    def __init__(self, *args, business=None, scheduling_enabled=True, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["location"].queryset = Location.objects.none()
+        self.fields["starts_at"].input_formats = ["%Y-%m-%dT%H:%M"]
+        self.fields["ends_at"].input_formats = ["%Y-%m-%dT%H:%M"]
         if business is not None:
             self.fields["location"].queryset = business.locations.filter(is_active=True)
-        if not scheduling_enabled:
-            self.fields["starts_at"].widget = forms.HiddenInput()
-            self.fields["ends_at"].widget = forms.HiddenInput()
-            self.fields["starts_at"].required = False
-            self.fields["ends_at"].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        starts_at = cleaned.get("starts_at")
+        ends_at = cleaned.get("ends_at")
+        if starts_at and ends_at and ends_at <= starts_at:
+            self.add_error("ends_at", "Das Ende muss nach dem Beginn liegen.")
+        return cleaned
 
 
 class WalletLookupForm(forms.Form):

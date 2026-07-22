@@ -59,11 +59,11 @@ class BusinessSettings(models.Model):
         EMPLOYEE = "EMPLOYEE", "Einzelne Person"
 
     business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name="app_settings")
-    require_customer_confirmation = models.BooleanField(default=True)
-    tip_option_1 = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
-    tip_option_2 = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("5.00"))
-    tip_option_3 = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("10.00"))
-    tip_option_4 = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("15.00"))
+    require_customer_confirmation = models.BooleanField(default=False)
+    tip_option_1 = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal("0.00"))
+    tip_option_2 = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal("2.00"))
+    tip_option_3 = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal("5.00"))
+    tip_option_4 = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal("10.00"))
     tip_allocation = models.CharField(max_length=12, choices=TipAllocation.choices, default=TipAllocation.TEAM)
     gold_threshold = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("500.00"))
     platinum_threshold = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("700.00"))
@@ -75,11 +75,20 @@ class BusinessSettings(models.Model):
     vat_id = models.CharField(max_length=80, blank=True)
     daily_summary_enabled = models.BooleanField(default=False)
     weekly_summary_enabled = models.BooleanField(default=False)
-    offer_scheduling_enabled = models.BooleanField(default=False)
+    offer_scheduling_enabled = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def tip_options(self):
         return [self.tip_option_1, self.tip_option_2, self.tip_option_3, self.tip_option_4]
+
+    def tip_choices(self):
+        return [
+            {
+                "value": format(value.quantize(Decimal("0.01")), "f"),
+                "label": "Kein Trinkgeld" if value == 0 else f"{value:.2f} €",
+            }
+            for value in self.tip_options()
+        ]
 
     def __str__(self):
         return f"Settings · {self.business}"
@@ -169,13 +178,13 @@ class PaymentRequest(models.Model):
     wallet = models.ForeignKey(Wallet, on_delete=models.PROTECT, related_name="payment_requests")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="created_payment_requests")
     base_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    tip_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    tip_selected_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     tip_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     tip_recipient = models.CharField(max_length=12, choices=TipRecipient.choices, default=TipRecipient.TEAM)
     tip_employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="received_tip_requests")
     description = models.CharField(max_length=255, blank=True)
     order_reference = models.CharField(max_length=100, blank=True)
-    customer_confirmation_required = models.BooleanField(default=True)
+    customer_confirmation_required = models.BooleanField(default=False)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
     purchase_entry = models.OneToOneField("LedgerEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="purchase_payment_request")
     tip_entry = models.OneToOneField("LedgerEntry", on_delete=models.SET_NULL, null=True, blank=True, related_name="tip_payment_request")

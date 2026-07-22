@@ -26,10 +26,7 @@ def _case_access(user, transaction_case):
     membership = get_active_membership(user, transaction_case.business)
     if membership and membership.role in MANAGER_ROLES:
         return True
-    return bool(membership and membership.role in STAFF_ROLES and (
-        transaction_case.opened_by_id == user.id
-        or transaction_case.ledger_entry.performed_by_id == user.id
-    ))
+    return bool(membership and membership.role in STAFF_ROLES and (transaction_case.opened_by_id == user.id or transaction_case.ledger_entry.performed_by_id == user.id))
 
 
 class MeView(APIView):
@@ -93,7 +90,7 @@ class ConfirmPaymentView(APIView):
         serializer = PaymentConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            payment = finalize_payment_request(payment=payment, confirmed_by=request.user, tip_percentage=serializer.validated_data["tip_percentage"], ip_address=client_ip(request))
+            payment = finalize_payment_request(payment=payment, confirmed_by=request.user, tip_amount=serializer.validated_data["tip_amount"], ip_address=client_ip(request))
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         return Response(PaymentRequestSerializer(payment).data)
@@ -135,14 +132,7 @@ class TransactionCaseCreateView(APIView):
         serializer = TransactionCaseCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            transaction_case = create_transaction_case(
-                entry=entry,
-                opened_by=request.user,
-                reason=serializer.validated_data["reason"],
-                description=serializer.validated_data["description"],
-                requested_amount=serializer.validated_data.get("requested_amount"),
-                ip_address=client_ip(request),
-            )
+            transaction_case = create_transaction_case(entry=entry, opened_by=request.user, reason=serializer.validated_data["reason"], description=serializer.validated_data["description"], requested_amount=serializer.validated_data.get("requested_amount"), ip_address=client_ip(request))
         except (DjangoValidationError, PermissionDenied) as exc:
             detail = exc.messages if isinstance(exc, DjangoValidationError) else str(exc)
             return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST if isinstance(exc, DjangoValidationError) else status.HTTP_403_FORBIDDEN)
@@ -165,14 +155,7 @@ class TransactionCaseReviewView(APIView):
         serializer = TransactionCaseReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            transaction_case = review_transaction_case(
-                transaction_case=transaction_case,
-                reviewer=request.user,
-                action=serializer.validated_data["action"],
-                manager_note=serializer.validated_data.get("manager_note", ""),
-                approved_amount=serializer.validated_data.get("approved_amount"),
-                ip_address=client_ip(request),
-            )
+            transaction_case = review_transaction_case(transaction_case=transaction_case, reviewer=request.user, action=serializer.validated_data["action"], manager_note=serializer.validated_data.get("manager_note", ""), approved_amount=serializer.validated_data.get("approved_amount"), ip_address=client_ip(request))
         except (DjangoValidationError, PermissionDenied) as exc:
             detail = exc.messages if isinstance(exc, DjangoValidationError) else str(exc)
             return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST if isinstance(exc, DjangoValidationError) else status.HTTP_403_FORBIDDEN)
@@ -203,7 +186,7 @@ class StaffChargeView(APIView):
         wallet = get_object_or_404(Wallet.objects.select_related("business", "owner", "owner__member_profile"), business=membership.business, qr_token=data["wallet_token"])
         location = get_object_or_404(Location, pk=data.get("location_id"), business=membership.business, is_active=True)
         try:
-            payment = create_payment_request(wallet=wallet, location=location, actor=request.user, amount=data["amount"], tip_percentage=data.get("tip_percentage", 0), description=data.get("description", ""), order_reference=data.get("order_reference", ""), ip_address=client_ip(request))
+            payment = create_payment_request(wallet=wallet, location=location, actor=request.user, amount=data["amount"], tip_amount=data.get("tip_amount", 0), description=data.get("description", ""), order_reference=data.get("order_reference", ""), ip_address=client_ip(request))
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         code = status.HTTP_202_ACCEPTED if payment.status == PaymentRequest.Status.PENDING else status.HTTP_201_CREATED

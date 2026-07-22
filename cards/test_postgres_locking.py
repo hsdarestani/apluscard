@@ -16,14 +16,9 @@ class PostgreSqlLockingRegressionTests(PlatformMixin, TestCase):
         self.client.force_login(self.owner)
         response = self.client.post(
             reverse("manager_topup", args=[self.wallet.pk]),
-            {
-                "amount": "25.00",
-                "description": "Barzahlung erhalten",
-                "order_reference": "REGRESSION-1",
-            },
+            {"amount": "25.00", "description": "Barzahlung erhalten", "order_reference": "REGRESSION-1"},
             follow=True,
         )
-
         self.assertEqual(response.status_code, 200)
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("25.00"))
@@ -31,25 +26,11 @@ class PostgreSqlLockingRegressionTests(PlatformMixin, TestCase):
         self.assertContains(response, entry.bill_number)
 
     def test_payment_confirmation_succeeds_with_nullable_owner_relation(self):
-        post_wallet_entry(
-            wallet=self.wallet,
-            entry_type=LedgerEntry.Type.TOPUP,
-            amount="50.00",
-            actor=self.owner,
-        )
-        payment = create_payment_request(
-            wallet=self.wallet,
-            location=self.location_1,
-            actor=self.staff,
-            amount="10.00",
-        )
-
-        payment = finalize_payment_request(
-            payment=payment,
-            confirmed_by=self.customer,
-            tip_percentage="0",
-        )
-
+        self.settings.require_customer_confirmation = True
+        self.settings.save(update_fields=["require_customer_confirmation"])
+        post_wallet_entry(wallet=self.wallet, entry_type=LedgerEntry.Type.TOPUP, amount="50.00", actor=self.owner)
+        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10.00", tip_amount="0")
+        payment = finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_amount="0")
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("40.00"))
         self.assertEqual(payment.purchase_entry.entry_type, LedgerEntry.Type.PURCHASE)

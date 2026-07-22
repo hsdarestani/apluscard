@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="{% static 'cards/sams-platform.css' %}">
   <link rel="stylesheet" href="{% static 'cards/legal.css' %}">
   <link rel="stylesheet" href="{% static 'cards/experience.css' %}">
+  <link rel="stylesheet" href="{% static 'cards/ui-fixes.css' %}">
   <style>html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;}</style>
   {% block head %}{% endblock %}
 </head>
@@ -34,7 +35,8 @@
       <button class="button secondary small install-button" id="install-app" type="button">App installieren</button>
       {% if user.is_authenticated %}
         <a class="notification-button" id="notification-button" data-count-url="{% url 'unread_notification_count' %}" href="{% url 'notification_center' %}" aria-label="Mitteilungen">
-          <span>●</span><b>Mitteilungen</b><em id="notification-count" {% if not global_unread_notification_count %}hidden{% endif %}>{{ global_unread_notification_count|default:0 }}</em>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9.7 21h4.6"/></svg>
+          <b>Mitteilungen</b><em id="notification-count" {% if not global_unread_notification_count %}hidden{% endif %}>{{ global_unread_notification_count|default:0 }}</em>
         </a>
         <span class="user-chip">{{ user.get_full_name|default:user.username }}</span>
         <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link-button" type="submit">Abmelden</button></form>
@@ -59,12 +61,22 @@
     </footer>
   </main>
   {% if user.is_authenticated %}
+  {% with current=request.resolver_match.url_name %}
   <nav class="mobile-nav" aria-label="Navigation für Mobilgeräte">
-    <a href="{% url 'dashboard' %}" class="active"><span>⌂</span><span>Start</span></a>
-    <a href="{% url 'notification_center' %}"><span>●</span><span>Mitteilungen</span></a>
-    <a href="{% url 'transaction_cases' %}"><span>◇</span><span>Prüffälle</span></a>
-    <a href="{% url 'privacy_choices' %}"><span>◎</span><span>Datenschutz</span></a>
+    <a href="{% url 'dashboard' %}" class="{% if current == 'dashboard' or current == 'customer_dashboard' or current == 'staff_dashboard' or current == 'manager_dashboard' or current == 'manager_wallet_detail' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Start</span>
+    </a>
+    <a href="{% url 'notification_center' %}" class="{% if current == 'notification_center' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9.7 21h4.6"/></svg><span>Mitteilungen</span>{% if global_unread_notification_count %}<em>{{ global_unread_notification_count }}</em>{% endif %}
+    </a>
+    <a href="{% url 'transaction_cases' %}" class="{% if current == 'transaction_cases' or current == 'transaction_case_detail' or current == 'transaction_case_create' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a2 2 0 0 1 2 2v16l-4-2-4 2-4-2-4 2V5a2 2 0 0 1 2-2m3 5h6m-6 4h6"/></svg><span>Transaktionen</span>
+    </a>
+    <a href="{% url 'privacy_choices' %}" class="{% if current == 'privacy_choices' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6zm-3 9 2 2 4-5"/></svg><span>Datenschutz</span>
+    </a>
   </nav>
+  {% endwith %}
   {% endif %}
   <script src="{% static 'cards/app.js' %}" defer></script>
   {% block scripts %}{% endblock %}

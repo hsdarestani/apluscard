@@ -17,13 +17,7 @@ from .legal_forms import (
     PrivacyChoicesForm,
 )
 from .legal_models import AccountDeletionRequest, LegalAcceptance, PrivacyPreference
-from .legal_services import (
-    client_ip,
-    get_legal_configuration,
-    has_current_acceptances,
-    record_legal_acceptances,
-    wallet_for_customer,
-)
+from .legal_services import client_ip, get_legal_configuration, has_current_acceptances, record_legal_acceptances, wallet_for_customer
 from .models import Business, MemberProfile, Wallet
 from .services import OWNER_ROLES, get_active_membership, require_role
 from .views import _send_verification_email
@@ -45,12 +39,7 @@ def _legal_context(business):
         missing.append("Kontakt-E-Mail")
     if not configuration.privacy_email:
         missing.append("Datenschutz-E-Mail")
-    return {
-        "business": business,
-        "legal": configuration,
-        "locations": business.locations.filter(is_active=True),
-        "legal_information_incomplete": missing,
-    }
+    return {"business": business, "legal": configuration, "locations": business.locations.filter(is_active=True), "legal_information_incomplete": missing}
 
 
 def terms(request, business_slug=None):
@@ -77,20 +66,9 @@ def register_customer(request):
     form = LegalCustomerRegistrationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         user = form.save()
-        MemberProfile.objects.create(
-            user=user,
-            birth_date=form.cleaned_data["birth_date"],
-            age_confirmed=form.cleaned_data["age_confirmed"],
-            email_verified=False,
-        )
+        MemberProfile.objects.create(user=user, birth_date=form.cleaned_data["birth_date"], age_confirmed=form.cleaned_data["age_confirmed"], email_verified=False)
         display_name = f"{user.first_name} {user.last_name}".strip() or user.email
-        Wallet.objects.create(
-            business=business,
-            owner=user,
-            display_name=display_name,
-            phone=form.cleaned_data["phone"],
-            email=user.email,
-        )
+        Wallet.objects.create(business=business, owner=user, display_name=display_name, phone=form.cleaned_data["phone"], email=user.email)
         auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         record_legal_acceptances(
             user=user,
@@ -100,8 +78,10 @@ def register_customer(request):
             marketing_push=form.cleaned_data.get("marketing_push_consent", False),
             marketing_email=form.cleaned_data.get("marketing_email_consent", False),
         )
-        _send_verification_email(request, user)
-        messages.success(request, "Deine Mitgliedskarte ist erstellt. Bitte bestätige jetzt deine E-Mail-Adresse.")
+        if _send_verification_email(request, user):
+            messages.success(request, "Deine Mitgliedskarte ist erstellt. Bitte bestätige jetzt deine E-Mail-Adresse.")
+        else:
+            messages.warning(request, "Deine Mitgliedskarte ist erstellt. Die Bestätigungs-E-Mail konnte gerade nicht gesendet werden. Bitte nutze in der App ‚Link erneut senden‘.")
         return redirect("customer_dashboard")
 
     return render(request, "cards/register.html", {"form": form, "business": business})
@@ -125,15 +105,7 @@ def complete_customer_profile(request):
     if request.method == "POST" and form.is_valid():
         user = form.save()
         name = f"{user.first_name} {user.last_name}".strip() or user.email
-        Wallet.objects.get_or_create(
-            business=business,
-            owner=user,
-            defaults={
-                "display_name": name,
-                "phone": form.cleaned_data["phone"],
-                "email": user.email,
-            },
-        )
+        Wallet.objects.get_or_create(business=business, owner=user, defaults={"display_name": name, "phone": form.cleaned_data["phone"], "email": user.email})
         record_legal_acceptances(
             user=user,
             business=business,
@@ -191,8 +163,6 @@ def privacy_choices(request):
         elif originally_enabled and not currently_enabled:
             preference.withdrawn_at = timezone.now()
         preference.save()
-        # The device registration stays active for security and transaction
-        # notifications. Marketing delivery must check the preference separately.
         messages.success(request, "Deine Datenschutz-Einstellungen wurden gespeichert.")
         return redirect("privacy_choices")
     return render(request, "cards/legal/privacy_choices.html", {"form": form, "business": wallet.business, "preference": preference})
@@ -211,11 +181,7 @@ def account_deletion(request, business_slug=None):
     if request.method == "POST" and form.is_valid():
         email = form.cleaned_data["email"].strip().lower()
         member_number = form.cleaned_data.get("member_number", "")
-        existing = AccountDeletionRequest.objects.filter(
-            business=business,
-            email__iexact=email,
-            status__in=[AccountDeletionRequest.Status.RECEIVED, AccountDeletionRequest.Status.PROCESSING],
-        ).first()
+        existing = AccountDeletionRequest.objects.filter(business=business, email__iexact=email, status__in=[AccountDeletionRequest.Status.RECEIVED, AccountDeletionRequest.Status.PROCESSING]).first()
         if existing:
             deletion_request = existing
         else:

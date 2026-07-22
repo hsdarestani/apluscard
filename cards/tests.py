@@ -27,23 +27,9 @@ class PlatformMixin:
         Membership.objects.create(user=self.staff, business=self.business, role=Membership.Role.STAFF)
         MemberProfile.objects.create(user=self.customer, birth_date=date(1995, 5, 5), age_confirmed=True, email_verified=True, email_verified_at=timezone.now())
         self.wallet = Wallet.objects.create(business=self.business, owner=self.customer, display_name="Customer", email=self.customer.email)
-        LegalConfiguration.objects.create(
-            business=self.business,
-            app_display_name=self.business.name,
-            controller_name=self.business.name,
-            terms_version="1.0",
-            privacy_version="1.0",
-        )
+        LegalConfiguration.objects.create(business=self.business, app_display_name=self.business.name, controller_name=self.business.name, terms_version="1.0", privacy_version="1.0")
         for document_type in (LegalAcceptance.DocumentType.TERMS, LegalAcceptance.DocumentType.PRIVACY):
-            LegalAcceptance.objects.create(
-                user=self.customer,
-                business=self.business,
-                document_type=document_type,
-                version="1.0",
-                source=LegalAcceptance.Source.REGISTRATION,
-                email_hash="test",
-                member_number=self.wallet.member_number,
-            )
+            LegalAcceptance.objects.create(user=self.customer, business=self.business, document_type=document_type, version="1.0", source=LegalAcceptance.Source.REGISTRATION, email_hash="test", member_number=self.wallet.member_number)
 
 
 class WalletServiceTests(PlatformMixin, TestCase):
@@ -54,10 +40,10 @@ class WalletServiceTests(PlatformMixin, TestCase):
         self.assertEqual(self.wallet.member_number, "101")
         self.assertEqual(second_wallet.member_number, "102")
 
-    def test_topup_and_purchase_update_shared_balance_across_locations(self):
+    def test_topup_and_direct_purchase_update_shared_balance_across_locations(self):
         post_wallet_entry(wallet=self.wallet, entry_type=LedgerEntry.Type.TOPUP, amount="100", actor=self.owner)
-        payment = create_payment_request(wallet=self.wallet, location=self.location_2, actor=self.staff, amount="30")
-        finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_percentage="0")
+        payment = create_payment_request(wallet=self.wallet, location=self.location_2, actor=self.staff, amount="30", tip_amount="0")
+        self.assertEqual(payment.status, PaymentRequest.Status.CONFIRMED)
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("70.00"))
         purchase = self.wallet.ledger_entries.get(entry_type=LedgerEntry.Type.PURCHASE)
@@ -95,34 +81,37 @@ class PaymentConfirmationTests(PlatformMixin, TestCase):
         self.create_platform()
         post_wallet_entry(wallet=self.wallet, entry_type=LedgerEntry.Type.TOPUP, amount="200", actor=self.owner)
 
-    def test_customer_confirms_payment_and_tip_is_separate(self):
-        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="40", description="Shisha")
+    def test_customer_confirms_exception_payment_and_fixed_tip_is_separate(self):
+        self.settings.require_customer_confirmation = True
+        self.settings.save(update_fields=["require_customer_confirmation"])
+        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="40", tip_amount="5", description="Shisha")
         self.assertEqual(payment.status, PaymentRequest.Status.PENDING)
-        payment = finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_percentage="10")
+        payment = finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_amount="5")
         payment.refresh_from_db(); self.wallet.refresh_from_db()
         self.assertEqual(payment.status, PaymentRequest.Status.CONFIRMED)
-        self.assertEqual(payment.tip_amount, Decimal("4.00"))
-        self.assertEqual(self.wallet.balance, Decimal("156.00"))
+        self.assertEqual(payment.tip_amount, Decimal("5.00"))
+        self.assertEqual(self.wallet.balance, Decimal("155.00"))
         self.assertEqual(payment.ledger_entries.count(), 2)
         self.assertTrue(payment.ledger_entries.filter(entry_type=LedgerEntry.Type.PURCHASE).exists())
         self.assertTrue(payment.ledger_entries.filter(entry_type=LedgerEntry.Type.TIP).exists())
         self.assertEqual(AppNotification.objects.filter(recipient=self.owner).count(), 1)
 
-    def test_only_wallet_owner_can_confirm(self):
-        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10")
-        with self.assertRaises(PermissionDenied): finalize_payment_request(payment=payment, confirmed_by=self.owner, tip_percentage="0")
-
-    def test_invalid_tip_option_is_rejected(self):
-        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10")
-        with self.assertRaises(ValidationError): finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_percentage="7")
-
-    def test_confirmation_can_be_disabled_by_owner(self):
-        self.settings.require_customer_confirmation = False
+    def test_only_wallet_owner_can_confirm_exception_payment(self):
+        self.settings.require_customer_confirmation = True
         self.settings.save(update_fields=["require_customer_confirmation"])
-        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10", tip_percentage="5")
-        payment.refresh_from_db()
+        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10", tip_amount="0")
+        with self.assertRaises(PermissionDenied): finalize_payment_request(payment=payment, confirmed_by=self.owner, tip_amount="0")
+
+    def test_invalid_fixed_tip_option_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10", tip_amount="7")
+
+    def test_direct_payment_is_default_and_uses_euro_tip(self):
+        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10", tip_amount="5")
+        payment.refresh_from_db(); self.wallet.refresh_from_db()
         self.assertEqual(payment.status, PaymentRequest.Status.CONFIRMED)
-        self.assertEqual(payment.tip_amount, Decimal("0.50"))
+        self.assertEqual(payment.tip_amount, Decimal("5.00"))
+        self.assertEqual(self.wallet.balance, Decimal("185.00"))
 
 
 @override_settings(DEFAULT_BUSINESS_SLUG="shisha-bar", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")

@@ -85,21 +85,37 @@ class PaymentRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PaymentRequest
-        fields = ["id", "location", "member_number", "member_name", "base_amount", "tip_percentage", "tip_amount", "total_amount", "tip_recipient", "tip_employee_id", "description", "order_reference", "customer_confirmation_required", "status", "created_at", "expires_at", "confirmed_at", "purchase_entry_id", "tip_entry_id"]
+        fields = ["id", "location", "member_number", "member_name", "base_amount", "tip_selected_amount", "tip_amount", "total_amount", "tip_recipient", "tip_employee_id", "description", "order_reference", "customer_confirmation_required", "status", "created_at", "expires_at", "confirmed_at", "purchase_entry_id", "tip_entry_id"]
 
 
 class MoneyActionSerializer(serializers.Serializer):
     wallet_token = serializers.UUIDField()
     location_id = serializers.UUIDField(required=False)
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
-    tip_percentage = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"), required=False, default=Decimal("0.00"))
+    tip_amount = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"), required=False, default=Decimal("0.00"))
+    tip_percentage = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"), required=False, write_only=True)
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     order_reference = serializers.CharField(max_length=100, required=False, allow_blank=True)
     idempotency_key = serializers.CharField(max_length=100, required=False, allow_blank=True)
 
+    def validate(self, attrs):
+        if "tip_percentage" in attrs and "tip_amount" not in self.initial_data:
+            attrs["tip_amount"] = attrs["tip_percentage"]
+        attrs.pop("tip_percentage", None)
+        return attrs
+
 
 class PaymentConfirmSerializer(serializers.Serializer):
-    tip_percentage = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"))
+    tip_amount = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"), required=False)
+    tip_percentage = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"), required=False, write_only=True)
+
+    def validate(self, attrs):
+        if "tip_amount" not in attrs and "tip_percentage" in attrs:
+            attrs["tip_amount"] = attrs["tip_percentage"]
+        if "tip_amount" not in attrs:
+            raise serializers.ValidationError({"tip_amount": "Bitte einen Trinkgeldbetrag angeben."})
+        attrs.pop("tip_percentage", None)
+        return attrs
 
 
 class AppNotificationSerializer(serializers.ModelSerializer):
@@ -147,11 +163,7 @@ class TransactionCaseCreateSerializer(serializers.Serializer):
 
 
 class TransactionCaseReviewSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=[
-        TransactionCase.Status.IN_REVIEW,
-        TransactionCase.Status.APPROVED,
-        TransactionCase.Status.REJECTED,
-    ])
+    action = serializers.ChoiceField(choices=[TransactionCase.Status.IN_REVIEW, TransactionCase.Status.APPROVED, TransactionCase.Status.REJECTED])
     approved_amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"), required=False, allow_null=True)
     manager_note = serializers.CharField(max_length=2000, required=False, allow_blank=True)
 

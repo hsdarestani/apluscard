@@ -14,7 +14,7 @@ from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
 from .legal_models import LegalAcceptance, LegalConfiguration
 from .models import AppNotification, Business, BusinessSettings, LedgerEntry, Location, MemberProfile, Membership, Offer, Wallet
-from .services import create_payment_request, finalize_payment_request, post_wallet_entry
+from .services import create_payment_request, post_wallet_entry
 from .wallet_pass import _pass_files
 
 
@@ -49,7 +49,6 @@ class MemberExperienceMixin:
 
 class SequentialMemberNumberTests(MemberExperienceMixin, TestCase):
     def setUp(self): self.create_experience()
-
     def test_numbers_start_at_101_and_continue_without_random_digits(self):
         second = Wallet.objects.create(business=self.business, display_name="Zweites Mitglied")
         third = Wallet.objects.create(business=self.business, display_name="Drittes Mitglied")
@@ -58,7 +57,6 @@ class SequentialMemberNumberTests(MemberExperienceMixin, TestCase):
 
 class LocationSelectionTests(MemberExperienceMixin, TestCase):
     def setUp(self): self.create_experience(); self.client.force_login(self.customer)
-
     def test_customer_must_choose_visual_location_before_dashboard(self):
         response = self.client.get(reverse("customer_dashboard"))
         self.assertRedirects(response, reverse("customer_location_select"))
@@ -70,7 +68,6 @@ class LocationSelectionTests(MemberExperienceMixin, TestCase):
         self.assertRedirects(selected, reverse("customer_dashboard"))
         self.assertEqual(self.client.session["active_location_id"], str(self.location_2.pk))
         self.assertEqual(self.client.get(reverse("customer_dashboard")).status_code, 200)
-
     def test_customer_qr_is_rendered_server_side_without_qrcode_library(self):
         self.select_customer_location()
         response = self.client.get(reverse("customer_dashboard"))
@@ -81,16 +78,12 @@ class LocationSelectionTests(MemberExperienceMixin, TestCase):
 
 class InAppNotificationTests(MemberExperienceMixin, TestCase):
     def setUp(self): self.create_experience()
-
     def test_financial_flow_notifies_each_relevant_role(self):
         post_wallet_entry(wallet=self.wallet, location=self.location_1, entry_type=LedgerEntry.Type.TOPUP, amount="100", actor=self.owner)
         self.assertTrue(AppNotification.objects.filter(recipient=self.customer, title="Guthaben aufgeladen").exists())
-        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="20")
-        self.assertTrue(AppNotification.objects.filter(recipient=self.customer, title="Zahlung wartet auf Bestätigung").exists())
-        payment = finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_percentage="0")
+        create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="20", tip_amount="0")
         for user in (self.customer, self.staff, self.owner, self.manager):
             self.assertTrue(AppNotification.objects.filter(recipient=user, title="A+ Pay Zahlung abgeschlossen").exists())
-
     def test_new_offer_notifies_matching_customer(self):
         with self.captureOnCommitCallbacks(execute=True):
             Offer.objects.create(business=self.business, location=self.location_1, title="Heute für Silber", body="Nur heute verfügbar", target_tier=Offer.TargetTier.SILVER, created_by=self.owner)
@@ -101,8 +94,7 @@ class TransactionCaseTests(MemberExperienceMixin, TestCase):
     def setUp(self):
         self.create_experience()
         post_wallet_entry(wallet=self.wallet, location=self.location_1, entry_type=LedgerEntry.Type.TOPUP, amount="100", actor=self.owner)
-        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="30")
-        self.payment = finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_percentage="0")
+        self.payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="30", tip_amount="0")
         self.entry = self.payment.purchase_entry
 
     def test_customer_case_owner_approval_creates_single_auditable_refund(self):
@@ -131,10 +123,20 @@ class TransactionCaseTests(MemberExperienceMixin, TestCase):
         with self.assertRaises(PermissionDenied):
             create_transaction_case(entry=self.entry, opened_by=self.other_staff, reason=TransactionCase.Reason.OTHER, description="Nicht meine Transaktion und daher nicht erlaubt.")
 
+    def test_management_can_open_case_for_any_business_transaction(self):
+        management_case = create_transaction_case(entry=self.entry, opened_by=self.manager, reason=TransactionCase.Reason.OTHER, description="Interne Kassenprüfung durch die Verwaltung.")
+        self.assertEqual(management_case.opened_by_role, TransactionCase.OpenedByRole.MANAGEMENT)
+
+    def test_transaction_page_shows_ledger_entry_without_existing_case(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("transaction_cases"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.entry.bill_number)
+        self.assertContains(response, "Prüffall anlegen")
+
 
 class SecurityAndPerformanceTests(MemberExperienceMixin, TestCase):
     def setUp(self): self.create_experience()
-
     def test_security_headers_hide_framework_hints_and_restrict_browser(self):
         response = self.client.get(reverse("landing"))
         self.assertEqual(response.status_code, 200)
@@ -142,14 +144,12 @@ class SecurityAndPerformanceTests(MemberExperienceMixin, TestCase):
         self.assertIn("frame-ancestors 'none'", response["Content-Security-Policy"])
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
         self.assertNotIn("X-Powered-By", response)
-
     def test_service_worker_only_caches_static_assets(self):
         response = self.client.get(reverse("service_worker"))
         content = response.content.decode("utf-8")
-        self.assertIn("sams-lounge-v8", content)
+        self.assertIn("sams-lounge-v9", content)
         self.assertIn("const isAsset", content)
         self.assertNotIn("caches.match('/')", content)
-
     def test_low_power_mode_is_in_client_bundle(self):
         content = (Path(settings.BASE_DIR) / "cards" / "static" / "cards" / "app.js").read_text(encoding="utf-8")
         self.assertIn("low-power", content)
@@ -158,7 +158,6 @@ class SecurityAndPerformanceTests(MemberExperienceMixin, TestCase):
 
 class AppleWalletPayloadTests(MemberExperienceMixin, TestCase):
     def setUp(self): self.create_experience()
-
     @override_settings(APPLE_WALLET_PASS_TYPE_ID="pass.de.sams.member", APPLE_WALLET_TEAM_ID="TEAM123456")
     def test_store_card_payload_contains_member_number_and_qr(self):
         request = RequestFactory().get("/customer/apple-wallet/", HTTP_HOST="cards.smarbiz.sbs", secure=True)
