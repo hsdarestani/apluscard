@@ -1,0 +1,187 @@
+name: Configure Production Backups
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: apluscard-production-backup-config
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    name: Offsite-Backup einrichten und Restore testen
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+      RESTIC_REPOSITORY_INPUT: ${{ secrets.BACKUP_RESTIC_REPOSITORY }}
+      RESTIC_PASSWORD_INPUT: ${{ secrets.BACKUP_RESTIC_PASSWORD }}
+      AWS_ACCESS_KEY_ID_INPUT: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY_INPUT: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION_INPUT: ${{ secrets.BACKUP_AWS_DEFAULT_REGION }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Backup-Secrets prüfen und sicher verpacken
+        id: backup-payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD fehlt." && exit 1)
+          test -n "$RESTIC_REPOSITORY_INPUT" || (echo "BACKUP_RESTIC_REPOSITORY fehlt." && exit 1)
+          test -n "$RESTIC_PASSWORD_INPUT" || (echo "BACKUP_RESTIC_PASSWORD fehlt." && exit 1)
+          test -n "$AWS_ACCESS_KEY_ID_INPUT" || (echo "BACKUP_AWS_ACCESS_KEY_ID fehlt." && exit 1)
+          test -n "$AWS_SECRET_ACCESS_KEY_INPUT" || (echo "BACKUP_AWS_SECRET_ACCESS_KEY fehlt." && exit 1)
+
+          case "$RESTIC_REPOSITORY_INPUT" in
+            s3:*) ;;
+            *) echo "BACKUP_RESTIC_REPOSITORY muss ein S3-kompatibles Restic-Ziel sein und mit s3: beginnen."; exit 1 ;;
+          esac
+          test "${#RESTIC_PASSWORD_INPUT}" -ge 24 || (echo "BACKUP_RESTIC_PASSWORD muss mindestens 24 Zeichen lang sein." && exit 1)
+
+          umask 077
+          PAYLOAD_FILE="$RUNNER_TEMP/apluscard-backup.payload"
+          {
+            printf 'RESTIC_REPOSITORY_B64=%s\n' "$(printf '%s' "$RESTIC_REPOSITORY_INPUT" | base64 -w0)"
+            printf 'RESTIC_PASSWORD_B64=%s\n' "$(printf '%s' "$RESTIC_PASSWORD_INPUT" | base64 -w0)"
+            printf 'AWS_ACCESS_KEY_ID_B64=%s\n' "$(printf '%s' "$AWS_ACCESS_KEY_ID_INPUT" | base64 -w0)"
+            printf 'AWS_SECRET_ACCESS_KEY_B64=%s\n' "$(printf '%s' "$AWS_SECRET_ACCESS_KEY_INPUT" | base64 -w0)"
+            printf 'AWS_DEFAULT_REGION_B64=%s\n' "$(printf '%s' "${AWS_DEFAULT_REGION_INPUT:-auto}" | base64 -w0)"
+          } > "$PAYLOAD_FILE"
+          chmod 600 "$PAYLOAD_FILE"
+          echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
+          echo "Backup-Secrets wurden geprüft; Werte werden nicht protokolliert."
+
+      - name: SSH-Werkzeuge installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Hetzner-Schlüssel vertrauen
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Geschützte Konfiguration übertragen
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$APP_DIR'"
+          sshpass -e scp -P "$SSH_PORT" "${{ steps.backup-payload.outputs.payload_file }}" "$SSH_USER@$SSH_HOST:$APP_DIR/.backup-secrets.payload"
+
+      - name: Backup-Timer installieren, erstes Backup und Restore-Drill ausführen
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+          test -f .backup-secrets.payload || (echo "Backup-Payload fehlt." && exit 1)
+          . ./.backup-secrets.payload
+
+          decode_value() { printf '%s' "$1" | base64 --decode; }
+          RESTIC_REPOSITORY_VALUE="$(decode_value "$RESTIC_REPOSITORY_B64")"
+          RESTIC_PASSWORD_VALUE="$(decode_value "$RESTIC_PASSWORD_B64")"
+          AWS_ACCESS_KEY_ID_VALUE="$(decode_value "$AWS_ACCESS_KEY_ID_B64")"
+          AWS_SECRET_ACCESS_KEY_VALUE="$(decode_value "$AWS_SECRET_ACCESS_KEY_B64")"
+          AWS_DEFAULT_REGION_VALUE="$(decode_value "$AWS_DEFAULT_REGION_B64")"
+
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y restic jq
+
+          umask 077
+          BACKUP_ENV_TEMP="$(mktemp)"
+          {
+            printf 'RESTIC_REPOSITORY=%q\n' "$RESTIC_REPOSITORY_VALUE"
+            printf 'RESTIC_PASSWORD=%q\n' "$RESTIC_PASSWORD_VALUE"
+            printf 'AWS_ACCESS_KEY_ID=%q\n' "$AWS_ACCESS_KEY_ID_VALUE"
+            printf 'AWS_SECRET_ACCESS_KEY=%q\n' "$AWS_SECRET_ACCESS_KEY_VALUE"
+            printf 'AWS_DEFAULT_REGION=%q\n' "$AWS_DEFAULT_REGION_VALUE"
+            printf 'RESTIC_CACHE_DIR=%q\n' "/var/cache/restic"
+            printf 'BACKUP_HOST_TAG=%q\n' "apluscard-production"
+          } > "$BACKUP_ENV_TEMP"
+          chmod 600 "$BACKUP_ENV_TEMP"
+          mv "$BACKUP_ENV_TEMP" .backup.env
+          rm -f .backup-secrets.payload
+
+          chmod 700 ops/backup/backup.sh ops/backup/restore-drill.sh ops/backup/restore-production.sh
+          install -m 644 ops/backup/systemd/apluscard-backup.service /etc/systemd/system/apluscard-backup.service
+          install -m 644 ops/backup/systemd/apluscard-backup.timer /etc/systemd/system/apluscard-backup.timer
+          install -m 644 ops/backup/systemd/apluscard-restore-drill.service /etc/systemd/system/apluscard-restore-drill.service
+          install -m 644 ops/backup/systemd/apluscard-restore-drill.timer /etc/systemd/system/apluscard-restore-drill.timer
+          mkdir -p /var/lib/apluscard-backup /var/cache/restic
+          chmod 700 /var/lib/apluscard-backup /var/cache/restic
+
+          systemctl daemon-reload
+          systemctl enable --now apluscard-backup.timer apluscard-restore-drill.timer
+
+          systemctl start apluscard-backup.service
+          systemctl --quiet is-failed apluscard-backup.service && {
+            journalctl -u apluscard-backup.service --no-pager -n 100
+            exit 1
+          }
+          systemctl start apluscard-restore-drill.service
+          systemctl --quiet is-failed apluscard-restore-drill.service && {
+            journalctl -u apluscard-restore-drill.service --no-pager -n 100
+            exit 1
+          }
+
+          jq -e '.status == "success"' /var/lib/apluscard-backup/last-backup.json >/dev/null
+          jq -e '.status == "success"' /var/lib/apluscard-backup/last-restore-drill.json >/dev/null
+          echo "Erstes verschlüsseltes Offsite-Backup und echter Restore-Drill waren erfolgreich."
+          REMOTE
+
+      - name: Backup-Status veröffentlichen
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          BACKUP_JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const success = process.env.BACKUP_JOB_STATUS === 'success';
+            const lines = success ? [
+              '# Production Backup & Disaster Recovery Status',
+              '',
+              '✅ **فعال و تست‌شده**',
+              '',
+              '- دیتابیس PostgreSQL: روزانه Backup می‌شود',
+              '- فایل‌های Media: روزانه Backup می‌شوند',
+              '- تنظیمات Production: فقط به‌شکل رمزنگاری‌شده Backup می‌شوند',
+              '- مقصد: Object Storage خارج از سرور',
+              '- رمزنگاری: Restic قبل از خروج داده از سرور',
+              '- نگهداری: ۱۴ روزانه، ۸ هفتگی، ۱۲ ماهانه، ۳ سالانه',
+              '- Restore Drill: با دیتابیس موقت با موفقیت اجرا شد',
+              '- زمان‌بندی: Backup روزانه و Restore Drill هفتگی فعال است',
+              '- هیچ داده مشتری یا Secret در GitHub منتشر نشده است',
+              '',
+              `Workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ] : [
+              '# Production Backup & Disaster Recovery Status',
+              '',
+              '❌ **راه‌اندازی یا Restore Drill ناموفق بود**',
+              '',
+              '- هیچ داده یا Secret در این گزارش منتشر نشده است.',
+              '- مرحله شکست‌خورده Workflow باید بررسی شود.',
+              '',
+              `Workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ];
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 25,
+              body: lines.join('\n'),
+            });
