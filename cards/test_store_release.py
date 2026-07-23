@@ -13,7 +13,19 @@ class StoreReleaseEndpointTests(TestCase):
         self.assertEqual(payload["short_name"], "A+ Card")
         self.assertEqual(payload["display"], "standalone")
         self.assertEqual(payload["start_url"], "/")
-        self.assertTrue(any(icon["purpose"] == "any maskable" for icon in payload["icons"]))
+        self.assertIn(
+            {"src": "/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+            payload["icons"],
+        )
+
+    def test_png_icons_are_generated_in_store_sizes(self):
+        for size in (192, 512):
+            response = self.client.get(reverse("app_icon", args=[size]))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response["Content-Type"], "image/png")
+            self.assertTrue(response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertGreater(len(response.content), 1000)
+        self.assertEqual(self.client.get(reverse("app_icon", args=[256])).status_code, 404)
 
     @override_settings(
         ANDROID_PACKAGE_NAME="de.aplussolution.apluscard",
