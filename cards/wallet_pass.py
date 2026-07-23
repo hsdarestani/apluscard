@@ -13,6 +13,13 @@ from django.urls import reverse
 from PIL import Image, ImageDraw, ImageFont
 
 
+DARK = (8, 5, 14, 255)
+PURPLE = (123, 45, 255, 255)
+GOLD = (220, 167, 80, 255)
+GOLD_LIGHT = (255, 211, 128, 255)
+WHITE = (255, 255, 255, 255)
+
+
 def _decode_secret(value):
     value = (value or "").strip()
     if not value:
@@ -43,20 +50,101 @@ def _load_signing_identity():
     return private_key, certificate, list(chain or [])
 
 
-def _font(size):
-    try:
-        return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
-    except OSError:
-        return ImageFont.load_default()
+def _font(size, *, bold=True):
+    candidates = (
+        "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
+        "Arial Bold.ttf" if bold else "Arial.ttf",
+    )
+    for candidate in candidates:
+        try:
+            return ImageFont.truetype(candidate, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 
-def _brand_image(width, height, *, compact=False):
-    image = Image.new("RGBA", (width, height), (8, 5, 15, 255))
+def _vertical_gradient(width, height, top, bottom):
+    image = Image.new("RGBA", (width, height), top)
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=max(4, height // 5), fill=(8, 5, 15, 255))
-    draw.ellipse((2, 2, height - 3, height - 3), fill=(122, 53, 255, 255))
-    initials = "A+" if compact else "A+ CARD"
-    draw.text((height + max(3, height // 8), height // 2), initials, fill=(255, 255, 255, 255), font=_font(max(9, height // 3)), anchor="lm")
+    for y in range(height):
+        ratio = y / max(height - 1, 1)
+        color = tuple(round(top[index] + (bottom[index] - top[index]) * ratio) for index in range(4))
+        draw.line((0, y, width, y), fill=color)
+    return image
+
+
+def _icon_image(size):
+    image = _vertical_gradient(size, size, (13, 8, 22, 255), (4, 3, 8, 255))
+    draw = ImageDraw.Draw(image)
+    radius = max(4, round(size * 0.22))
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=255)
+    image.putalpha(mask)
+
+    inset = round(size * 0.11)
+    draw.ellipse((inset, inset, size - inset, size - inset), fill=PURPLE)
+    draw.arc(
+        (inset, inset, size - inset, size - inset),
+        start=205,
+        end=35,
+        fill=GOLD_LIGHT,
+        width=max(2, round(size * 0.045)),
+    )
+    draw.text((size / 2, size / 2), "S", font=_font(max(10, round(size * 0.48))), fill=WHITE, anchor="mm")
+    return image
+
+
+def _logo_image(width, height):
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    emblem = _icon_image(height)
+    image.alpha_composite(emblem, (0, 0))
+    x = height + max(5, height // 7)
+    draw.text((x, height * 0.38), "SAMS", font=_font(max(12, height // 2)), fill=WHITE, anchor="lm")
+    draw.text(
+        (x, height * 0.76),
+        "CLUB LOUNGE",
+        font=_font(max(6, height // 7), bold=False),
+        fill=GOLD_LIGHT,
+        anchor="lm",
+    )
+    return image
+
+
+def _strip_image(width, height):
+    image = _vertical_gradient(width, height, (20, 10, 35, 255), DARK)
+    glow_radius = round(height * 0.95)
+    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    glow_draw = ImageDraw.Draw(glow)
+    glow_draw.ellipse(
+        (-glow_radius // 2, -glow_radius // 2, glow_radius, glow_radius),
+        fill=(116, 38, 255, 150),
+    )
+    image = Image.alpha_composite(image, glow)
+    draw = ImageDraw.Draw(image)
+
+    for offset, alpha in ((0, 120), (8, 70), (16, 35)):
+        draw.arc(
+            (round(width * 0.58) - offset, -round(height * 0.70) - offset, width + round(height * 0.55) + offset, round(height * 1.55) + offset),
+            start=110,
+            end=245,
+            fill=(220, 167, 80, alpha),
+            width=max(1, height // 45),
+        )
+    draw.text(
+        (round(width * 0.065), round(height * 0.43)),
+        "SAMS",
+        font=_font(max(18, round(height * 0.28))),
+        fill=WHITE,
+        anchor="lm",
+    )
+    draw.text(
+        (round(width * 0.068), round(height * 0.67)),
+        "MEMBER CARD",
+        font=_font(max(8, round(height * 0.085)), bold=False),
+        fill=GOLD_LIGHT,
+        anchor="lm",
+    )
     return image
 
 
@@ -74,7 +162,6 @@ def _pass_files(wallet, request):
         "format": "PKBarcodeFormatQR",
         "message": str(wallet.qr_token),
         "messageEncoding": "iso-8859-1",
-        "altText": f"Mitglied {wallet.member_number}",
     }
     pass_json = {
         "formatVersion": 1,
@@ -82,11 +169,13 @@ def _pass_files(wallet, request):
         "serialNumber": str(wallet.pk),
         "teamIdentifier": settings.APPLE_WALLET_TEAM_ID,
         "organizationName": settings.APP_PUBLISHER,
-        "description": f"Digitale {settings.APP_NAME} Mitgliedskarte",
-        "logoText": "A+ CARD",
+        "description": "Digitale SAMS Mitgliedskarte",
+        "logoText": "SAMS",
         "foregroundColor": "rgb(255, 255, 255)",
-        "backgroundColor": "rgb(8, 5, 15)",
-        "labelColor": "rgb(255, 180, 59)",
+        "backgroundColor": "rgb(8, 5, 14)",
+        "labelColor": "rgb(255, 204, 112)",
+        "sharingProhibited": True,
+        "suppressStripShine": True,
         "barcodes": [barcode],
         "barcode": barcode,
         "storeCard": {
@@ -98,12 +187,12 @@ def _pass_files(wallet, request):
                 {"key": "tier", "label": "STATUS", "value": wallet.get_tier_display()},
             ],
             "auxiliaryFields": [
-                {"key": "partner", "label": "PARTNER", "value": wallet.business.name},
-                {"key": "locations", "label": "GÜLTIG", "value": "Alle drei Standorte"},
+                {"key": "validAt", "label": "GÜLTIG", "value": "Alle drei Standorte"},
             ],
             "backFields": [
+                {"key": "partner", "label": "SAMS Standorte", "value": "Sams Club Lounge · Sams Club Lounge CITY · DIMA Sportsbar"},
                 {"key": "provider", "label": "Bereitgestellt von", "value": settings.APP_PUBLISHER},
-                {"key": "usage", "label": "Verwendung", "value": "Diese digitale Mitgliedskarte gilt bei Sams Club Lounge, Sams Club Lounge CITY und DIMA Sportsbar."},
+                {"key": "usage", "label": "Verwendung", "value": "Diese digitale Mitgliedskarte ist persönlich und nicht übertragbar."},
                 {"key": "support", "label": "Support", "value": settings.APP_SUPPORT_EMAIL},
                 {"key": "terms", "label": "AGB", "value": terms_url},
                 {"key": "privacy", "label": "Datenschutz", "value": privacy_url},
@@ -113,11 +202,15 @@ def _pass_files(wallet, request):
     }
     return {
         "pass.json": json.dumps(pass_json, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
-        "icon.png": _png_bytes(_brand_image(29, 29, compact=True)),
-        "icon@2x.png": _png_bytes(_brand_image(58, 58, compact=True)),
-        "icon@3x.png": _png_bytes(_brand_image(87, 87, compact=True)),
-        "logo.png": _png_bytes(_brand_image(160, 50)),
-        "logo@2x.png": _png_bytes(_brand_image(320, 100)),
+        "icon.png": _png_bytes(_icon_image(29)),
+        "icon@2x.png": _png_bytes(_icon_image(58)),
+        "icon@3x.png": _png_bytes(_icon_image(87)),
+        "logo.png": _png_bytes(_logo_image(160, 50)),
+        "logo@2x.png": _png_bytes(_logo_image(320, 100)),
+        "strip.png": _png_bytes(_strip_image(375, 123)),
+        "strip@2x.png": _png_bytes(_strip_image(750, 246)),
+        "thumbnail.png": _png_bytes(_icon_image(90)),
+        "thumbnail@2x.png": _png_bytes(_icon_image(180)),
     }
 
 
@@ -126,10 +219,7 @@ def build_pkpass(wallet, request):
         raise ImproperlyConfigured("Apple Wallet ist noch nicht mit einem Pass-Type-Zertifikat verbunden.")
 
     files = _pass_files(wallet, request)
-    manifest = {
-        filename: hashlib.sha1(content).hexdigest()
-        for filename, content in files.items()
-    }
+    manifest = {filename: hashlib.sha1(content).hexdigest() for filename, content in files.items()}
     manifest_bytes = json.dumps(manifest, separators=(",", ":"), sort_keys=True).encode("utf-8")
 
     private_key, certificate, chain = _load_signing_identity()
