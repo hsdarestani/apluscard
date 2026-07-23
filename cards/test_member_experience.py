@@ -144,10 +144,11 @@ class SecurityAndPerformanceTests(MemberExperienceMixin, TestCase):
         self.assertIn("frame-ancestors 'none'", response["Content-Security-Policy"])
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
         self.assertNotIn("X-Powered-By", response)
-    def test_service_worker_only_caches_aplus_static_assets(self):
+    def test_service_worker_caches_sams_release_assets(self):
         response = self.client.get(reverse("service_worker"))
         content = response.content.decode("utf-8")
-        self.assertIn("aplus-card-v10", content)
+        self.assertIn("sams-card-v11", content)
+        self.assertIn("/static/cards/push.css", content)
         self.assertIn("/app-icon-512.png", content)
         self.assertIn("const isAsset", content)
         self.assertNotIn("caches.match('/')", content)
