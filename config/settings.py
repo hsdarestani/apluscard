@@ -11,6 +11,21 @@ ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "loc
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "https://cards.smarbiz.sbs").split(",") if origin.strip()]
 DEFAULT_BUSINESS_SLUG = os.getenv("DEFAULT_BUSINESS_SLUG", "shisha-bar")
 
+# Zentrale öffentliche Identität für Web-App, Store-Einträge und Systemmails.
+APP_NAME = os.getenv("APP_NAME", "A+ Card").strip()
+APP_SHORT_NAME = os.getenv("APP_SHORT_NAME", "A+ Card").strip()
+APP_PUBLISHER = os.getenv("APP_PUBLISHER", "A+Solution GmbH").strip()
+APP_SUPPORT_EMAIL = os.getenv("APP_SUPPORT_EMAIL", "app@aplus-solution.de").strip()
+APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "https://cards.smarbiz.sbs").strip().rstrip("/")
+ANDROID_PACKAGE_NAME = os.getenv("ANDROID_PACKAGE_NAME", "de.aplussolution.apluscard").strip()
+ANDROID_APP_SIGNING_SHA256 = [
+    fingerprint.strip().upper()
+    for fingerprint in os.getenv("ANDROID_APP_SIGNING_SHA256", "").split(",")
+    if fingerprint.strip()
+]
+IOS_BUNDLE_ID = os.getenv("IOS_BUNDLE_ID", "de.aplussolution.apluscard").strip()
+IOS_APP_TEAM_ID = os.getenv("IOS_APP_TEAM_ID", os.getenv("APPLE_TEAM_ID", "")).strip()
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -83,19 +98,19 @@ STORAGES = {
 }
 
 EMAIL_HOST = os.getenv("EMAIL_HOST", "").strip()
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "sams@aplus-solution.de").strip()
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "465"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", APP_SUPPORT_EMAIL).strip()
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "0") == "1"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "1") == "1"
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "0" if EMAIL_USE_SSL else "1") == "1"
 EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "20"))
 EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND",
     "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend",
 )
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "SAMS Club Lounge <sams@aplus-solution.de>")
-SERVER_EMAIL = os.getenv("SERVER_EMAIL", "SAMS System <sams@aplus-solution.de>")
-EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", "sams@aplus-solution.de")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", f"{APP_NAME} <{APP_SUPPORT_EMAIL}>")
+SERVER_EMAIL = os.getenv("SERVER_EMAIL", f"{APP_NAME} System <{APP_SUPPORT_EMAIL}>")
+EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", APP_SUPPORT_EMAIL)
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
