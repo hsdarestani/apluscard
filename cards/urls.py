@@ -20,6 +20,7 @@ urlpatterns = [
     path("apps/<slug:business_slug>/konto-loeschen/", legal_views.account_deletion, name="app_account_deletion"),
     path("health/", views.health, name="health"),
     path("manifest.webmanifest", release_views.manifest, name="manifest"),
+    path("app-icon-<int:size>.png", release_views.app_icon, name="app_icon"),
     path(".well-known/assetlinks.json", release_views.android_asset_links, name="android_asset_links"),
     path(".well-known/apple-app-site-association", release_views.apple_app_site_association, name="apple_app_site_association"),
     path("sw.js", experience_views.service_worker, name="service_worker"),
