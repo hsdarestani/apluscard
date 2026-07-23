@@ -1,0 +1,40 @@
+name: Diagnose PR 33
+
+on:
+  push:
+    branches:
+      - agent/sams-wallet-and-mobile-push
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements.txt
+      - name: Migrationen anwenden
+        run: python manage.py migrate --noinput
+      - name: Tests mit vollständigem Bericht ausführen
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python manage.py test --verbosity 2 2>&1 | tee pr33-test-output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+      - name: Diagnose-Ausgabe hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr33-test-output
+          path: pr33-test-output.txt
+          if-no-files-found: error
+      - name: Teststatus übernehmen
+        if: steps.tests.outputs.exit_code != '0'
+        run: exit 1
