@@ -10,10 +10,14 @@
   <meta name="apple-mobile-web-app-title" content="{{ app_short_name }}">
   <meta name="application-name" content="{{ app_name }}">
   <meta name="author" content="{{ app_publisher }}">
+  {% if user.is_authenticated %}
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="push-device-url" content="{% url 'api_push_devices' %}">
+  {% endif %}
   <title>{% block title %}{{ app_name }} · {{ app_publisher }}{% endblock %}</title>
   <link rel="manifest" href="{% url 'manifest' %}">
   <link rel="icon" href="{% static 'cards/icon.svg' %}" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="{% static 'cards/icon.svg' %}">
+  <link rel="apple-touch-icon" href="{% url 'app_icon' 192 %}">
   <link rel="stylesheet" href="{% static 'cards/app.css' %}">
   <link rel="stylesheet" href="{% static 'cards/registration.css' %}">
   <link rel="stylesheet" href="{% static 'cards/ledger.css' %}">
@@ -30,8 +34,8 @@
   <div class="ambient ambient-three" aria-hidden="true"></div>
   <header class="topbar">
     <a href="{% url 'dashboard' %}" class="brand-lockup" aria-label="{{ app_name }} Übersicht">
-      <span class="brand-emblem">A+</span>
-      <span class="brand-copy"><strong>A+ CARD</strong><small>Digitale Mitgliedskarte · {{ app_publisher }}</small></span>
+      <span class="brand-emblem">S</span>
+      <span class="brand-copy"><strong>SAMS CARD</strong><small>Digitale Mitgliedskarte · {{ app_publisher }}</small></span>
     </a>
     <div class="topbar-actions">
       <button class="button secondary small install-button" id="install-app" type="button">App installieren</button>
@@ -41,7 +45,7 @@
           <b>Mitteilungen</b><em id="notification-count" {% if not global_unread_notification_count %}hidden{% endif %}>{{ global_unread_notification_count|default:0 }}</em>
         </a>
         <span class="user-chip">{{ user.get_full_name|default:user.username }}</span>
-        <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link-button" type="submit">Abmelden</button></form>
+        <form method="post" action="{% url 'logout' %}" id="logout-form">{% csrf_token %}<button class="link-button" type="submit">Abmelden</button></form>
       {% else %}
         <a class="button secondary small" href="{% url 'login' %}">Anmelden</a>
         <a class="button primary small" href="{% url 'register' %}">Registrieren</a>
@@ -52,7 +56,7 @@
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
     <footer class="footer-brand legal-footer">
-      <div><strong>{{ app_name }}</strong><br><span>Mitgliedskarte, A+ Pay & Treueprogramm · {{ app_publisher }}</span><br><a href="mailto:{{ app_support_email }}">{{ app_support_email }}</a></div>
+      <div><strong>{{ app_name }}</strong><br><span>SAMS Mitgliedskarte, Guthaben & Treueprogramm · {{ app_publisher }}</span><br><a href="mailto:{{ app_support_email }}">{{ app_support_email }}</a></div>
       <nav aria-label="Rechtliche Informationen">
         <a href="{% url 'terms' %}">AGB</a>
         <a href="{% url 'privacy_policy' %}">Datenschutz</a>
