@@ -12,19 +12,31 @@ CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUS
 DEFAULT_BUSINESS_SLUG = os.getenv("DEFAULT_BUSINESS_SLUG", "shisha-bar")
 
 # Zentrale öffentliche Identität für Web-App, Store-Einträge und Systemmails.
-APP_NAME = os.getenv("APP_NAME", "A+ Card").strip()
-APP_SHORT_NAME = os.getenv("APP_SHORT_NAME", "A+ Card").strip()
-APP_PUBLISHER = os.getenv("APP_PUBLISHER", "A+Solution GmbH").strip()
+APP_NAME = os.getenv("APP_NAME", "SAMS Card").strip()
+APP_SHORT_NAME = os.getenv("APP_SHORT_NAME", "SAMS").strip()
+APP_PUBLISHER = os.getenv("APP_PUBLISHER", "A+ Solution GmbH").strip()
 APP_SUPPORT_EMAIL = os.getenv("APP_SUPPORT_EMAIL", "app@aplus-solution.de").strip()
 APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "https://cards.smarbiz.sbs").strip().rstrip("/")
-ANDROID_PACKAGE_NAME = os.getenv("ANDROID_PACKAGE_NAME", "de.aplussolution.apluscard").strip()
+ANDROID_PACKAGE_NAME = os.getenv("ANDROID_PACKAGE_NAME", "de.aplussolution.samscard").strip()
 ANDROID_APP_SIGNING_SHA256 = [
     fingerprint.strip().upper()
     for fingerprint in os.getenv("ANDROID_APP_SIGNING_SHA256", "").split(",")
     if fingerprint.strip()
 ]
-IOS_BUNDLE_ID = os.getenv("IOS_BUNDLE_ID", "de.aplussolution.apluscard").strip()
+IOS_BUNDLE_ID = os.getenv("IOS_BUNDLE_ID", "de.aplussolution.samscard").strip()
 IOS_APP_TEAM_ID = os.getenv("IOS_APP_TEAM_ID", os.getenv("APPLE_TEAM_ID", "")).strip()
+
+# Native Push: Android über Firebase Cloud Messaging, iOS direkt über APNs.
+PUSH_NOTIFICATIONS_ENABLED = os.getenv("PUSH_NOTIFICATIONS_ENABLED", "0") == "1"
+PUSH_HTTP_TIMEOUT_SECONDS = float(os.getenv("PUSH_HTTP_TIMEOUT_SECONDS", "10"))
+PUSH_NOTIFICATION_MAX_AGE_SECONDS = int(os.getenv("PUSH_NOTIFICATION_MAX_AGE_SECONDS", "21600"))
+PUSH_MAX_ATTEMPTS = int(os.getenv("PUSH_MAX_ATTEMPTS", "5"))
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON_BASE64", "").strip()
+APNS_KEY_ID = os.getenv("APNS_KEY_ID", "").strip()
+APNS_TEAM_ID = os.getenv("APNS_TEAM_ID", IOS_APP_TEAM_ID).strip()
+APNS_PRIVATE_KEY_BASE64 = os.getenv("APNS_PRIVATE_KEY_BASE64", "").strip()
+APNS_USE_SANDBOX = os.getenv("APNS_USE_SANDBOX", "0") == "1"
 
 INSTALLED_APPS = [
     "django.contrib.admin",
