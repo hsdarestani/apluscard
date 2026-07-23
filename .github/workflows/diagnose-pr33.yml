@@ -1,9 +1,9 @@
 name: Diagnose PR 33
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/sams-wallet-and-mobile-push
+      - main
   workflow_dispatch:
 
 permissions:
