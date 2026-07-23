@@ -1,0 +1,121 @@
+name: Configure Production Push
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-card-production
+  cancel-in-progress: false
+
+jobs:
+  configure-push:
+    name: FCM und APNs sicher konfigurieren
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+      FIREBASE_PROJECT_ID_INPUT: ${{ secrets.FIREBASE_PROJECT_ID }}
+      FIREBASE_SERVICE_ACCOUNT_INPUT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 }}
+      APNS_KEY_ID_INPUT: ${{ secrets.APNS_KEY_ID }}
+      APNS_TEAM_ID_INPUT: ${{ secrets.APNS_TEAM_ID }}
+      APNS_PRIVATE_KEY_INPUT: ${{ secrets.APNS_PRIVATE_KEY_BASE64 }}
+
+    steps:
+      - name: Push-Secrets prüfen
+        id: push-payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD fehlt." && exit 1)
+          test -n "$FIREBASE_SERVICE_ACCOUNT_INPUT" || (echo "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 fehlt." && exit 1)
+          test -n "$APNS_KEY_ID_INPUT" || (echo "APNS_KEY_ID fehlt." && exit 1)
+          test -n "$APNS_TEAM_ID_INPUT" || (echo "APNS_TEAM_ID fehlt." && exit 1)
+          test -n "$APNS_PRIVATE_KEY_INPUT" || (echo "APNS_PRIVATE_KEY_BASE64 fehlt." && exit 1)
+
+          umask 077
+          PAYLOAD_FILE="$RUNNER_TEMP/push-secrets.payload"
+          {
+            printf 'FIREBASE_PROJECT_ID_B64=%s\n' "$(printf '%s' "$FIREBASE_PROJECT_ID_INPUT" | base64 -w0)"
+            printf 'FIREBASE_SERVICE_ACCOUNT_B64=%s\n' "$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT_INPUT" | base64 -w0)"
+            printf 'APNS_KEY_ID_B64=%s\n' "$(printf '%s' "$APNS_KEY_ID_INPUT" | base64 -w0)"
+            printf 'APNS_TEAM_ID_B64=%s\n' "$(printf '%s' "$APNS_TEAM_ID_INPUT" | base64 -w0)"
+            printf 'APNS_PRIVATE_KEY_B64=%s\n' "$(printf '%s' "$APNS_PRIVATE_KEY_INPUT" | base64 -w0)"
+          } > "$PAYLOAD_FILE"
+          chmod 600 "$PAYLOAD_FILE"
+          echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: SSH-Werkzeuge installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Server-Schlüssel vertrauen
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Geschützte Push-Konfiguration übertragen
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$APP_DIR'"
+          sshpass -e scp -P "$SSH_PORT" "${{ steps.push-payload.outputs.payload_file }}" "$SSH_USER@$SSH_HOST:$APP_DIR/.push-secrets.payload"
+
+      - name: Production konfigurieren und Worker starten
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+          test -f .env || (echo "Produktionsdatei .env fehlt." && exit 1)
+          . ./.push-secrets.payload
+          decode_value() { printf '%s' "$1" | base64 --decode; }
+
+          FIREBASE_PROJECT_ID_VALUE="$(decode_value "$FIREBASE_PROJECT_ID_B64")"
+          FIREBASE_SERVICE_ACCOUNT_VALUE="$(decode_value "$FIREBASE_SERVICE_ACCOUNT_B64")"
+          APNS_KEY_ID_VALUE="$(decode_value "$APNS_KEY_ID_B64")"
+          APNS_TEAM_ID_VALUE="$(decode_value "$APNS_TEAM_ID_B64")"
+          APNS_PRIVATE_KEY_VALUE="$(decode_value "$APNS_PRIVATE_KEY_B64")"
+
+          ENV_TEMP="$(mktemp)"
+          grep -vE '^(APP_NAME|APP_SHORT_NAME|APP_PUBLISHER|ANDROID_PACKAGE_NAME|IOS_BUNDLE_ID|PUSH_NOTIFICATIONS_ENABLED|PUSH_HTTP_TIMEOUT_SECONDS|PUSH_NOTIFICATION_MAX_AGE_SECONDS|PUSH_MAX_ATTEMPTS|FIREBASE_PROJECT_ID|FIREBASE_SERVICE_ACCOUNT_JSON_BASE64|APNS_KEY_ID|APNS_TEAM_ID|APNS_PRIVATE_KEY_BASE64|APNS_USE_SANDBOX)=' .env > "$ENV_TEMP" || true
+          {
+            printf 'APP_NAME=SAMS Card\n'
+            printf 'APP_SHORT_NAME=SAMS\n'
+            printf 'APP_PUBLISHER=A+ Solution GmbH\n'
+            printf 'ANDROID_PACKAGE_NAME=de.aplussolution.samscard\n'
+            printf 'IOS_BUNDLE_ID=de.aplussolution.samscard\n'
+            printf 'PUSH_NOTIFICATIONS_ENABLED=1\n'
+            printf 'PUSH_HTTP_TIMEOUT_SECONDS=10\n'
+            printf 'PUSH_NOTIFICATION_MAX_AGE_SECONDS=21600\n'
+            printf 'PUSH_MAX_ATTEMPTS=5\n'
+            printf 'FIREBASE_PROJECT_ID=%s\n' "$FIREBASE_PROJECT_ID_VALUE"
+            printf 'FIREBASE_SERVICE_ACCOUNT_JSON_BASE64=%s\n' "$FIREBASE_SERVICE_ACCOUNT_VALUE"
+            printf 'APNS_KEY_ID=%s\n' "$APNS_KEY_ID_VALUE"
+            printf 'APNS_TEAM_ID=%s\n' "$APNS_TEAM_ID_VALUE"
+            printf 'APNS_PRIVATE_KEY_BASE64=%s\n' "$APNS_PRIVATE_KEY_VALUE"
+            printf 'APNS_USE_SANDBOX=0\n'
+          } >> "$ENV_TEMP"
+          chmod 600 "$ENV_TEMP"
+          mv "$ENV_TEMP" .env
+          rm -f .push-secrets.payload
+
+          docker compose up -d --build --remove-orphans
+          docker compose exec -T web python manage.py migrate --noinput
+          docker compose exec -T web python manage.py check
+          docker compose ps push-worker
+          REMOTE
+
+      - name: Öffentliche Oberfläche prüfen
+        run: curl --fail --silent --show-error --max-time 30 https://cards.smarbiz.sbs/health/ >/dev/null
