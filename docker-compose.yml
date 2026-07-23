@@ -28,6 +28,19 @@ services:
       timeout: 5s
       retries: 5
 
+  push-worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: ["python", "manage.py", "run_push_worker", "--poll", "3"]
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    volumes:
+      - media_data:/app/media
+
 volumes:
   postgres_data:
   media_data:
