@@ -55,7 +55,7 @@ def _brand_image(width, height, *, compact=False):
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=max(4, height // 5), fill=(8, 5, 15, 255))
     draw.ellipse((2, 2, height - 3, height - 3), fill=(122, 53, 255, 255))
-    initials = "S" if compact else "SAMS"
+    initials = "A+" if compact else "A+ CARD"
     draw.text((height + max(3, height // 8), height // 2), initials, fill=(255, 255, 255, 255), font=_font(max(9, height // 3)), anchor="lm")
     return image
 
@@ -81,9 +81,9 @@ def _pass_files(wallet, request):
         "passTypeIdentifier": settings.APPLE_WALLET_PASS_TYPE_ID,
         "serialNumber": str(wallet.pk),
         "teamIdentifier": settings.APPLE_WALLET_TEAM_ID,
-        "organizationName": wallet.business.name,
-        "description": "Digitale SAMS Mitgliedskarte",
-        "logoText": "SAMS CLUB LOUNGE",
+        "organizationName": settings.APP_PUBLISHER,
+        "description": f"Digitale {settings.APP_NAME} Mitgliedskarte",
+        "logoText": "A+ CARD",
         "foregroundColor": "rgb(255, 255, 255)",
         "backgroundColor": "rgb(8, 5, 15)",
         "labelColor": "rgb(255, 180, 59)",
@@ -98,10 +98,13 @@ def _pass_files(wallet, request):
                 {"key": "tier", "label": "STATUS", "value": wallet.get_tier_display()},
             ],
             "auxiliaryFields": [
+                {"key": "partner", "label": "PARTNER", "value": wallet.business.name},
                 {"key": "locations", "label": "GÜLTIG", "value": "Alle drei Standorte"},
             ],
             "backFields": [
+                {"key": "provider", "label": "Bereitgestellt von", "value": settings.APP_PUBLISHER},
                 {"key": "usage", "label": "Verwendung", "value": "Diese digitale Mitgliedskarte gilt bei Sams Club Lounge, Sams Club Lounge CITY und DIMA Sportsbar."},
+                {"key": "support", "label": "Support", "value": settings.APP_SUPPORT_EMAIL},
                 {"key": "terms", "label": "AGB", "value": terms_url},
                 {"key": "privacy", "label": "Datenschutz", "value": privacy_url},
                 {"key": "deletion", "label": "Konto und Daten löschen", "value": delete_url},

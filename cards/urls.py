@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, experience_views, legal_views, manager_views, notification_views, views
+from . import api, experience_views, legal_views, manager_views, notification_views, release_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
@@ -19,13 +19,16 @@ urlpatterns = [
     path("apps/<slug:business_slug>/impressum/", legal_views.imprint, name="app_imprint"),
     path("apps/<slug:business_slug>/konto-loeschen/", legal_views.account_deletion, name="app_account_deletion"),
     path("health/", views.health, name="health"),
-    path("manifest.webmanifest", views.manifest, name="manifest"),
+    path("manifest.webmanifest", release_views.manifest, name="manifest"),
+    path("app-icon-<int:size>.png", release_views.app_icon, name="app_icon"),
+    path(".well-known/assetlinks.json", release_views.android_asset_links, name="android_asset_links"),
+    path(".well-known/apple-app-site-association", release_views.apple_app_site_association, name="apple_app_site_association"),
     path("sw.js", experience_views.service_worker, name="service_worker"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("location/select/", views.select_location, name="select_location"),
     path("customer/standort-waehlen/", experience_views.customer_location_select, name="customer_location_select"),
     path("customer/", views.customer_dashboard, name="customer_dashboard"),
-    path("customer/apple-wallet/", experience_views.apple_wallet_pass, name="apple_wallet_pass"),
+    path("customer/apple-wallet/", release_views.apple_wallet_pass, name="apple_wallet_pass"),
     path("customer/payments/<uuid:payment_id>/confirm/", views.customer_confirm_payment, name="customer_confirm_payment"),
     path("customer/reviews/<uuid:location_id>/complete/", views.mark_reviewed, name="mark_reviewed"),
     path("mitteilungen/", experience_views.notification_center, name="notification_center"),

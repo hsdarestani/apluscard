@@ -77,17 +77,20 @@ class OfferAndMobileUiTests(PlatformMixin, TestCase):
 
 @override_settings(
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-    DEFAULT_FROM_EMAIL="SAMS Club Lounge <sams@aplus-solution.de>",
-    EMAIL_REPLY_TO="sams@aplus-solution.de",
+    APP_NAME="A+ Card",
+    APP_PUBLISHER="A+Solution GmbH",
+    DEFAULT_FROM_EMAIL="A+ Card <app@aplus-solution.de>",
+    EMAIL_REPLY_TO="app@aplus-solution.de",
 )
 class EmailDeliveryTests(PlatformMixin, TestCase):
     def setUp(self): self.create_platform()
 
-    def test_verification_email_uses_sams_sender_and_contains_link(self):
+    def test_verification_email_uses_aplus_sender_and_contains_link(self):
         request = RequestFactory().get("/", HTTP_HOST="cards.smarbiz.sbs", secure=True)
         sent = send_verification_email(request, self.customer)
         self.assertTrue(sent)
         self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].from_email, "SAMS Club Lounge <sams@aplus-solution.de>")
-        self.assertEqual(mail.outbox[0].reply_to, ["sams@aplus-solution.de"])
+        self.assertEqual(mail.outbox[0].from_email, "A+ Card <app@aplus-solution.de>")
+        self.assertEqual(mail.outbox[0].reply_to, ["app@aplus-solution.de"])
+        self.assertIn("A+Solution GmbH", mail.outbox[0].body)
         self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)

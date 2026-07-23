@@ -7,8 +7,10 @@
   <meta name="theme-color" content="#09050f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="SAMS Lounge">
-  <title>{% block title %}SAMS Club Lounge · bereitgestellt von A+{% endblock %}</title>
+  <meta name="apple-mobile-web-app-title" content="{{ app_short_name }}">
+  <meta name="application-name" content="{{ app_name }}">
+  <meta name="author" content="{{ app_publisher }}">
+  <title>{% block title %}{{ app_name }} · {{ app_publisher }}{% endblock %}</title>
   <link rel="manifest" href="{% url 'manifest' %}">
   <link rel="icon" href="{% static 'cards/icon.svg' %}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{% static 'cards/icon.svg' %}">
@@ -27,9 +29,9 @@
   <div class="ambient ambient-two" aria-hidden="true"></div>
   <div class="ambient ambient-three" aria-hidden="true"></div>
   <header class="topbar">
-    <a href="{% url 'dashboard' %}" class="brand-lockup" aria-label="SAMS Club Lounge Übersicht">
-      <span class="brand-emblem">SCL</span>
-      <span class="brand-copy"><strong>SAMS CLUB LOUNGE</strong><small>bereitgestellt von <span class="aplus-signature">A+</span></small></span>
+    <a href="{% url 'dashboard' %}" class="brand-lockup" aria-label="{{ app_name }} Übersicht">
+      <span class="brand-emblem">A+</span>
+      <span class="brand-copy"><strong>A+ CARD</strong><small>Digitale Mitgliedskarte · {{ app_publisher }}</small></span>
     </a>
     <div class="topbar-actions">
       <button class="button secondary small install-button" id="install-app" type="button">App installieren</button>
@@ -50,7 +52,7 @@
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
     <footer class="footer-brand legal-footer">
-      <div><strong>SAMS CLUB LOUNGE</strong> · 3 Standorte<br><span>A+ Pay & Treueprogramm · bereitgestellt von <span class="aplus-signature">A+</span></span></div>
+      <div><strong>{{ app_name }}</strong><br><span>Mitgliedskarte, A+ Pay & Treueprogramm · {{ app_publisher }}</span><br><a href="mailto:{{ app_support_email }}">{{ app_support_email }}</a></div>
       <nav aria-label="Rechtliche Informationen">
         <a href="{% url 'terms' %}">AGB</a>
         <a href="{% url 'privacy_policy' %}">Datenschutz</a>

@@ -3,6 +3,7 @@ import logging
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.urls import reverse
+from django.utils.html import escape
 
 logger = logging.getLogger(__name__)
 
@@ -12,25 +13,29 @@ def send_verification_email(request, user):
 
     token = _verification_token(user)
     url = request.build_absolute_uri(reverse("verify_email", args=[token]))
-    display_name = user.first_name or "SAMS Member"
-    subject = "SAMS Member – E-Mail-Adresse bestätigen"
+    wallet = user.wallets.select_related("business").first()
+    partner_name = wallet.business.name if wallet else "deinen A+ Partner"
+    display_name = user.first_name or "A+ Member"
+    subject = f"{settings.APP_NAME} – E-Mail-Adresse bestätigen"
     text_body = (
         f"Hallo {display_name},\n\n"
-        "bitte bestätige deine E-Mail-Adresse über diesen Link:\n"
+        f"bitte bestätige deine E-Mail-Adresse für deine digitale Mitgliedskarte bei {partner_name}:\n"
         f"{url}\n\n"
         "Der Link ist 48 Stunden gültig.\n\n"
-        "SAMS Club Lounge"
+        f"{settings.APP_NAME}\n"
+        f"{settings.APP_PUBLISHER}"
     )
     html_body = f"""
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#17121d">
+      <div style="font-size:28px;font-weight:900;letter-spacing:-1px;margin-bottom:22px">A+</div>
       <h1 style="font-size:24px">E-Mail-Adresse bestätigen</h1>
-      <p>Hallo {display_name},</p>
-      <p>bestätige bitte deine E-Mail-Adresse, damit deine digitale Mitgliedskarte vollständig freigeschaltet wird.</p>
+      <p>Hallo {escape(display_name)},</p>
+      <p>bestätige bitte deine E-Mail-Adresse, damit deine digitale Mitgliedskarte bei <strong>{escape(partner_name)}</strong> vollständig freigeschaltet wird.</p>
       <p style="margin:28px 0">
-        <a href="{url}" style="display:inline-block;padding:14px 22px;border-radius:12px;background:#8b35ff;color:#fff;text-decoration:none;font-weight:700">E-Mail-Adresse bestätigen</a>
+        <a href="{escape(url)}" style="display:inline-block;padding:14px 22px;border-radius:12px;background:#8b35ff;color:#fff;text-decoration:none;font-weight:700">E-Mail-Adresse bestätigen</a>
       </p>
       <p style="font-size:13px;color:#665d6c">Der Link ist 48 Stunden gültig. Falls du dich nicht registriert hast, kannst du diese Nachricht ignorieren.</p>
-      <p style="font-size:13px;color:#665d6c">SAMS Club Lounge · bereitgestellt von A+</p>
+      <p style="font-size:13px;color:#665d6c"><strong>{escape(settings.APP_NAME)}</strong> · {escape(settings.APP_PUBLISHER)}</p>
     </div>
     """
     message = EmailMultiAlternatives(
