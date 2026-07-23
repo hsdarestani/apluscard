@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from collections import defaultdict
+from datetime import timedelta
 from urllib.parse import urljoin
 
 import httpx
@@ -99,7 +100,7 @@ def _send_android(notification, devices):
         data=_string_data(notification),
         android=messaging.AndroidConfig(
             priority="high",
-            ttl=60 * 60 * 24,
+            ttl=timedelta(days=1),
             notification=messaging.AndroidNotification(
                 channel_id="sams_updates",
                 sound="default",
