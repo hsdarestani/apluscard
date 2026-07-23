@@ -18,8 +18,11 @@ class Command(BaseCommand):
         recipient = options["to"].strip()
         timestamp = timezone.now().isoformat()
         message = EmailMultiAlternatives(
-            subject="SAMS SMTP-Test erfolgreich",
-            body=f"Die SAMS-App konnte am {timestamp} erfolgreich eine E-Mail über den Produktions-SMTP-Server versenden.",
+            subject=f"{settings.APP_NAME} SMTP-Test erfolgreich",
+            body=(
+                f"{settings.APP_NAME} konnte am {timestamp} erfolgreich eine E-Mail über den "
+                f"Produktions-SMTP-Server versenden.\n\n{settings.APP_PUBLISHER}"
+            ),
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[recipient],
             reply_to=[settings.EMAIL_REPLY_TO],
