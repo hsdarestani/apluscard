@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: apluscard-production
+  group: sams-card-production
   cancel-in-progress: false
 
 jobs:
@@ -90,9 +90,9 @@ jobs:
           ENV_TEMP="$(mktemp)"
           grep -vE '^(APP_NAME|APP_SHORT_NAME|APP_PUBLISHER|APP_SUPPORT_EMAIL|EMAIL_BACKEND|EMAIL_HOST|EMAIL_PORT|EMAIL_HOST_USER|EMAIL_HOST_PASSWORD|EMAIL_USE_TLS|EMAIL_USE_SSL|EMAIL_TIMEOUT|DEFAULT_FROM_EMAIL|SERVER_EMAIL|EMAIL_REPLY_TO)=' .env > "$ENV_TEMP" || true
           {
-            printf 'APP_NAME=A+ Card\n'
-            printf 'APP_SHORT_NAME=A+ Card\n'
-            printf 'APP_PUBLISHER=A+Solution GmbH\n'
+            printf 'APP_NAME=SAMS Card\n'
+            printf 'APP_SHORT_NAME=SAMS\n'
+            printf 'APP_PUBLISHER=A+ Solution GmbH\n'
             printf 'APP_SUPPORT_EMAIL=app@aplus-solution.de\n'
             printf 'EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend\n'
             printf 'EMAIL_HOST=%s\n' "$EMAIL_HOST_VALUE"
@@ -102,8 +102,8 @@ jobs:
             printf 'EMAIL_USE_TLS=%s\n' "$EMAIL_USE_TLS_VALUE"
             printf 'EMAIL_USE_SSL=%s\n' "$EMAIL_USE_SSL_VALUE"
             printf 'EMAIL_TIMEOUT=20\n'
-            printf 'DEFAULT_FROM_EMAIL=A+ Card <app@aplus-solution.de>\n'
-            printf 'SERVER_EMAIL=A+ Card System <app@aplus-solution.de>\n'
+            printf 'DEFAULT_FROM_EMAIL=SAMS Card <app@aplus-solution.de>\n'
+            printf 'SERVER_EMAIL=SAMS Card System <app@aplus-solution.de>\n'
             printf 'EMAIL_REPLY_TO=app@aplus-solution.de\n'
           } >> "$ENV_TEMP"
           chmod 600 "$ENV_TEMP"
