@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,7 +13,6 @@ from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
 from .models import AppNotification, LedgerEntry, Membership, Wallet
 from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, get_active_membership, require_role
-from .wallet_pass import build_pkpass
 
 
 def client_ip(request):
@@ -23,7 +22,7 @@ def client_ip(request):
 
 def service_worker(request):
     content = """
-const CACHE = 'sams-lounge-v9';
+const CACHE = 'aplus-card-v10';
 const ASSETS = [
   '/static/cards/app.css',
   '/static/cards/app.js',
@@ -33,6 +32,8 @@ const ASSETS = [
   '/static/cards/legal.css',
   '/static/cards/experience.css',
   '/static/cards/icon.svg',
+  '/app-icon-192.png',
+  '/app-icon-512.png',
   '/manifest.webmanifest'
 ];
 self.addEventListener('install', event => {
@@ -50,7 +51,7 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
-  const isAsset = url.pathname.startsWith('/static/') || url.pathname === '/manifest.webmanifest';
+  const isAsset = url.pathname.startsWith('/static/') || url.pathname.startsWith('/app-icon-') || url.pathname === '/manifest.webmanifest';
   if (!isAsset) return;
   event.respondWith(
     caches.match(event.request).then(cached => {
@@ -115,20 +116,6 @@ def notifications_read_all(request):
     request.user.app_notifications.filter(is_read=False).update(is_read=True)
     messages.success(request, "Alle Mitteilungen wurden als gelesen markiert.")
     return redirect("notification_center")
-
-
-@login_required
-def apple_wallet_pass(request):
-    wallet = get_object_or_404(Wallet.objects.select_related("business"), owner=request.user)
-    try:
-        pass_data = build_pkpass(wallet, request)
-    except ImproperlyConfigured as exc:
-        messages.error(request, str(exc))
-        return redirect("customer_dashboard")
-    response = HttpResponse(pass_data, content_type="application/vnd.apple.pkpass")
-    response["Content-Disposition"] = f'attachment; filename="SAMS-Mitglied-{wallet.member_number}.pkpass"'
-    response["Cache-Control"] = "private, no-store"
-    return response
 
 
 @login_required
