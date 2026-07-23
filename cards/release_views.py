@@ -1,8 +1,15 @@
 import re
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ImproperlyConfigured
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect
 from django.views.decorators.http import require_GET
+
+from .models import Wallet
+from .wallet_pass import build_pkpass
 
 
 _SHA256_FINGERPRINT = re.compile(r"^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$")
@@ -111,3 +118,18 @@ def apple_app_site_association(request):
             },
         }
     )
+
+
+@login_required
+@require_GET
+def apple_wallet_pass(request):
+    wallet = get_object_or_404(Wallet.objects.select_related("business"), owner=request.user)
+    try:
+        pass_data = build_pkpass(wallet, request)
+    except ImproperlyConfigured as exc:
+        messages.error(request, str(exc))
+        return redirect("customer_dashboard")
+    response = HttpResponse(pass_data, content_type="application/vnd.apple.pkpass")
+    response["Content-Disposition"] = f'attachment; filename="Aplus-Card-{wallet.member_number}.pkpass"'
+    response["Cache-Control"] = "private, no-store"
+    return response
