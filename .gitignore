@@ -14,3 +14,18 @@ staticfiles/
 .DS_Store
 .vscode/
 .idea/
+
+# Mobile signing and provider credentials
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
+service-account*.json
+mobile/node_modules/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/ios/App/Pods/
+mobile/ios/App/App.xcworkspace/xcuserdata/

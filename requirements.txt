@@ -8,3 +8,6 @@ Pillow>=11,<12
 django-allauth[socialaccount]>=65.18,<66
 qrcode>=8.2,<9
 cryptography>=45,<47
+firebase-admin>=7,<8
+PyJWT[crypto]>=2.10,<3
+httpx[http2]>=0.28,<1

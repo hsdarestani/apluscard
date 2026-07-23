@@ -9,7 +9,7 @@ class CardsConfig(AppConfig):
     def import_models(self):
         super().import_models()
         # Zusätzliche Modellgruppen gehören weiterhin zur Django-App `cards`.
-        from . import experience_models, legal_models  # noqa: F401
+        from . import experience_models, legal_models, push_models  # noqa: F401
 
     def ready(self):
         from . import experience_signals  # noqa: F401
@@ -29,6 +29,7 @@ class CardsConfig(AppConfig):
             ReviewStatus,
             Wallet,
         )
+        from .push_models import PushDelivery
 
         translated_choices = {
             (Membership, "role"): [("OWNER", "Inhaber"), ("MANAGER", "Leitung"), ("STAFF", "Mitarbeiter")],
@@ -64,6 +65,7 @@ class CardsConfig(AppConfig):
             ReviewStatus: ("Bewertungsstatus", "Bewertungsstatus"),
             AppNotification: ("Mitteilung", "Mitteilungen"),
             PushDevice: ("Gerät für Mitteilungen", "Geräte für Mitteilungen"),
+            PushDelivery: ("Push-Zustellung", "Push-Zustellungen"),
             AuditEvent: ("Prüfprotokoll", "Prüfprotokolle"),
         }
         for model, (singular, plural) in model_names.items():

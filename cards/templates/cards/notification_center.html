@@ -1,10 +1,21 @@
 {% extends 'cards/base.html' %}
-{% block title %}Mitteilungen · SAMS Club Lounge{% endblock %}
+{% block title %}Mitteilungen · SAMS Card{% endblock %}
 {% block content %}
 <section class="dashboard-head">
   <div><span class="eyebrow">Persönlicher Posteingang</span><h1>Deine<br><span class="gradient-text">Mitteilungen</span></h1><p class="muted">Zahlungen, Aufladungen, Angebote und Transaktionsfälle an einem Ort.</p></div>
   <div class="dashboard-context"><span class="vip-chip">{{ unread_count }} ungelesen</span>{% if unread_count %}<form method="post" action="{% url 'notifications_read_all' %}">{% csrf_token %}<button class="button secondary small" type="submit">Alle als gelesen markieren</button></form>{% endif %}</div>
 </section>
+
+<section class="panel push-permission-panel" aria-labelledby="push-title">
+  <div>
+    <span class="eyebrow">Native Push</span>
+    <h2 id="push-title">Sofort informiert bleiben</h2>
+    <p class="muted">Erhalte Zahlungen, Guthabenänderungen, Angebote und wichtige Kontohinweise direkt auf dem Sperrbildschirm.</p>
+    <small id="native-push-status" class="muted">Push kann in der installierten SAMS App aktiviert werden.</small>
+  </div>
+  <button class="button primary" id="enable-native-push" type="button" hidden>Push aktivieren</button>
+</section>
+
 <section class="panel notification-center">
   <div class="notification-list">
     {% for notification in notifications %}
