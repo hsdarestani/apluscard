@@ -172,9 +172,20 @@ class PushDeviceSerializer(serializers.ModelSerializer):
     class Meta:
         model = PushDevice
         fields = ["platform", "token"]
+        # A native token belongs to the current installation and may move to a
+        # different signed-in account. The database remains the source of truth
+        # for uniqueness while create() performs that atomic reassignment.
+        extra_kwargs = {"token": {"validators": []}}
 
     def create(self, validated_data):
-        device, _ = PushDevice.objects.update_or_create(token=validated_data["token"], defaults={"user": self.context["request"].user, "platform": validated_data["platform"], "is_active": True})
+        device, _ = PushDevice.objects.update_or_create(
+            token=validated_data["token"],
+            defaults={
+                "user": self.context["request"].user,
+                "platform": validated_data["platform"],
+                "is_active": True,
+            },
+        )
         return device
 
 
