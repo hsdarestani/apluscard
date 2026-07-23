@@ -13,4 +13,10 @@ def apple_login(request):
         "apple_login_enabled": settings.APPLE_LOGIN_ENABLED,
         "apple_wallet_enabled": settings.APPLE_WALLET_ENABLED,
         "global_unread_notification_count": unread_count,
+        "app_name": settings.APP_NAME,
+        "app_short_name": settings.APP_SHORT_NAME,
+        "app_publisher": settings.APP_PUBLISHER,
+        "app_support_email": settings.APP_SUPPORT_EMAIL,
+        "android_package_name": settings.ANDROID_PACKAGE_NAME,
+        "ios_bundle_id": settings.IOS_BUNDLE_ID,
     }
