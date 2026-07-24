@@ -29,7 +29,7 @@ concurrency:
 jobs:
   build-ios:
     name: iOS signieren und TestFlight vorbereiten
-    runs-on: macos-15
+    runs-on: macos-26
     environment: production
     env:
       IOS_BUNDLE_ID: de.aplussolution.samscard
@@ -47,6 +47,21 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@v4
+
+      - name: Xcode 26 auswählen und SDK prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort -V | tail -n 1)"
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP="/Applications/Xcode.app"
+          fi
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          IOS_SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "Aktives iOS SDK: $IOS_SDK_VERSION"
+          IOS_SDK_MAJOR="${IOS_SDK_VERSION%%.*}"
+          test "$IOS_SDK_MAJOR" -ge 26 || (echo "App Store Connect verlangt iOS SDK 26 oder neuer." && exit 1)
 
       - name: Node.js einrichten
         uses: actions/setup-node@v4
@@ -90,7 +105,7 @@ jobs:
           set -Eeuo pipefail
           umask 077
           P12_PATH="$RUNNER_TEMP/sams-ios-distribution-modern.p12"
-          LEGACY_P12_PATH="$RUNNER_TEMP/sams-ios-distribution-keychain.p12"
+          KEYCHAIN_P12_PATH="$RUNNER_TEMP/sams-ios-distribution-keychain.p12"
           CERT_PEM_PATH="$RUNNER_TEMP/sams-ios-distribution-cert.pem"
           KEY_PEM_PATH="$RUNNER_TEMP/sams-ios-distribution-key.pem"
           PROFILE_PATH="$RUNNER_TEMP/sams-appstore.mobileprovision"
@@ -103,41 +118,23 @@ jobs:
           test -s "$P12_PATH"
           test -s "$PROFILE_PATH"
 
-          # OpenSSL 3 erzeugt standardmäßig PKCS#12-Dateien mit SHA-256/PBES2.
-          # Apples Security Framework meldet dafür teils fälschlich "wrong password".
-          # Daher zuerst sicher mit OpenSSL lesen und anschließend eine nur für den
-          # temporären Keychain-Import kompatible SHA-1/3DES-PKCS#12-Datei erzeugen.
-          openssl pkcs12 \
-            -in "$P12_PATH" \
-            -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" \
-            -clcerts \
-            -nokeys \
-            -out "$CERT_PEM_PATH"
-          openssl pkcs12 \
-            -in "$P12_PATH" \
-            -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" \
-            -nocerts \
-            -nodes \
-            -out "$KEY_PEM_PATH"
-          openssl pkcs12 \
-            -export \
+          openssl pkcs12 -in "$P12_PATH" -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" -clcerts -nokeys -out "$CERT_PEM_PATH"
+          openssl pkcs12 -in "$P12_PATH" -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" -nocerts -nodes -out "$KEY_PEM_PATH"
+          openssl pkcs12 -export \
             -inkey "$KEY_PEM_PATH" \
             -in "$CERT_PEM_PATH" \
-            -out "$LEGACY_P12_PATH" \
+            -out "$KEYCHAIN_P12_PATH" \
             -name "Apple Distribution: A+ Solution GmbH" \
             -keypbe PBE-SHA1-3DES \
             -certpbe PBE-SHA1-3DES \
             -macalg sha1 \
             -passout "pass:$IOS_DISTRIBUTION_CERT_PASSWORD"
-          openssl pkcs12 \
-            -in "$LEGACY_P12_PATH" \
-            -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" \
-            -noout
+          openssl pkcs12 -in "$KEYCHAIN_P12_PATH" -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" -noout
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$LEGACY_P12_PATH" \
+          security import "$KEYCHAIN_P12_PATH" \
             -P "$IOS_DISTRIBUTION_CERT_PASSWORD" \
             -A \
             -k "$KEYCHAIN_PATH" \
@@ -172,15 +169,42 @@ jobs:
           set -Eeuo pipefail
           ruby mobile/ci/prepare-ios-release.rb
 
-      - name: Xcode-Abhängigkeiten auflösen
+      - name: Xcode-Abhängigkeiten mit Retry auflösen
         shell: bash
         run: |
           set -Eeuo pipefail
+          SOURCE_PACKAGES_DIR="$RUNNER_TEMP/SAMS-SourcePackages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+          git config --global http.version HTTP/1.1
+
           if [ -d mobile/ios/App/App.xcworkspace ]; then
-            xcodebuild -resolvePackageDependencies -workspace mobile/ios/App/App.xcworkspace -scheme App
+            XCODE_CONTAINER=(-workspace mobile/ios/App/App.xcworkspace)
           else
-            xcodebuild -resolvePackageDependencies -project mobile/ios/App/App.xcodeproj -scheme App
+            XCODE_CONTAINER=(-project mobile/ios/App/App.xcodeproj)
           fi
+
+          for ATTEMPT in 1 2 3 4 5; do
+            echo "SwiftPM-Auflösungsversuch $ATTEMPT von 5"
+            if xcodebuild \
+              -resolvePackageDependencies \
+              "${XCODE_CONTAINER[@]}" \
+              -scheme App \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -scmProvider system; then
+              echo "SwiftPM-Abhängigkeiten erfolgreich aufgelöst."
+              exit 0
+            fi
+
+            if [ "$ATTEMPT" -lt 5 ]; then
+              echo "Temporärer GitHub/CDN-Fehler. Teilweise Artefakte werden entfernt und der Download wird wiederholt."
+              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              find "$SOURCE_PACKAGES_DIR" -name '*.download' -delete 2>/dev/null || true
+              sleep $((ATTEMPT * 20))
+            fi
+          done
+
+          echo "SwiftPM-Abhängigkeiten konnten nach 5 Versuchen nicht geladen werden."
+          exit 74
 
       - name: Signiertes iOS-Archiv bauen
         shell: bash
@@ -189,17 +213,21 @@ jobs:
         run: |
           set -Eeuo pipefail
           ARCHIVE_PATH="$RUNNER_TEMP/SAMSCard.xcarchive"
+          SOURCE_PACKAGES_DIR="$RUNNER_TEMP/SAMS-SourcePackages"
           if [ -d mobile/ios/App/App.xcworkspace ]; then
             XCODE_CONTAINER=(-workspace mobile/ios/App/App.xcworkspace)
           else
             XCODE_CONTAINER=(-project mobile/ios/App/App.xcodeproj)
           fi
+
           xcodebuild \
             "${XCODE_CONTAINER[@]}" \
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
             DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$IOS_BUNDLE_ID" \
             CODE_SIGN_STYLE=Manual \
