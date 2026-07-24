@@ -94,15 +94,15 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/sams-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
-          printf '%s' "$IOS_DISTRIBUTION_CERT_P12_BASE64" | base64 --decode > "$P12_PATH"
-          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          printf '%s' "$IOS_DISTRIBUTION_CERT_P12_BASE64" | base64 -D > "$P12_PATH"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -D > "$PROFILE_PATH"
           test -s "$P12_PATH"
           test -s "$PROFILE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$P12_PATH" -P "$IOS_DISTRIBUTION_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import "$P12_PATH" -P "$IOS_DISTRIBUTION_CERT_PASSWORD" -A -k "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH"
           security default-keychain -d user -s "$KEYCHAIN_PATH"
@@ -239,7 +239,7 @@ jobs:
           umask 077
           KEY_DIR="$HOME/.appstoreconnect/private_keys"
           mkdir -p "$KEY_DIR"
-          printf '%s' "$ASC_PRIVATE_KEY_BASE64" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s' "$ASC_PRIVATE_KEY_BASE64" | base64 -D > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
           test -s "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
 
       - name: IPA validieren und zu TestFlight hochladen
