@@ -4,7 +4,7 @@
 
 - App Name: `SAMS Card`
 - Publisher: `A+ Solution GmbH`
-- Package Name: `de.aplussolution.apluscard`
+- Package Name: `de.aplussolution.samscard`
 - Backend: `https://cards.smarbiz.sbs`
 - Support: `app@aplus-solution.de`
 - Target SDK: Android 16 / API 36
@@ -34,7 +34,7 @@ ANDROID_KEY_PASSWORD
 `GOOGLE_SERVICES_JSON_BASE64` مربوط به فایل Android App یعنی `google-services.json` است و با Service Account JSON سرور فرق دارد. فایل باید متعلق به Android App با Package زیر باشد:
 
 ```text
-de.aplussolution.apluscard
+de.aplussolution.samscard
 ```
 
 ## ساخت Upload Key روی Windows
@@ -107,8 +107,11 @@ SAMS-Card-Android-1.0.0-1
 
 ## Google Play Internal Testing
 
+برای Package اصلی `de.aplussolution.samscard` باید یک App Record جدا در Play Console ساخته شود. App خام قبلی که روی `de.aplussolution.apluscard` قفل شده، قابل تغییر Package نیست.
+
 ```text
 Play Console
+→ Create app
 → SAMS Card
 → Testing and release
 → Internal testing
