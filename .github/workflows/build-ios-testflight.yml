@@ -29,7 +29,7 @@ concurrency:
 jobs:
   build-ios:
     name: iOS signieren und TestFlight vorbereiten
-    runs-on: macos-15
+    runs-on: macos-26
     environment: production
     env:
       IOS_BUNDLE_ID: de.aplussolution.samscard
@@ -47,6 +47,17 @@ jobs:
     steps:
       - name: Repository auschecken
         uses: actions/checkout@v4
+
+      - name: Xcode 26 auswählen und SDK prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+          IOS_SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "Aktives iOS SDK: $IOS_SDK_VERSION"
+          IOS_SDK_MAJOR="${IOS_SDK_VERSION%%.*}"
+          test "$IOS_SDK_MAJOR" -ge 26 || (echo "App Store Connect verlangt iOS SDK 26 oder neuer." && exit 1)
 
       - name: Node.js einrichten
         uses: actions/setup-node@v4
