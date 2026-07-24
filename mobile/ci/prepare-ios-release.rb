@@ -43,6 +43,10 @@ background_modes << 'remote-notification' unless background_modes.include?('remo
 info_plist['UIBackgroundModes'] = background_modes
 info_plist['UIViewControllerBasedStatusBarAppearance'] = false
 info_plist['UIStatusBarStyle'] = 'UIStatusBarStyleLightContent'
+# SAMS Card only relies on exempt encryption provided by Apple frameworks,
+# such as HTTPS/TLS connections. This prevents repeated export-compliance
+# prompts for future App Store Connect uploads.
+info_plist['ITSAppUsesNonExemptEncryption'] = false
 Xcodeproj::Plist.write_to_path(info_plist, info_plist_path)
 
 app_delegate = File.read(app_delegate_path)
