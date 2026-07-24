@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: Sichtbare App-Version, z. B. 1.0.0
+        description: Sichtbare App-Version, z. B. 1.0.1
         required: true
-        default: "1.0.0"
+        default: "1.0.1"
         type: string
       build_number:
         description: Eindeutige, bei jedem Upload höhere Build-Nummer
@@ -77,6 +77,7 @@ jobs:
           rm -rf ios
           npx cap add ios
           npx cap sync ios
+          npm run assets:ios
 
       - name: Xcode-Projektwerkzeug installieren
         shell: bash
@@ -124,7 +125,7 @@ jobs:
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           echo "profile_name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Push, Associated Domains und Release-Signing konfigurieren
+      - name: Push, Safe Area, Associated Domains und Release-Signing konfigurieren
         shell: bash
         env:
           IOS_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.profile_name }}
