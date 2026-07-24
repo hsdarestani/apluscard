@@ -4,7 +4,7 @@
 
 - App Name: `SAMS Card`
 - Publisher: `A+ Solution GmbH`
-- Package Name: `de.aplussolution.samscard`
+- Package Name: `de.aplussolution.apluscard`
 - Backend: `https://cards.smarbiz.sbs`
 - Support: `app@aplus-solution.de`
 - Target SDK: Android 16 / API 36
@@ -31,7 +31,11 @@ ANDROID_KEY_ALIAS
 ANDROID_KEY_PASSWORD
 ```
 
-`GOOGLE_SERVICES_JSON_BASE64` مربوط به فایل Android App یعنی `google-services.json` است و با Service Account JSON سرور فرق دارد.
+`GOOGLE_SERVICES_JSON_BASE64` مربوط به فایل Android App یعنی `google-services.json` است و با Service Account JSON سرور فرق دارد. فایل باید متعلق به Android App با Package زیر باشد:
+
+```text
+de.aplussolution.apluscard
+```
 
 ## ساخت Upload Key روی Windows
 
@@ -92,7 +96,9 @@ version_name: 1.0.0
 version_code: 1
 ```
 
-برای هر Upload جدید، `version_code` باید افزایش پیدا کند. خروجی Workflow:
+تا وقتی AAB قبلی پذیرفته نشده، می‌توان همان `version_code: 1` را دوباره Build کرد. بعد از اولین Upload موفق، برای هر نسخه جدید `version_code` باید افزایش پیدا کند.
+
+خروجی Workflow:
 
 ```text
 SAMS-Card-Android-1.0.0-1
