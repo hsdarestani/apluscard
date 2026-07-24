@@ -32,7 +32,7 @@ jobs:
     runs-on: macos-15
     environment: production
     env:
-      IOS_BUNDLE_ID: de.aplussolution.apluscard
+      IOS_BUNDLE_ID: de.aplussolution.samscard
       IOS_TEAM_ID: VHB87QGU46
       IOS_VERSION_NAME: ${{ inputs.version_name }}
       IOS_BUILD_NUMBER: ${{ inputs.build_number }}
