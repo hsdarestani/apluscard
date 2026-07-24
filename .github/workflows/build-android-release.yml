@@ -1,0 +1,124 @@
+name: Build Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Sichtbare App-Version, z. B. 1.0.0
+        required: true
+        default: "1.0.0"
+        type: string
+      version_code:
+        description: Eindeutiger, bei jedem Upload höherer Versionscode
+        required: true
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-card-android-release
+  cancel-in-progress: false
+
+jobs:
+  build-android-aab:
+    name: Signiertes Android App Bundle bauen
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      ANDROID_VERSION_NAME: ${{ inputs.version_name }}
+      ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+      ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/mobile/android/app/sams-card-upload.jks
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Java 21 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Release-Secrets und Version prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64" || (echo "ANDROID_KEYSTORE_BASE64 fehlt." && exit 1)
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || (echo "ANDROID_KEYSTORE_PASSWORD fehlt." && exit 1)
+          test -n "$ANDROID_KEY_ALIAS" || (echo "ANDROID_KEY_ALIAS fehlt." && exit 1)
+          test -n "$ANDROID_KEY_PASSWORD" || (echo "ANDROID_KEY_PASSWORD fehlt." && exit 1)
+          test -n "$GOOGLE_SERVICES_JSON_BASE64" || (echo "GOOGLE_SERVICES_JSON_BASE64 fehlt." && exit 1)
+          printf '%s' "$ANDROID_VERSION_CODE" | grep -Eq '^[1-9][0-9]*$' || (echo "version_code muss eine positive Ganzzahl sein." && exit 1)
+          printf '%s' "$ANDROID_VERSION_NAME" | grep -Eq '^[0-9]+([.][0-9]+){1,3}([-+][0-9A-Za-z.-]+)?$' || (echo "version_name ist ungültig." && exit 1)
+
+      - name: Capacitor-Projekt für Android erzeugen
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm install --no-audit --no-fund
+          rm -rf android
+          npx cap add android
+          npx cap sync android
+
+      - name: Firebase- und Signing-Dateien sicher bereitstellen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > mobile/android/app/google-services.json
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          cp mobile/ci/sams-release-signing.gradle mobile/android/app/sams-release-signing.gradle
+          printf '\napply from: "sams-release-signing.gradle"\n' >> mobile/android/app/build.gradle
+          test -s mobile/android/app/google-services.json
+          test -s "$ANDROID_KEYSTORE_PATH"
+
+      - name: Upload-Key prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          keytool -list \
+            -keystore "$ANDROID_KEYSTORE_PATH" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
+
+      - name: Signiertes AAB bauen
+        working-directory: mobile/android
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod +x gradlew
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
+      - name: AAB-Signatur und Prüfsumme prüfen
+        id: android-output
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          AAB_PATH="mobile/android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$AAB_PATH"
+          jarsigner -verify -certs "$AAB_PATH" >/dev/null
+          sha256sum "$AAB_PATH" | tee "$AAB_PATH.sha256"
+          echo "aab_path=$AAB_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: AAB als Workflow-Artefakt speichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAMS-Card-Android-${{ inputs.version_name }}-${{ inputs.version_code }}
+          path: |
+            ${{ steps.android-output.outputs.aab_path }}
+            ${{ steps.android-output.outputs.aab_path }}.sha256
+          if-no-files-found: error
+          retention-days: 30
