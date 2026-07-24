@@ -1,0 +1,33 @@
+def requiredEnv = { String name ->
+    def value = System.getenv(name)
+    if (value == null || value.trim().isEmpty()) {
+        throw new GradleException("Erforderliche Umgebungsvariable fehlt: ${name}")
+    }
+    value
+}
+
+android {
+    defaultConfig {
+        versionCode requiredEnv("ANDROID_VERSION_CODE").toInteger()
+        versionName requiredEnv("ANDROID_VERSION_NAME")
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(requiredEnv("ANDROID_KEYSTORE_PATH"))
+            storePassword requiredEnv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias requiredEnv("ANDROID_KEY_ALIAS")
+            keyPassword requiredEnv("ANDROID_KEY_PASSWORD")
+            enableV1Signing true
+            enableV2Signing true
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
