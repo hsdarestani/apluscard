@@ -4,7 +4,7 @@
 
 - App Name: `SAMS Card`
 - Publisher: `A+ Solution GmbH`
-- Bundle ID: `de.aplussolution.samscard`
+- Bundle ID: `de.aplussolution.apluscard`
 - Team ID: `VHB87QGU46`
 - Backend: `https://cards.smarbiz.sbs`
 - Associated Domains: `cards.smarbiz.sbs`
@@ -37,7 +37,7 @@ Workflow پروژه Capacitor iOS را تولید می‌کند، Push Notificat
 App ID زیر باید Explicit و فعال باشد:
 
 ```text
-de.aplussolution.samscard
+de.aplussolution.apluscard
 ```
 
 Capabilities لازم:
@@ -53,7 +53,7 @@ Sign in with Apple
 ```text
 Name: SAMS Card
 Primary Language: German
-Bundle ID: de.aplussolution.samscard
+Bundle ID: de.aplussolution.apluscard
 SKU: SAMS-CARD-IOS-001
 User Access: Full Access
 ```
