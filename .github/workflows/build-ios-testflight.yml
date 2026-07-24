@@ -89,7 +89,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           umask 077
-          P12_PATH="$RUNNER_TEMP/sams-ios-distribution.p12"
+          P12_PATH="$RUNNER_TEMP/sams-ios-distribution-modern.p12"
+          LEGACY_P12_PATH="$RUNNER_TEMP/sams-ios-distribution-keychain.p12"
+          CERT_PEM_PATH="$RUNNER_TEMP/sams-ios-distribution-cert.pem"
+          KEY_PEM_PATH="$RUNNER_TEMP/sams-ios-distribution-key.pem"
           PROFILE_PATH="$RUNNER_TEMP/sams-appstore.mobileprovision"
           PROFILE_PLIST="$RUNNER_TEMP/sams-profile.plist"
           KEYCHAIN_PATH="$RUNNER_TEMP/sams-signing.keychain-db"
@@ -100,11 +103,47 @@ jobs:
           test -s "$P12_PATH"
           test -s "$PROFILE_PATH"
 
+          # OpenSSL 3 erzeugt standardmäßig PKCS#12-Dateien mit SHA-256/PBES2.
+          # Apples Security Framework meldet dafür teils fälschlich "wrong password".
+          # Daher zuerst sicher mit OpenSSL lesen und anschließend eine nur für den
+          # temporären Keychain-Import kompatible SHA-1/3DES-PKCS#12-Datei erzeugen.
+          openssl pkcs12 \
+            -in "$P12_PATH" \
+            -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" \
+            -clcerts \
+            -nokeys \
+            -out "$CERT_PEM_PATH"
+          openssl pkcs12 \
+            -in "$P12_PATH" \
+            -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" \
+            -nocerts \
+            -nodes \
+            -out "$KEY_PEM_PATH"
+          openssl pkcs12 \
+            -export \
+            -inkey "$KEY_PEM_PATH" \
+            -in "$CERT_PEM_PATH" \
+            -out "$LEGACY_P12_PATH" \
+            -name "Apple Distribution: A+ Solution GmbH" \
+            -keypbe PBE-SHA1-3DES \
+            -certpbe PBE-SHA1-3DES \
+            -macalg sha1 \
+            -passout "pass:$IOS_DISTRIBUTION_CERT_PASSWORD"
+          openssl pkcs12 \
+            -in "$LEGACY_P12_PATH" \
+            -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" \
+            -noout
+
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$P12_PATH" -P "$IOS_DISTRIBUTION_CERT_PASSWORD" -A -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$LEGACY_P12_PATH" \
+            -P "$IOS_DISTRIBUTION_CERT_PASSWORD" \
+            -A \
+            -k "$KEYCHAIN_PATH" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH"
           security default-keychain -d user -s "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "Apple Distribution"
