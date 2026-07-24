@@ -82,7 +82,9 @@ target.build_configurations.each do |configuration|
   settings['CODE_SIGN_ENTITLEMENTS'] = 'App/App.entitlements'
   settings['MARKETING_VERSION'] = ENV.fetch('IOS_VERSION_NAME')
   settings['CURRENT_PROJECT_VERSION'] = ENV.fetch('IOS_BUILD_NUMBER')
-  settings['TARGETED_DEVICE_FAMILY'] = '1,2'
+  # SAMS Card is a phone-first membership and wallet app. Limiting the target
+  # to iPhone prevents App Store Connect from requiring iPad-specific assets.
+  settings['TARGETED_DEVICE_FAMILY'] = '1'
 end
 
 project.save
