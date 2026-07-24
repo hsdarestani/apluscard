@@ -150,6 +150,25 @@ input[type="checkbox"]:focus-visible { outline: 3px solid rgba(240,50,167,.2); o
 .three-tabs { grid-template-columns: repeat(3, 1fr) !important; }
 .three-tabs .tab-button { height: auto; min-height: 46px; padding: 7px; font-size: 10px; }
 
+/* Native Safe Area: iOS uses CSS insets; Android 15/16 gets native WebView margins from Capacitor. */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+}
+
+.topbar {
+  min-height: calc(78px + var(--safe-area-top));
+  padding-top: var(--safe-area-top);
+  padding-right: max(22px, calc((100vw - 1240px) / 2), var(--safe-area-right));
+  padding-left: max(22px, calc((100vw - 1240px) / 2), var(--safe-area-left));
+}
+
+.page-shell {
+  padding-bottom: calc(100px + var(--safe-area-bottom));
+}
+
 @media (max-width: 760px) {
   .setting-check { grid-column: span 1; }
   .tip-radio-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -157,4 +176,21 @@ input[type="checkbox"]:focus-visible { outline: 3px solid rgba(240,50,167,.2); o
   .review-ledger-row .transaction-amount { grid-column: 2; text-align: left; }
   .three-tabs { grid-template-columns: 1fr !important; }
   .money-action-guide { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    min-height: calc(68px + var(--safe-area-top));
+    padding: var(--safe-area-top) max(13px, var(--safe-area-right)) 0 max(13px, var(--safe-area-left));
+  }
+
+  .page-shell {
+    padding-bottom: calc(108px + var(--safe-area-bottom));
+  }
+
+  .mobile-nav {
+    left: max(10px, var(--safe-area-left));
+    right: max(10px, var(--safe-area-right));
+    bottom: calc(10px + var(--safe-area-bottom));
+  }
 }

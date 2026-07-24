@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: Sichtbare App-Version, z. B. 1.0.0
+        description: Sichtbare App-Version, z. B. 1.0.1
         required: true
-        default: "1.0.0"
+        default: "1.0.1"
         type: string
       version_code:
         description: Eindeutiger, bei jedem Upload höherer Versionscode
         required: true
-        default: "1"
+        default: "2"
         type: string
 
 permissions:
@@ -72,6 +72,7 @@ jobs:
           rm -rf android
           npx cap add android
           npx cap sync android
+          npm run assets:android
 
       - name: Firebase- und Signing-Dateien sicher bereitstellen
         shell: bash

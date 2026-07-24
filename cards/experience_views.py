@@ -22,7 +22,7 @@ def client_ip(request):
 
 def service_worker(request):
     content = """
-const CACHE = 'sams-card-v11';
+const CACHE = 'sams-card-v12';
 const ASSETS = [
   '/static/cards/app.css',
   '/static/cards/app.js',
