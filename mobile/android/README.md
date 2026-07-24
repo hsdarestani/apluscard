@@ -1,121 +1,131 @@
-# A+ Card für Android / Google Play
+# انتشار SAMS Card در Android / Google Play
 
-## Feste Identität
+## هویت ثابت
 
-- App-Name: `A+ Card`
-- Publisher: `A+Solution GmbH`
-- Package Name: `de.aplussolution.apluscard`
-- Web-App: `https://cards.smarbiz.sbs/`
-- Manifest: `https://cards.smarbiz.sbs/manifest.webmanifest`
-- Digital Asset Links: `https://cards.smarbiz.sbs/.well-known/assetlinks.json`
+- App Name: `SAMS Card`
+- Publisher: `A+ Solution GmbH`
+- Package Name: `de.aplussolution.samscard`
+- Backend: `https://cards.smarbiz.sbs`
 - Support: `app@aplus-solution.de`
 - Target SDK: Android 16 / API 36
 
-Der Package Name darf nach der ersten Veröffentlichung nicht mehr geändert werden.
+Package Name بعد از اولین آپلود در Google Play قابل تغییر نیست.
 
-## Voraussetzungen
+## وضعیت فعلی
 
-- bestätigtes Google-Play-Organisationskonto der A+Solution GmbH
-- Node.js LTS
-- Java/JDK und Android SDK
-- Bubblewrap CLI
-- sicher gespeicherter Upload Key
-- Zugriff auf Play Console und Produktions-Domain
-
-## Projekt mit Bubblewrap erzeugen
-
-```bash
-npm install --global @bubblewrap/cli
-mkdir -p mobile/android/generated
-cd mobile/android/generated
-bubblewrap init --manifest=https://cards.smarbiz.sbs/manifest.webmanifest
-```
-
-Bei den Rückfragen diese Werte verwenden:
+نسخه Native با Capacitor 8 ساخته شده و Push واقعی FCM روی دستگاه Android تست شده است. ساخت Release به‌صورت تکرارپذیر از Workflow زیر انجام می‌شود:
 
 ```text
-Application name: A+ Card
-Short name: A+ Card
-Package ID: de.aplussolution.apluscard
-Start URL: /
-Display mode: standalone
-Theme color: #09050f
-Background color: #05030b
-App version name: 1.0.0
-App version code: 1
+Actions → Build Android Release
 ```
 
-Danach in der erzeugten Bubblewrap-Konfiguration sicherstellen:
+Workflow پروژه Android را از `mobile/capacitor.config.ts` تولید می‌کند، Firebase را اضافه می‌کند، AAB را با Upload Key امضا می‌کند و فایل نهایی را به‌عنوان Workflow Artifact تحویل می‌دهد.
 
-```json
-{
-  "packageId": "de.aplussolution.apluscard",
-  "appVersionName": "1.0.0",
-  "appVersionCode": 1,
-  "targetSdkVersion": 36
-}
+## GitHub Secrets لازم
+
+```text
+GOOGLE_SERVICES_JSON_BASE64
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
 ```
 
-## Upload Key
+`GOOGLE_SERVICES_JSON_BASE64` مربوط به فایل Android App یعنی `google-services.json` است و با Service Account JSON سرور فرق دارد.
 
-Der Upload Key darf nie in Git eingecheckt werden. Er wird lokal oder in einem geschützten Secret Store erzeugt und gesichert.
+## ساخت Upload Key روی Windows
 
-Beispiel:
+در PowerShell:
 
-```bash
-keytool -genkeypair \
-  -alias apluscard-upload \
-  -keyalg RSA \
-  -keysize 4096 \
-  -validity 10000 \
-  -keystore apluscard-upload.jks
+```powershell
+$Keytool = "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe"
+& $Keytool -genkeypair -v `
+  -keystore "$env:USERPROFILE\Downloads\sams-card-upload.jks" `
+  -alias "sams-card-upload" `
+  -keyalg RSA `
+  -keysize 4096 `
+  -validity 10000
 ```
 
-Mindestens zwei verschlüsselte Backups von Keystore, Alias und Passwort an getrennten Orten aufbewahren.
+Alias پیشنهادی:
 
-## AAB bauen
-
-```bash
-cd mobile/android/generated
-bubblewrap build
+```text
+sams-card-upload
 ```
 
-Für Google Play wird das signierte Android App Bundle (`.aab`) hochgeladen. APK-Dateien dienen nur der lokalen Installation und Prüfung.
+Keystore و هر دو Password باید حداقل در دو محل رمزگذاری‌شده و جدا نگهداری شوند. فایل Keystore هرگز داخل Git قرار نمی‌گیرد.
 
-## Play App Signing und Digital Asset Links
+## تبدیل فایل‌ها به Base64
 
-Nach dem ersten AAB-Upload:
+Keystore:
 
-1. Play Console → App integrity / App-Signatur öffnen.
-2. SHA-256 des **App-Signaturschlüssels von Google Play** kopieren.
-3. Den Wert in Production als `ANDROID_APP_SIGNING_SHA256` eintragen.
-4. App neu deployen.
-5. Prüfen, dass `/.well-known/assetlinks.json` Package Name und SHA-256 ausgibt.
-6. Die Deep-Link-/Domain-Prüfung in Play Console erneut ausführen.
+```powershell
+[Convert]::ToBase64String(
+  [IO.File]::ReadAllBytes("$env:USERPROFILE\Downloads\sams-card-upload.jks")
+) | Set-Clipboard
+```
 
-Nicht nur den lokalen Upload-Key-Fingerprint verwenden. Die an Nutzer ausgelieferte App wird von Google Play mit dem App-Signaturschlüssel signiert.
+Firebase Android config:
 
-## Interner Test
+```powershell
+[Convert]::ToBase64String(
+  [IO.File]::ReadAllBytes("$env:USERPROFILE\Downloads\google-services.json")
+) | Set-Clipboard
+```
 
-Vor Production mindestens prüfen:
+مقادیر Base64 فقط داخل GitHub Secrets ثبت می‌شوند و نباید در چت، Issue یا Commit قرار بگیرند.
 
-- Installation und Update
-- Start ohne Browserleiste
-- Login und Apple Login
-- Registrierung und E-Mail-Bestätigung
-- Standortauswahl
-- QR-Code
-- Guthaben, Zahlung, Beleg und Transaktionsfall
-- In-App-Mitteilungen
-- Datenschutz- und Löschseiten
-- Zurück-Taste und externe Links
-- Hintergrundbetrieb, Akku und Wärmeentwicklung
+## ساخت AAB
 
-## Noch extern erforderlich
+در GitHub:
 
-- vollständige Aktivierung des Play-Console-Kontos
-- Upload-Key-Erzeugung
-- erster AAB-Upload
-- SHA-256 aus Play App Signing
-- Store-Grafiken und Screenshots
-- Data-Safety-Formular und App-Access-Zugang
+```text
+Actions
+→ Build Android Release
+→ Run workflow
+```
+
+ورودی اولین Build:
+
+```text
+version_name: 1.0.0
+version_code: 1
+```
+
+برای هر Upload جدید، `version_code` باید افزایش پیدا کند. خروجی Workflow:
+
+```text
+SAMS-Card-Android-1.0.0-1
+└── app-release.aab
+```
+
+## Google Play Internal Testing
+
+```text
+Play Console
+→ SAMS Card
+→ Testing and release
+→ Internal testing
+→ Create new release
+→ Upload app-release.aab
+```
+
+برای انتشار Android App Bundle باید Play App Signing فعال باشد. AAB با Upload Key شرکت امضا می‌شود و Google Play نسخه تحویلی به کاربران را با App Signing Key امضا می‌کند.
+
+بعد از اولین Upload:
+
+1. وارد `App integrity / App signing` شوید.
+2. SHA-256 مربوط به **App signing key certificate** را بردارید.
+3. آن را در Production به‌عنوان `ANDROID_APP_SIGNING_SHA256` ثبت کنید.
+4. سایت را Deploy کنید تا `assetlinks.json` با کلید Google Play هماهنگ شود.
+
+## چک‌لیست تست داخلی
+
+- نصب و Update از Google Play
+- Login و Registration
+- دریافت Push در پس‌زمینه و Lock Screen
+- QR و Membership Card
+- Wallet، پرداخت، شارژ و رسید
+- Mitteilungen
+- Back Button و External Links
+- Privacy، Terms و Account Deletion

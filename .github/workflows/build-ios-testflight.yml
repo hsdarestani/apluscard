@@ -1,0 +1,252 @@
+name: Build iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Sichtbare App-Version, z. B. 1.0.0
+        required: true
+        default: "1.0.0"
+        type: string
+      build_number:
+        description: Eindeutige, bei jedem Upload höhere Build-Nummer
+        required: true
+        default: "1"
+        type: string
+      upload_to_testflight:
+        description: Nach erfolgreichem Export direkt zu App Store Connect hochladen
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-card-ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  build-ios:
+    name: iOS signieren und TestFlight vorbereiten
+    runs-on: macos-15
+    environment: production
+    env:
+      IOS_BUNDLE_ID: de.aplussolution.samscard
+      IOS_TEAM_ID: VHB87QGU46
+      IOS_VERSION_NAME: ${{ inputs.version_name }}
+      IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+      IOS_DISTRIBUTION_CERT_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_P12_BASE64 }}
+      IOS_DISTRIBUTION_CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+      UPLOAD_TO_TESTFLIGHT: ${{ inputs.upload_to_testflight }}
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Signing-Secrets und Version prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$IOS_DISTRIBUTION_CERT_P12_BASE64" || (echo "IOS_DISTRIBUTION_CERT_P12_BASE64 fehlt." && exit 1)
+          test -n "$IOS_DISTRIBUTION_CERT_PASSWORD" || (echo "IOS_DISTRIBUTION_CERT_PASSWORD fehlt." && exit 1)
+          test -n "$IOS_PROVISIONING_PROFILE_BASE64" || (echo "IOS_PROVISIONING_PROFILE_BASE64 fehlt." && exit 1)
+          printf '%s' "$IOS_BUILD_NUMBER" | grep -Eq '^[1-9][0-9]*$' || (echo "build_number muss eine positive Ganzzahl sein." && exit 1)
+          printf '%s' "$IOS_VERSION_NAME" | grep -Eq '^[0-9]+([.][0-9]+){1,2}$' || (echo "version_name ist ungültig." && exit 1)
+          if [ "$UPLOAD_TO_TESTFLIGHT" = "true" ]; then
+            test -n "$ASC_KEY_ID" || (echo "ASC_KEY_ID fehlt." && exit 1)
+            test -n "$ASC_ISSUER_ID" || (echo "ASC_ISSUER_ID fehlt." && exit 1)
+            test -n "$ASC_PRIVATE_KEY_BASE64" || (echo "ASC_PRIVATE_KEY_BASE64 fehlt." && exit 1)
+          fi
+
+      - name: Capacitor-Projekt für iOS erzeugen
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm install --no-audit --no-fund
+          rm -rf ios
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Xcode-Projektwerkzeug installieren
+        shell: bash
+        run: sudo gem install xcodeproj --no-document
+
+      - name: Zertifikat und Provisioning Profile installieren
+        id: ios-signing
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          P12_PATH="$RUNNER_TEMP/sams-ios-distribution.p12"
+          PROFILE_PATH="$RUNNER_TEMP/sams-appstore.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/sams-profile.plist"
+          KEYCHAIN_PATH="$RUNNER_TEMP/sams-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+
+          printf '%s' "$IOS_DISTRIBUTION_CERT_P12_BASE64" | base64 -D > "$P12_PATH"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -D > "$PROFILE_PATH"
+          test -s "$P12_PATH"
+          test -s "$PROFILE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$P12_PATH" -P "$IOS_DISTRIBUTION_CERT_PASSWORD" -A -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "Apple Distribution"
+
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PROFILE_PLIST")"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST")"
+          PROFILE_APP_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")"
+          PROFILE_APNS_ENV="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$PROFILE_PLIST")"
+
+          case "$PROFILE_APP_IDENTIFIER" in
+            *."$IOS_BUNDLE_ID") ;;
+            *) echo "Provisioning Profile gehört nicht zu $IOS_BUNDLE_ID."; exit 1 ;;
+          esac
+          test "$PROFILE_APNS_ENV" = "production" || (echo "Provisioning Profile enthält kein Production-APNs-Entitlement." && exit 1)
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "profile_name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Push, Associated Domains und Release-Signing konfigurieren
+        shell: bash
+        env:
+          IOS_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.profile_name }}
+        run: |
+          set -Eeuo pipefail
+          ruby mobile/ci/prepare-ios-release.rb
+
+      - name: Xcode-Abhängigkeiten auflösen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [ -d mobile/ios/App/App.xcworkspace ]; then
+            xcodebuild -resolvePackageDependencies -workspace mobile/ios/App/App.xcworkspace -scheme App
+          else
+            xcodebuild -resolvePackageDependencies -project mobile/ios/App/App.xcodeproj -scheme App
+          fi
+
+      - name: Signiertes iOS-Archiv bauen
+        shell: bash
+        env:
+          IOS_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.profile_name }}
+        run: |
+          set -Eeuo pipefail
+          ARCHIVE_PATH="$RUNNER_TEMP/SAMSCard.xcarchive"
+          if [ -d mobile/ios/App/App.xcworkspace ]; then
+            XCODE_CONTAINER=(-workspace mobile/ios/App/App.xcworkspace)
+          else
+            XCODE_CONTAINER=(-project mobile/ios/App/App.xcodeproj)
+          fi
+          xcodebuild \
+            "${XCODE_CONTAINER[@]}" \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$IOS_BUNDLE_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY='Apple Distribution' \
+            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROVISIONING_PROFILE_NAME" \
+            MARKETING_VERSION="$IOS_VERSION_NAME" \
+            CURRENT_PROJECT_VERSION="$IOS_BUILD_NUMBER" \
+            archive
+
+      - name: IPA für App Store Connect exportieren
+        id: ios-output
+        shell: bash
+        env:
+          IOS_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.profile_name }}
+        run: |
+          set -Eeuo pipefail
+          ARCHIVE_PATH="$RUNNER_TEMP/SAMSCard.xcarchive"
+          EXPORT_PATH="$RUNNER_TEMP/SAMSCardExport"
+          EXPORT_OPTIONS="$RUNNER_TEMP/ExportOptions.plist"
+          cat > "$EXPORT_OPTIONS" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>export</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>teamID</key>
+            <string>$IOS_TEAM_ID</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$IOS_BUNDLE_ID</key>
+              <string>$IOS_PROVISIONING_PROFILE_NAME</string>
+            </dict>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$EXPORT_OPTIONS"
+
+          IPA_PATH="$(find "$EXPORT_PATH" -maxdepth 1 -name '*.ipa' -print -quit)"
+          test -n "$IPA_PATH"
+          test -s "$IPA_PATH"
+          shasum -a 256 "$IPA_PATH" | tee "$IPA_PATH.sha256"
+          echo "ipa_path=$IPA_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: IPA als Workflow-Artefakt speichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAMS-Card-iOS-${{ inputs.version_name }}-${{ inputs.build_number }}
+          path: |
+            ${{ steps.ios-output.outputs.ipa_path }}
+            ${{ steps.ios-output.outputs.ipa_path }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: App Store Connect API-Key installieren
+        if: ${{ inputs.upload_to_testflight }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_PRIVATE_KEY_BASE64" | base64 -D > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          test -s "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: IPA validieren und zu TestFlight hochladen
+        if: ${{ inputs.upload_to_testflight }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          IPA_PATH="${{ steps.ios-output.outputs.ipa_path }}"
+          xcrun altool --validate-app -f "$IPA_PATH" -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          xcrun altool --upload-app -f "$IPA_PATH" -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
