@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'de.aplussolution.samscard',
+  appId: 'de.aplussolution.apluscard',
   appName: 'SAMS Card',
   webDir: 'www',
   server: {
