@@ -29,13 +29,24 @@ class LocationVisualForm(forms.ModelForm):
         }
 
     def __init__(self, *args, business=None, **kwargs):
+        submitted_data = args[0] if args else kwargs.get("data")
+        if business is not None and submitted_data and kwargs.get("instance") is None:
+            location_id = submitted_data.get("location")
+            if location_id:
+                existing = LocationVisual.objects.filter(
+                    location_id=location_id,
+                    location__business=business,
+                ).first()
+                if existing is not None:
+                    kwargs["instance"] = existing
+
         super().__init__(*args, **kwargs)
         if business is not None:
             self.fields["location"].queryset = business.locations.filter(is_active=True)
 
     def clean_image(self):
         uploaded = self.cleaned_data.get("image")
-        if not uploaded:
+        if not uploaded or "image" not in self.files:
             return uploaded
         if uploaded.size > MAX_LOCATION_IMAGE_BYTES:
             raise forms.ValidationError("Das Foto darf höchstens 10 MB groß sein.")
@@ -75,9 +86,8 @@ class LocationVisualForm(forms.ModelForm):
         return ContentFile(output.read(), name=f"standort-{uuid.uuid4().hex}.jpg")
 
     def save(self, commit=True):
-        location = self.cleaned_data["location"]
-        visual, _ = LocationVisual.objects.get_or_create(location=location)
-        visual.image = self.cleaned_data.get("image") or visual.image
+        visual = super().save(commit=False)
+        visual.location = self.cleaned_data["location"]
         visual.short_description = self.cleaned_data.get("short_description", "").strip()
         if commit:
             visual.save()
