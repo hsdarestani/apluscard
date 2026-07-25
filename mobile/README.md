@@ -1,4 +1,4 @@
-# SAMS Card Native App
+# Sams Club Lounge Native App
 
 این پوشه Shell مشترک iOS و Android را با Capacitor نگه می‌دارد. محتوای اصلی از
 `https://cards.smarbiz.sbs` بارگذاری می‌شود و قابلیت‌های Native، مخصوصاً Push
@@ -6,7 +6,7 @@ Notification، از طریق Capacitor در اختیار همان رابط قر�
 
 ## هویت ثابت
 
-- App name: `SAMS Card`
+- App name: `Sams Club Lounge`
 - Android package: `de.aplussolution.samscard`
 - iOS Bundle ID: `de.aplussolution.samscard`
 - Backend: `https://cards.smarbiz.sbs`
