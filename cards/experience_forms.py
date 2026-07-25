@@ -1,9 +1,20 @@
+import uuid
 from decimal import Decimal
+from io import BytesIO
 
 from django import forms
+from django.core.files.base import ContentFile
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 
 from .experience_models import LocationVisual, TransactionCase
 from .models import Location
+
+
+register_heif_opener(thumbnails=False)
+
+MAX_LOCATION_IMAGE_BYTES = 20 * 1024 * 1024
+MAX_LOCATION_IMAGE_DIMENSION = 2400
 
 
 class LocationVisualForm(forms.ModelForm):
@@ -21,6 +32,47 @@ class LocationVisualForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if business is not None:
             self.fields["location"].queryset = business.locations.filter(is_active=True)
+
+    def clean_image(self):
+        uploaded = self.cleaned_data.get("image")
+        if not uploaded:
+            return uploaded
+        if uploaded.size > MAX_LOCATION_IMAGE_BYTES:
+            raise forms.ValidationError("Das Foto darf höchstens 20 MB groß sein.")
+
+        try:
+            uploaded.seek(0)
+            with Image.open(uploaded) as source:
+                normalized = ImageOps.exif_transpose(source)
+                normalized.thumbnail(
+                    (MAX_LOCATION_IMAGE_DIMENSION, MAX_LOCATION_IMAGE_DIMENSION),
+                    Image.Resampling.LANCZOS,
+                )
+                if normalized.mode in {"RGBA", "LA"} or (
+                    normalized.mode == "P" and "transparency" in normalized.info
+                ):
+                    rgba = normalized.convert("RGBA")
+                    background = Image.new("RGB", rgba.size, "white")
+                    background.paste(rgba, mask=rgba.getchannel("A"))
+                    normalized = background
+                else:
+                    normalized = normalized.convert("RGB")
+
+                output = BytesIO()
+                normalized.save(
+                    output,
+                    format="JPEG",
+                    quality=88,
+                    optimize=True,
+                    progressive=True,
+                )
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise forms.ValidationError(
+                "Das Foto konnte nicht gelesen werden. Bitte JPG, PNG, WebP, HEIC oder HEIF verwenden."
+            ) from exc
+
+        output.seek(0)
+        return ContentFile(output.read(), name=f"standort-{uuid.uuid4().hex}.jpg")
 
     def save(self, commit=True):
         location = self.cleaned_data["location"]
