@@ -1,0 +1,41 @@
+name: Diagnose Location Upload
+
+on:
+  push:
+    branches: [agent/fix-location-photo-upload]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install --quiet -r requirements.txt
+      - name: Run focused tests and publish diagnostic issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DJANGO_DEBUG: "1"
+          DJANGO_SECURE_COOKIES: "0"
+        run: |
+          set +e
+          python manage.py test cards.test_location_photo_upload -v 2 > /tmp/location-upload-test.txt 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            {
+              echo 'Location photo upload test failure.'
+              echo
+              echo '```text'
+              tail -n 160 /tmp/location-upload-test.txt
+              echo '```'
+            } > /tmp/issue-body.md
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Temporary location upload diagnostic" --body-file /tmp/issue-body.md
+          fi
+          cat /tmp/location-upload-test.txt
+          exit "$status"
