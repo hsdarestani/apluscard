@@ -23,12 +23,12 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install --quiet -r requirements.txt
       - run: python manage.py migrate --noinput
         env:
           DJANGO_DEBUG: "1"
           DJANGO_SECURE_COOKIES: "0"
-      - run: python manage.py test
+      - run: python manage.py test --failfast -v 2
         env:
           DJANGO_DEBUG: "1"
           DJANGO_SECURE_COOKIES: "0"
@@ -258,46 +258,18 @@ jobs:
           CSRF_TOKEN="$(awk '$6 == "csrftoken" {print $7}' "$COOKIE_JAR" | tail -n 1)"
           test -n "$CSRF_TOKEN" || (echo 'Login CSRF cookie was not issued.' && exit 1)
 
-          LOGIN_STATUS="$(curl --silent --show-error -k \
-            -o /dev/null \
-            -D "$LOGIN_HEADERS" \
-            -w '%{http_code}' \
-            -b "$COOKIE_JAR" \
-            -c "$COOKIE_JAR" \
+          curl --fail --silent --show-error -k \
+            -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+            -D "$LOGIN_HEADERS" -o /dev/null \
             -e "$SITE_URL/accounts/login/" \
+            -H "X-CSRFToken: $CSRF_TOKEN" \
             --data-urlencode "username=$SMOKE_USERNAME" \
             --data-urlencode "password=$SMOKE_PASSWORD" \
-            --data-urlencode "csrfmiddlewaretoken=$CSRF_TOKEN" \
-            "$SITE_URL/accounts/login/")"
+            "$SITE_URL/accounts/login/"
 
-          test "$LOGIN_STATUS" = '302' || (echo "Login smoke test returned HTTP $LOGIN_STATUS" && exit 1)
+          grep -Eq '^location: /dashboard/|^location: https?://cards\.smarbiz\.sbs/dashboard/' "$LOGIN_HEADERS" || \
+            (echo 'Authenticated login smoke test did not reach dashboard.' && cat "$LOGIN_HEADERS" && exit 1)
 
-          echo "Deployment, migrations, health check and login flow are healthy."
+          echo "Deployment is healthy."
           docker compose ps
           REMOTE
-
-      - name: Inspect production endpoint
-        id: production
-        if: success()
-        run: |
-          set -eu
-          SCHEME="$(sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then echo https; else echo http; fi")"
-          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
-
-      - name: Report deployment result
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const status = '${{ job.status }}';
-            const icon = status === 'success' ? '✅' : '❌';
-            const scheme = '${{ steps.production.outputs.scheme }}' || 'http';
-            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Site: ${scheme}://cards.smarbiz.sbs\n- Migration and login smoke test: ${status === 'success' ? 'passed' : 'failed'}\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: 2,
-              body,
-            });
