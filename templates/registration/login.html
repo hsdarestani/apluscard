@@ -1,16 +1,16 @@
 {% extends 'cards/base.html' %}
 {% load socialaccount %}
-{% block title %}Anmelden · SAMS Club Lounge{% endblock %}
+{% block title %}Anmelden · {{ app_name }}{% endblock %}
 {% block content %}
 <section class="auth-wrap">
   <div class="auth-story">
-    <span class="eyebrow">SAMS Club Lounge</span>
-    <h2>Mehr als ein Abend.<br><span class="gradient-text">Dein SAMS Erlebnis.</span></h2>
+    <span class="eyebrow">{{ app_name }}</span>
+    <h2>Mehr als ein Abend.<br><span class="gradient-text">Dein Lounge-Erlebnis.</span></h2>
     <p>Dein digitaler Zugang zu Mitgliedsguthaben, bargeldlosem Bezahlen, Vorteilen und exklusiven Angeboten an allen drei Standorten.</p>
     <div class="hero-badges"><span class="hero-badge">Mitgliedsguthaben</span><span class="hero-badge">Bezahlen per QR-Code</span><span class="hero-badge">Exklusive Vorteile</span></div>
   </div>
   <div class="panel auth-panel">
-    <div class="auth-brand"><span class="brand-emblem">SCL</span><span class="brand-copy"><strong>SAMS CLUB LOUNGE</strong><small>bereitgestellt von <span class="aplus-signature">A+</span></small></span></div>
+    <div class="auth-brand"><span class="brand-emblem brand-emblem-logo"><img src="{% url 'app_icon' 192 %}?v=scl-20260725" width="44" height="44" alt=""></span><span class="brand-copy"><strong>{{ app_name|upper }}</strong><small>bereitgestellt von <span class="aplus-signature">A+</span></small></span></div>
     <span class="eyebrow">Willkommen zurück</span>
     <h1>Anmelden</h1>
     <p class="muted">Zugang für Mitglieder, Mitarbeiter und Verwaltung.</p>
@@ -34,7 +34,7 @@
       {% csrf_token %}
       <label>E-Mail-Adresse oder Benutzername<input type="text" name="username" autocomplete="username" autofocus required></label>
       <label>Passwort<input type="password" name="password" autocomplete="current-password" required></label>
-      <button class="button primary full" type="submit">Bei SAMS anmelden</button>
+      <button class="button primary full" type="submit">Bei {{ app_name }} anmelden</button>
     </form>
     <p class="auth-switch">Noch keine Mitgliedskarte? <a class="text-link" href="{% url 'register' %}">Jetzt kostenlos registrieren</a></p>
   </div>
