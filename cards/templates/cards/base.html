@@ -31,6 +31,13 @@
     .brand-emblem-logo{overflow:hidden;padding:0;background:#09050f;}
     .brand-emblem-logo::before{display:none;}
     .brand-emblem-logo img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit;}
+    @media(max-width:640px){
+      .topbar .brand-lockup{gap:8px;}
+      .topbar .brand-emblem{width:40px;height:40px;}
+      .topbar .brand-copy strong{font-size:13px;letter-spacing:.04em;}
+      .topbar .brand-copy small{font-size:7px;letter-spacing:.07em;}
+    }
+    @media(max-width:420px){.topbar .brand-copy small{display:none;}}
   </style>
   {% block head %}{% endblock %}
 </head>
