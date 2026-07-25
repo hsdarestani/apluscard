@@ -14,8 +14,11 @@ CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUS
 DEFAULT_BUSINESS_SLUG = os.getenv("DEFAULT_BUSINESS_SLUG", "shisha-bar")
 
 # Zentrale öffentliche Identität für Web-App, Store-Einträge und Systemmails.
-APP_NAME = os.getenv("APP_NAME", "SAMS Card").strip()
-APP_SHORT_NAME = os.getenv("APP_SHORT_NAME", "SAMS").strip()
+# Alte Production-Werte werden automatisch auf die neue Store-Identität migriert.
+_configured_app_name = os.getenv("APP_NAME", "").strip()
+APP_NAME = "Sams Club Lounge" if _configured_app_name in {"", "SAMS Card"} else _configured_app_name
+_configured_short_name = os.getenv("APP_SHORT_NAME", "").strip()
+APP_SHORT_NAME = "Sams Lounge" if _configured_short_name in {"", "SAMS"} else _configured_short_name
 APP_PUBLISHER = os.getenv("APP_PUBLISHER", "A+ Solution GmbH").strip()
 APP_SUPPORT_EMAIL = os.getenv("APP_SUPPORT_EMAIL", "app@aplus-solution.de").strip()
 APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "https://cards.smarbiz.sbs").strip().rstrip("/")
@@ -127,7 +130,11 @@ EMAIL_BACKEND = os.getenv(
     "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend",
 )
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", f"{APP_NAME} <{APP_SUPPORT_EMAIL}>")
+if DEFAULT_FROM_EMAIL.startswith("SAMS Card"):
+    DEFAULT_FROM_EMAIL = DEFAULT_FROM_EMAIL.replace("SAMS Card", APP_NAME, 1)
 SERVER_EMAIL = os.getenv("SERVER_EMAIL", f"{APP_NAME} System <{APP_SUPPORT_EMAIL}>")
+if SERVER_EMAIL.startswith("SAMS Card"):
+    SERVER_EMAIL = SERVER_EMAIL.replace("SAMS Card", APP_NAME, 1)
 EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", APP_SUPPORT_EMAIL)
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
