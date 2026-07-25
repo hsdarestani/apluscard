@@ -147,9 +147,9 @@ class SecurityAndPerformanceTests(MemberExperienceMixin, TestCase):
     def test_service_worker_caches_sams_release_assets(self):
         response = self.client.get(reverse("service_worker"))
         content = response.content.decode("utf-8")
-        self.assertIn("sams-card-v12", content)
+        self.assertIn("sams-club-lounge-v13", content)
         self.assertIn("/static/cards/push.css", content)
-        self.assertIn("/app-icon-512.png", content)
+        self.assertIn("/app-icon-512.png?v=scl-20260725", content)
         self.assertIn("const isAsset", content)
         self.assertNotIn("caches.match('/')", content)
     def test_low_power_mode_is_in_client_bundle(self):

@@ -12,6 +12,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.urls import reverse
 from PIL import Image, ImageDraw, ImageFont
 
+from .branding import load_brand_icon
+
 
 DARK = (8, 5, 14, 255)
 PURPLE = (123, 45, 255, 255)
@@ -74,6 +76,10 @@ def _vertical_gradient(width, height, top, bottom):
 
 
 def _icon_image(size):
+    exact_icon = load_brand_icon(size)
+    if exact_icon is not None:
+        return exact_icon
+
     image = _vertical_gradient(size, size, (13, 8, 22, 255), (4, 3, 8, 255))
     draw = ImageDraw.Draw(image)
     radius = max(4, round(size * 0.22))
@@ -90,21 +96,27 @@ def _icon_image(size):
         fill=GOLD_LIGHT,
         width=max(2, round(size * 0.045)),
     )
-    draw.text((size / 2, size / 2), "S", font=_font(max(10, round(size * 0.48))), fill=WHITE, anchor="mm")
+    draw.text((size / 2, size / 2), "SCL", font=_font(max(9, round(size * 0.29))), fill=WHITE, anchor="mm")
     return image
 
 
 def _logo_image(width, height):
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
     emblem = _icon_image(height)
     image.alpha_composite(emblem, (0, 0))
+    draw = ImageDraw.Draw(image)
     x = height + max(5, height // 7)
-    draw.text((x, height * 0.38), "SAMS", font=_font(max(12, height // 2)), fill=WHITE, anchor="lm")
     draw.text(
-        (x, height * 0.76),
-        "CLUB LOUNGE",
-        font=_font(max(6, height // 7), bold=False),
+        (x, height * 0.35),
+        "SAMS CLUB",
+        font=_font(max(8, height // 4)),
+        fill=WHITE,
+        anchor="lm",
+    )
+    draw.text(
+        (x, height * 0.72),
+        "LOUNGE",
+        font=_font(max(7, height // 5), bold=False),
         fill=GOLD_LIGHT,
         anchor="lm",
     )
@@ -131,17 +143,22 @@ def _strip_image(width, height):
             fill=(220, 167, 80, alpha),
             width=max(1, height // 45),
         )
+
+    icon_size = round(height * 0.66)
+    icon = _icon_image(icon_size)
+    image.alpha_composite(icon, (round(width * 0.055), round((height - icon_size) / 2)))
+    text_x = round(width * 0.055) + icon_size + round(height * 0.16)
     draw.text(
-        (round(width * 0.065), round(height * 0.43)),
-        "SAMS",
-        font=_font(max(18, round(height * 0.28))),
+        (text_x, round(height * 0.42)),
+        "SAMS CLUB LOUNGE",
+        font=_font(max(13, round(height * 0.13))),
         fill=WHITE,
         anchor="lm",
     )
     draw.text(
-        (round(width * 0.068), round(height * 0.67)),
-        "MEMBER CARD",
-        font=_font(max(8, round(height * 0.085)), bold=False),
+        (text_x, round(height * 0.66)),
+        "DIGITALE MITGLIEDSKARTE",
+        font=_font(max(8, round(height * 0.065)), bold=False),
         fill=GOLD_LIGHT,
         anchor="lm",
     )
@@ -169,8 +186,8 @@ def _pass_files(wallet, request):
         "serialNumber": str(wallet.pk),
         "teamIdentifier": settings.APPLE_WALLET_TEAM_ID,
         "organizationName": settings.APP_PUBLISHER,
-        "description": "Digitale SAMS Mitgliedskarte",
-        "logoText": "SAMS",
+        "description": "Digitale Sams Club Lounge Mitgliedskarte",
+        "logoText": "Sams Club Lounge",
         "foregroundColor": "rgb(255, 255, 255)",
         "backgroundColor": "rgb(8, 5, 14)",
         "labelColor": "rgb(255, 204, 112)",

@@ -6,9 +6,9 @@ from django.views.static import serve
 
 from cards.apple_views import apple_callback
 
-admin.site.site_header = "A+ Card Verwaltung"
-admin.site.site_title = "A+ Card"
-admin.site.index_title = "A+Solution GmbH · Übersicht"
+admin.site.site_header = "Sams Club Lounge Verwaltung"
+admin.site.site_title = "Sams Club Lounge"
+admin.site.index_title = "A+ Solution GmbH · Übersicht"
 
 urlpatterns = [
     path("admin/", admin.site.urls),

@@ -27,7 +27,7 @@ def send_verification_email(request, user):
     )
     html_body = f"""
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#17121d">
-      <div style="font-size:28px;font-weight:900;letter-spacing:-1px;margin-bottom:22px">A+</div>
+      <div style="font-size:25px;font-weight:900;letter-spacing:-1px;margin-bottom:22px;color:#7c3cff">{escape(settings.APP_NAME)}</div>
       <h1 style="font-size:24px">E-Mail-Adresse bestätigen</h1>
       <p>Hallo {escape(display_name)},</p>
       <p>bestätige bitte deine E-Mail-Adresse, damit deine digitale Mitgliedskarte bei <strong>{escape(partner_name)}</strong> vollständig freigeschaltet wird.</p>

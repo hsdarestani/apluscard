@@ -3,19 +3,24 @@ from django.urls import reverse
 
 
 class StoreReleaseEndpointTests(TestCase):
-    @override_settings(APP_NAME="SAMS Card", APP_SHORT_NAME="SAMS")
+    @override_settings(APP_NAME="Sams Club Lounge", APP_SHORT_NAME="Sams Lounge")
     def test_manifest_uses_sams_identity(self):
         response = self.client.get(reverse("manifest"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/json")
         payload = response.json()
-        self.assertEqual(payload["name"], "SAMS Card")
-        self.assertEqual(payload["short_name"], "SAMS")
-        self.assertIn("SAMS", payload["description"])
+        self.assertEqual(payload["name"], "Sams Club Lounge")
+        self.assertEqual(payload["short_name"], "Sams Lounge")
+        self.assertIn("Sams Club Lounge", payload["description"])
         self.assertEqual(payload["display"], "standalone")
         self.assertEqual(payload["start_url"], "/")
         self.assertIn(
-            {"src": "/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+            {
+                "src": "/app-icon-512.png?v=scl-20260725",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable",
+            },
             payload["icons"],
         )
 

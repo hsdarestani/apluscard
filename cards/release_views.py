@@ -10,6 +10,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.views.decorators.http import require_GET
 
+from .branding import BRAND_ASSET_VERSION, load_brand_icon
 from .models import Wallet
 from .wallet_pass import build_pkpass
 
@@ -35,6 +36,10 @@ def _font(size):
 
 
 def _build_sams_icon(size):
+    exact_icon = load_brand_icon(size)
+    if exact_icon is not None:
+        return exact_icon
+
     image = Image.new("RGBA", (size, size), (8, 5, 14, 255))
     draw = ImageDraw.Draw(image)
     radius = round(size * 0.24)
@@ -65,7 +70,7 @@ def _build_sams_icon(size):
         fill=(255, 218, 145, 255),
         width=max(4, round(size * 0.032)),
     )
-    draw.text((size / 2, size / 2), "S", font=_font(round(size * 0.39)), fill=(255, 255, 255, 255), anchor="mm")
+    draw.text((size / 2, size / 2), "SCL", font=_font(round(size * 0.25)), fill=(255, 255, 255, 255), anchor="mm")
     return image
 
 
@@ -88,7 +93,7 @@ def manifest(request):
             "id": "/",
             "name": settings.APP_NAME,
             "short_name": settings.APP_SHORT_NAME,
-            "description": "Digitale SAMS Mitgliedskarte mit QR-Code, Guthaben, Transaktionen, Standorten und Push-Mitteilungen.",
+            "description": "Digitale Sams Club Lounge Mitgliedskarte mit QR-Code, Guthaben, Transaktionen, Standorten und Push-Mitteilungen.",
             "lang": "de-DE",
             "dir": "ltr",
             "start_url": "/",
@@ -101,21 +106,43 @@ def manifest(request):
             "categories": ["lifestyle", "utilities"],
             "prefer_related_applications": False,
             "icons": [
-                {"src": "/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-                {"src": "/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+                {
+                    "src": f"/app-icon-192.png?v={BRAND_ASSET_VERSION}",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                    "purpose": "any",
+                },
+                {
+                    "src": f"/app-icon-512.png?v={BRAND_ASSET_VERSION}",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "any maskable",
+                },
             ],
             "shortcuts": [
                 {
                     "name": "Mitgliedskarte",
                     "short_name": "Karte",
                     "url": "/customer/",
-                    "icons": [{"src": "/app-icon-192.png", "sizes": "192x192", "type": "image/png"}],
+                    "icons": [
+                        {
+                            "src": f"/app-icon-192.png?v={BRAND_ASSET_VERSION}",
+                            "sizes": "192x192",
+                            "type": "image/png",
+                        }
+                    ],
                 },
                 {
                     "name": "Mitteilungen",
                     "short_name": "Mitteilungen",
                     "url": "/mitteilungen/",
-                    "icons": [{"src": "/app-icon-192.png", "sizes": "192x192", "type": "image/png"}],
+                    "icons": [
+                        {
+                            "src": f"/app-icon-192.png?v={BRAND_ASSET_VERSION}",
+                            "sizes": "192x192",
+                            "type": "image/png",
+                        }
+                    ],
                 },
             ],
         }
@@ -147,7 +174,7 @@ def apple_app_site_association(request):
         details.append(
             {
                 "appIDs": [f"{settings.IOS_APP_TEAM_ID}.{settings.IOS_BUNDLE_ID}"],
-                "components": [{"/": "/*", "comment": "SAMS Card Universal Links"}],
+                "components": [{"/": "/*", "comment": "Sams Club Lounge Universal Links"}],
             }
         )
     return _json_response(
@@ -172,6 +199,6 @@ def apple_wallet_pass(request):
         messages.error(request, str(exc))
         return redirect("customer_dashboard")
     response = HttpResponse(pass_data, content_type="application/vnd.apple.pkpass")
-    response["Content-Disposition"] = f'attachment; filename="SAMS-Card-{wallet.member_number}.pkpass"'
+    response["Content-Disposition"] = f'attachment; filename="Sams-Club-Lounge-{wallet.member_number}.pkpass"'
     response["Cache-Control"] = "private, no-store"
     return response

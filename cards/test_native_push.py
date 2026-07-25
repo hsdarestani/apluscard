@@ -107,7 +107,7 @@ class SamsWalletDesignTests(TestCase):
         )
 
     @override_settings(
-        APP_NAME="SAMS Card",
+        APP_NAME="Sams Club Lounge",
         APP_PUBLISHER="A+ Solution GmbH",
         APP_SUPPORT_EMAIL="app@aplus-solution.de",
         APPLE_WALLET_PASS_TYPE_ID="pass.de.sams.member",
@@ -123,7 +123,7 @@ class SamsWalletDesignTests(TestCase):
         payload = json.loads(files["pass.json"])
         barcode = payload["barcodes"][0]
 
-        self.assertEqual(payload["logoText"], "SAMS")
+        self.assertEqual(payload["logoText"], "Sams Club Lounge")
         self.assertNotIn("altText", barcode)
         self.assertIn("strip.png", files)
         self.assertIn("strip@2x.png", files)

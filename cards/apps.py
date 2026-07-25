@@ -4,7 +4,7 @@ from django.apps import AppConfig
 class CardsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "cards"
-    verbose_name = "SAMS Verwaltung"
+    verbose_name = "Sams Club Lounge Verwaltung"
 
     def import_models(self):
         super().import_models()
