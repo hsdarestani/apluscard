@@ -89,4 +89,6 @@ class LocationPhotoUploadTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Standortbild konnte nicht gespeichert werden")
         self.assertContains(response, "Foto des Standorts")
-        self.assertFalse(LocationVisual.objects.filter(location=self.location).exists())
+        visual = LocationVisual.objects.get(location=self.location)
+        self.assertFalse(bool(visual.image))
+        self.assertEqual(visual.short_description, "")
