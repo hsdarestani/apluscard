@@ -43,7 +43,8 @@ background_modes << 'remote-notification' unless background_modes.include?('remo
 info_plist['UIBackgroundModes'] = background_modes
 info_plist['UIViewControllerBasedStatusBarAppearance'] = false
 info_plist['UIStatusBarStyle'] = 'UIStatusBarStyleLightContent'
-# SAMS Card only relies on exempt encryption provided by Apple frameworks,
+info_plist['CFBundleDisplayName'] = 'Sams Club Lounge'
+# The app only relies on exempt encryption provided by Apple frameworks,
 # such as HTTPS/TLS connections. This prevents repeated export-compliance
 # prompts for future App Store Connect uploads.
 info_plist['ITSAppUsesNonExemptEncryption'] = false
@@ -82,10 +83,9 @@ target.build_configurations.each do |configuration|
   settings['CODE_SIGN_ENTITLEMENTS'] = 'App/App.entitlements'
   settings['MARKETING_VERSION'] = ENV.fetch('IOS_VERSION_NAME')
   settings['CURRENT_PROJECT_VERSION'] = ENV.fetch('IOS_BUILD_NUMBER')
-  # SAMS Card is a phone-first membership and wallet app. Limiting the target
-  # to iPhone prevents App Store Connect from requiring iPad-specific assets.
+  settings['PRODUCT_NAME'] = 'Sams Club Lounge'
   settings['TARGETED_DEVICE_FAMILY'] = '1'
 end
 
 project.save
-puts "SAMS Card iOS vorbereitet: #{ENV.fetch('IOS_BUNDLE_ID')} · #{ENV.fetch('IOS_VERSION_NAME')} (#{ENV.fetch('IOS_BUILD_NUMBER')})"
+puts "Sams Club Lounge iOS vorbereitet: #{ENV.fetch('IOS_BUNDLE_ID')} · #{ENV.fetch('IOS_VERSION_NAME')} (#{ENV.fetch('IOS_BUILD_NUMBER')})"
