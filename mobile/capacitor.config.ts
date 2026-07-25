@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'de.aplussolution.samscard',
-  appName: 'SAMS Card',
+  appName: 'Sams Club Lounge',
   webDir: 'www',
   server: {
     url: 'https://cards.smarbiz.sbs',
