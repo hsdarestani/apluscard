@@ -1,0 +1,41 @@
+name: Diagnose Branding Tests
+
+on:
+  push:
+    branches: [agent/in-app-scl-branding]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install --quiet -r requirements.txt
+      - name: Run tests and publish diagnostic issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DJANGO_DEBUG: "1"
+          DJANGO_SECURE_COOKIES: "0"
+        run: |
+          set +e
+          python manage.py test --failfast -v 2 > /tmp/test-output.txt 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            {
+              echo 'CI test failure on branch agent/in-app-scl-branding.'
+              echo
+              echo '```text'
+              tail -n 120 /tmp/test-output.txt
+              echo '```'
+            } > /tmp/issue-body.md
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Temporary branding CI diagnostic" --body-file /tmp/issue-body.md
+          fi
+          cat /tmp/test-output.txt
+          exit "$status"
