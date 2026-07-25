@@ -13,7 +13,7 @@ from .models import Location
 
 register_heif_opener(thumbnails=False)
 
-MAX_LOCATION_IMAGE_BYTES = 20 * 1024 * 1024
+MAX_LOCATION_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_LOCATION_IMAGE_DIMENSION = 2400
 
 
@@ -38,7 +38,7 @@ class LocationVisualForm(forms.ModelForm):
         if not uploaded:
             return uploaded
         if uploaded.size > MAX_LOCATION_IMAGE_BYTES:
-            raise forms.ValidationError("Das Foto darf höchstens 20 MB groß sein.")
+            raise forms.ValidationError("Das Foto darf höchstens 10 MB groß sein.")
 
         try:
             uploaded.seek(0)
