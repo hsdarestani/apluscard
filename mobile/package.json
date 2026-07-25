@@ -1,15 +1,16 @@
 {
-  "name": "sams-card-mobile",
+  "name": "sams-club-lounge-mobile",
   "private": true,
   "version": "1.0.1",
-  "description": "Native iOS and Android shell for SAMS Card",
+  "description": "Native iOS and Android shell for Sams Club Lounge",
   "scripts": {
     "sync": "npx cap sync",
     "android": "npx cap open android",
     "ios": "npx cap open ios",
     "doctor": "npx cap doctor",
-    "assets:android": "npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#09050f' --iconBackgroundColorDark '#09050f' --splashBackgroundColor '#09050f' --splashBackgroundColorDark '#09050f'",
-    "assets:ios": "npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor '#09050f' --iconBackgroundColorDark '#09050f' --splashBackgroundColor '#09050f' --splashBackgroundColorDark '#09050f'"
+    "assets:prepare": "node -e \"const fs=require('fs'); const p='assets/icon-only.png'; if(!fs.existsSync(p)){console.error('Missing '+p); process.exit(1)} fs.rmSync('assets/logo.svg',{force:true});\"",
+    "assets:android": "npm run assets:prepare && npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#09050f' --iconBackgroundColorDark '#09050f' --splashBackgroundColor '#09050f' --splashBackgroundColorDark '#09050f'",
+    "assets:ios": "npm run assets:prepare && npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor '#09050f' --iconBackgroundColorDark '#09050f' --splashBackgroundColor '#09050f' --splashBackgroundColorDark '#09050f'"
   },
   "dependencies": {
     "@capacitor/android": "8.4.2",
