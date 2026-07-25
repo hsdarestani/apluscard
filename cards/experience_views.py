@@ -22,7 +22,7 @@ def client_ip(request):
 
 def service_worker(request):
     content = """
-const CACHE = 'sams-card-v12';
+const CACHE = 'sams-club-lounge-v13';
 const ASSETS = [
   '/static/cards/app.css',
   '/static/cards/app.js',
@@ -33,9 +33,8 @@ const ASSETS = [
   '/static/cards/experience.css',
   '/static/cards/ui-fixes.css',
   '/static/cards/push.css',
-  '/static/cards/icon.svg',
-  '/app-icon-192.png',
-  '/app-icon-512.png',
+  '/app-icon-192.png?v=scl-20260725',
+  '/app-icon-512.png?v=scl-20260725',
   '/manifest.webmanifest'
 ];
 self.addEventListener('install', event => {
