@@ -101,29 +101,16 @@ def _icon_image(size):
 
 
 def _logo_image(width, height):
+    """Keep the Wallet header compact: icon only; Wallet renders logoText itself."""
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    emblem = _icon_image(height)
-    image.alpha_composite(emblem, (0, 0))
-    draw = ImageDraw.Draw(image)
-    x = height + max(5, height // 7)
-    draw.text(
-        (x, height * 0.35),
-        "SAMS CLUB",
-        font=_font(max(8, height // 4)),
-        fill=WHITE,
-        anchor="lm",
-    )
-    draw.text(
-        (x, height * 0.72),
-        "LOUNGE",
-        font=_font(max(7, height // 5), bold=False),
-        fill=GOLD_LIGHT,
-        anchor="lm",
-    )
+    icon_size = min(width, height)
+    emblem = _icon_image(icon_size)
+    image.alpha_composite(emblem, (0, round((height - icon_size) / 2)))
     return image
 
 
 def _strip_image(width, height):
+    """Decorative background only; Wallet lays its fields on top of this image."""
     image = _vertical_gradient(width, height, (20, 10, 35, 255), DARK)
     glow_radius = round(height * 0.95)
     glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
@@ -137,31 +124,17 @@ def _strip_image(width, height):
 
     for offset, alpha in ((0, 120), (8, 70), (16, 35)):
         draw.arc(
-            (round(width * 0.58) - offset, -round(height * 0.70) - offset, width + round(height * 0.55) + offset, round(height * 1.55) + offset),
+            (
+                round(width * 0.58) - offset,
+                -round(height * 0.70) - offset,
+                width + round(height * 0.55) + offset,
+                round(height * 1.55) + offset,
+            ),
             start=110,
             end=245,
             fill=(220, 167, 80, alpha),
             width=max(1, height // 45),
         )
-
-    icon_size = round(height * 0.66)
-    icon = _icon_image(icon_size)
-    image.alpha_composite(icon, (round(width * 0.055), round((height - icon_size) / 2)))
-    text_x = round(width * 0.055) + icon_size + round(height * 0.16)
-    draw.text(
-        (text_x, round(height * 0.42)),
-        "SAMS CLUB LOUNGE",
-        font=_font(max(13, round(height * 0.13))),
-        fill=WHITE,
-        anchor="lm",
-    )
-    draw.text(
-        (text_x, round(height * 0.66)),
-        "DIGITALE MITGLIEDSKARTE",
-        font=_font(max(8, round(height * 0.065)), bold=False),
-        fill=GOLD_LIGHT,
-        anchor="lm",
-    )
     return image
 
 
@@ -187,7 +160,7 @@ def _pass_files(wallet, request):
         "teamIdentifier": settings.APPLE_WALLET_TEAM_ID,
         "organizationName": settings.APP_PUBLISHER,
         "description": "Digitale Sams Club Lounge Mitgliedskarte",
-        "logoText": "Sams Club Lounge",
+        "logoText": "SCL",
         "foregroundColor": "rgb(255, 255, 255)",
         "backgroundColor": "rgb(8, 5, 14)",
         "labelColor": "rgb(255, 204, 112)",
@@ -196,15 +169,15 @@ def _pass_files(wallet, request):
         "barcodes": [barcode],
         "barcode": barcode,
         "storeCard": {
-            "primaryFields": [
-                {"key": "memberNumber", "label": "MITGLIEDSNUMMER", "value": wallet.member_number},
+            "headerFields": [
+                {"key": "memberNumber", "label": "MITGLIEDSNR.", "value": wallet.member_number},
             ],
             "secondaryFields": [
                 {"key": "memberName", "label": "MITGLIED", "value": wallet.display_name},
                 {"key": "tier", "label": "STATUS", "value": wallet.get_tier_display()},
             ],
             "auxiliaryFields": [
-                {"key": "validAt", "label": "GÜLTIG", "value": "Alle drei Standorte"},
+                {"key": "validAt", "label": "GÜLTIG", "value": "Alle Standorte"},
             ],
             "backFields": [
                 {"key": "partner", "label": "SAMS Standorte", "value": "Sams Club Lounge · Sams Club Lounge CITY · DIMA Sportsbar"},
@@ -222,8 +195,8 @@ def _pass_files(wallet, request):
         "icon.png": _png_bytes(_icon_image(29)),
         "icon@2x.png": _png_bytes(_icon_image(58)),
         "icon@3x.png": _png_bytes(_icon_image(87)),
-        "logo.png": _png_bytes(_logo_image(160, 50)),
-        "logo@2x.png": _png_bytes(_logo_image(320, 100)),
+        "logo.png": _png_bytes(_logo_image(50, 50)),
+        "logo@2x.png": _png_bytes(_logo_image(100, 100)),
         "strip.png": _png_bytes(_strip_image(375, 123)),
         "strip@2x.png": _png_bytes(_strip_image(750, 246)),
         "thumbnail.png": _png_bytes(_icon_image(90)),
