@@ -1,6 +1,6 @@
 {% extends 'cards/base.html' %}
 {% load sams_de experience_tags %}
-{% block title %}Meine Mitgliedskarte · SAMS Club Lounge{% endblock %}
+{% block title %}Meine Mitgliedskarte · {{ app_name }}{% endblock %}
 {% block content %}
 <section class="dashboard-head">
   <div>
@@ -51,7 +51,7 @@
     <div class="wallet-code">Mitgliedsnummer {{ wallet.member_number }}</div>
     <div class="member-line"><span>Für alle SAMS Standorte</span><span>✦ {{ wallet.tier|sams_label }}</span></div>
     <div class="wallet-actions">
-      {% if apple_wallet_enabled %}<a class="apple-wallet-button" href="{% url 'apple_wallet_pass' %}"><span>＋</span><strong>Zu Apple Wallet hinzufügen</strong></a>{% endif %}
+      {% if apple_wallet_enabled %}<a class="apple-wallet-button" href="{% url 'apple_wallet_pass' %}" data-wallet-link-url="{% url 'apple_wallet_link' %}"><span>＋</span><strong>Zu Apple Wallet hinzufügen</strong></a>{% endif %}
       <a class="button secondary full" href="{% url 'transaction_cases' %}">Transaktionen & Prüffälle</a>
     </div>
   </article>
