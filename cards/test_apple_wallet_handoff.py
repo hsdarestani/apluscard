@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from .legal_models import LegalAcceptance, LegalConfiguration
 from .models import Business, Wallet
 
 
@@ -16,13 +17,35 @@ from .models import Business, Wallet
 class AppleWalletHandoffTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
-        self.user = user_model.objects.create_user(username="wallet-handoff", password="secret")
+        self.user = user_model.objects.create_user(
+            username="wallet-handoff",
+            email="wallet-handoff@example.com",
+            password="secret",
+        )
         self.business = Business.objects.create(name="Sams Club Lounge", slug="wallet-handoff")
         self.wallet = Wallet.objects.create(
             business=self.business,
             owner=self.user,
             display_name="Ashkan Dian",
+            email=self.user.email,
         )
+        LegalConfiguration.objects.create(
+            business=self.business,
+            app_display_name=self.business.name,
+            controller_name=self.business.name,
+            terms_version="1.0",
+            privacy_version="1.0",
+        )
+        for document_type in (LegalAcceptance.DocumentType.TERMS, LegalAcceptance.DocumentType.PRIVACY):
+            LegalAcceptance.objects.create(
+                user=self.user,
+                business=self.business,
+                document_type=document_type,
+                version="1.0",
+                source=LegalAcceptance.Source.REGISTRATION,
+                email_hash="test",
+                member_number=self.wallet.member_number,
+            )
         self.client.force_login(self.user)
 
     @patch("cards.release_views.build_pkpass", return_value=b"signed-pkpass")
