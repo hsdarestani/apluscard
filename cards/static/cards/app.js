@@ -91,6 +91,10 @@ function nativePushPlugin() {
   return window.Capacitor?.Plugins?.PushNotifications || null;
 }
 
+function nativeBrowserPlugin() {
+  return window.Capacitor?.Plugins?.Browser || null;
+}
+
 function nativePlatform() {
   const platform = window.Capacitor?.getPlatform?.() || window.Capacitor?.platform || '';
   if (String(platform).toLowerCase() === 'ios') return 'IOS';
@@ -101,6 +105,47 @@ function nativePlatform() {
 function csrfToken() {
   return document.querySelector('meta[name="csrf-token"]')?.content || '';
 }
+
+const appleWalletButton = document.querySelector('a.apple-wallet-button');
+if (appleWalletButton && nativePlatform() === 'ANDROID') {
+  appleWalletButton.hidden = true;
+}
+
+appleWalletButton?.addEventListener('click', async event => {
+  const browser = nativeBrowserPlugin();
+  if (nativePlatform() !== 'IOS' || !browser) return;
+
+  event.preventDefault();
+  if (appleWalletButton.dataset.busy === 'true') return;
+  appleWalletButton.dataset.busy = 'true';
+  appleWalletButton.setAttribute('aria-disabled', 'true');
+  const label = appleWalletButton.querySelector('strong');
+  const originalLabel = label?.textContent || 'Zu Apple Wallet hinzufügen';
+  if (label) label.textContent = 'Apple Wallet wird geöffnet …';
+
+  try {
+    const response = await fetch(appleWalletButton.dataset.walletLinkUrl, {
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (!response.ok) throw new Error(`Wallet link failed: ${response.status}`);
+    const payload = await response.json();
+    if (!payload.url) throw new Error('Wallet download URL missing');
+    await browser.open({
+      url: payload.url,
+      presentationStyle: 'fullscreen',
+      toolbarColor: '#09050f'
+    });
+  } catch (error) {
+    console.error('Apple Wallet handoff failed', error);
+    window.location.assign(appleWalletButton.href);
+  } finally {
+    appleWalletButton.dataset.busy = 'false';
+    appleWalletButton.removeAttribute('aria-disabled');
+    if (label) label.textContent = originalLabel;
+  }
+});
 
 function safePushTarget(value) {
   if (!value) return '/mitteilungen/';
