@@ -21,6 +21,7 @@ class LegalAcceptanceMiddleware:
         "/impressum/",
         "/apps/",
         "/rechtliches-bestaetigen/",
+        "/wallet/download/",
         "/manager/",
         "/staff/",
     )
