@@ -113,7 +113,7 @@ class SamsWalletDesignTests(TestCase):
         APPLE_WALLET_PASS_TYPE_ID="pass.de.sams.member",
         APPLE_WALLET_TEAM_ID="TEAM123456",
     )
-    def test_wallet_has_premium_assets_and_no_member_caption_below_qr(self):
+    def test_wallet_has_clean_layout_and_no_oversized_member_number(self):
         request = RequestFactory().get(
             "/customer/apple-wallet/",
             HTTP_HOST="cards.smarbiz.sbs",
@@ -122,8 +122,12 @@ class SamsWalletDesignTests(TestCase):
         files = _pass_files(self.wallet, request)
         payload = json.loads(files["pass.json"])
         barcode = payload["barcodes"][0]
+        store_card = payload["storeCard"]
 
-        self.assertEqual(payload["logoText"], "Sams Club Lounge")
+        self.assertEqual(payload["logoText"], "SCL")
+        self.assertNotIn("primaryFields", store_card)
+        self.assertEqual(store_card["headerFields"][0]["value"], self.wallet.member_number)
+        self.assertEqual(store_card["secondaryFields"][0]["value"], "Ashkan Dian")
         self.assertNotIn("altText", barcode)
         self.assertIn("strip.png", files)
         self.assertIn("strip@2x.png", files)
