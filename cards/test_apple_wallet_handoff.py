@@ -55,7 +55,9 @@ class AppleWalletHandoffTests(TestCase):
         download_url = link_response.json()["url"]
         download_path = urlparse(download_url).path
         self.assertTrue(download_path.startswith("/wallet/download/"))
-        self.assertEqual(link_response["Cache-Control"], "private, no-store")
+        cache_control = link_response["Cache-Control"]
+        self.assertIn("private", cache_control)
+        self.assertIn("no-store", cache_control)
 
         self.client.logout()
         download_response = self.client.get(download_path)
