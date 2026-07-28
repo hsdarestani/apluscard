@@ -5,9 +5,12 @@ from PIL import Image, ImageDraw, ImageFont
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core import signing
 from django.core.exceptions import ImproperlyConfigured
+from django.core.signing import BadSignature, SignatureExpired
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 from django.views.decorators.http import require_GET
 
 from .branding import BRAND_ASSET_VERSION, load_brand_icon
@@ -17,6 +20,8 @@ from .wallet_pass import build_pkpass
 
 _SHA256_FINGERPRINT = re.compile(r"^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$")
 _ICON_SIZES = {192, 512}
+_WALLET_DOWNLOAD_SALT = "sams-club-lounge-wallet-download-v1"
+_WALLET_DOWNLOAD_MAX_AGE = 5 * 60
 
 
 def _json_response(payload, *, max_age=300):
@@ -189,16 +194,60 @@ def apple_app_site_association(request):
     )
 
 
+def _apple_wallet_response(wallet, request):
+    pass_data = build_pkpass(wallet, request)
+    response = HttpResponse(pass_data, content_type="application/vnd.apple.pkpass")
+    response["Content-Disposition"] = f'attachment; filename="Sams-Club-Lounge-{wallet.member_number}.pkpass"'
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @login_required
 @require_GET
 def apple_wallet_pass(request):
     wallet = get_object_or_404(Wallet.objects.select_related("business"), owner=request.user)
     try:
-        pass_data = build_pkpass(wallet, request)
+        return _apple_wallet_response(wallet, request)
     except ImproperlyConfigured as exc:
         messages.error(request, str(exc))
         return redirect("customer_dashboard")
-    response = HttpResponse(pass_data, content_type="application/vnd.apple.pkpass")
-    response["Content-Disposition"] = f'attachment; filename="Sams-Club-Lounge-{wallet.member_number}.pkpass"'
+
+
+@login_required
+@require_GET
+def apple_wallet_link(request):
+    """Issue a short-lived URL that Safari can download without sharing WebView cookies."""
+    wallet = get_object_or_404(Wallet, owner=request.user)
+    token = signing.dumps(
+        {"wallet_id": str(wallet.pk), "owner_id": request.user.pk},
+        salt=_WALLET_DOWNLOAD_SALT,
+        compress=True,
+    )
+    download_url = request.build_absolute_uri(reverse("apple_wallet_pass_download", args=[token]))
+    response = JsonResponse({"url": download_url})
     response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+@require_GET
+def apple_wallet_pass_download(request, token):
+    try:
+        payload = signing.loads(
+            token,
+            salt=_WALLET_DOWNLOAD_SALT,
+            max_age=_WALLET_DOWNLOAD_MAX_AGE,
+        )
+    except (BadSignature, SignatureExpired) as exc:
+        raise Http404("Apple-Wallet-Link ist ungültig oder abgelaufen.") from exc
+
+    wallet = get_object_or_404(
+        Wallet.objects.select_related("business"),
+        pk=payload.get("wallet_id"),
+        owner_id=payload.get("owner_id"),
+    )
+    try:
+        return _apple_wallet_response(wallet, request)
+    except ImproperlyConfigured as exc:
+        return HttpResponse(str(exc), status=503, content_type="text/plain; charset=utf-8")

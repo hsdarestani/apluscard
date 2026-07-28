@@ -18,6 +18,8 @@ class CustomerLocationSelectionMiddleware:
         "/apps/",
         "/rechtliches-bestaetigen/",
         "/customer/standort-waehlen/",
+        "/customer/apple-wallet/",
+        "/wallet/download/",
         "/mitteilungen/",
         "/transaktionsfaelle/",
         "/transaktionen/",
