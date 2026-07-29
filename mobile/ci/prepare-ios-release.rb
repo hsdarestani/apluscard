@@ -33,7 +33,8 @@ entitlements = {
   'com.apple.developer.associated-domains' => [
     'applinks:cards.smarbiz.sbs',
     'webcredentials:cards.smarbiz.sbs'
-  ]
+  ],
+  'com.apple.developer.applesignin' => ['Default']
 }
 Xcodeproj::Plist.write_to_path(entitlements, entitlements_path)
 
@@ -84,6 +85,7 @@ target.build_configurations.each do |configuration|
   settings['MARKETING_VERSION'] = ENV.fetch('IOS_VERSION_NAME')
   settings['CURRENT_PROJECT_VERSION'] = ENV.fetch('IOS_BUILD_NUMBER')
   settings['PRODUCT_NAME'] = 'Sams Club Lounge'
+  # iPhone-only App Store availability. iPad can still run it in compatibility mode.
   settings['TARGETED_DEVICE_FAMILY'] = '1'
 end
 
