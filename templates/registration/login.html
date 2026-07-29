@@ -35,6 +35,14 @@
       </button>
       <p class="apple-login-note" id="apple-login-status" role="status" aria-live="polite"></p>
     {% else %}
+      <button class="apple-login-button" type="button" disabled aria-disabled="true" aria-label="Mit Apple fortfahren">
+        <img
+          src="https://appleid.cdn-apple.com/appleid/button?height=50&amp;width=375&amp;color=white&amp;border=false&amp;type=continue&amp;border_radius=13&amp;scale=2&amp;locale=de_DE"
+          width="375"
+          height="50"
+          alt="Mit Apple fortfahren"
+        >
+      </button>
       <p class="apple-login-note">Die Apple-Anmeldung ist momentan nicht verfügbar.</p>
     {% endif %}
 
