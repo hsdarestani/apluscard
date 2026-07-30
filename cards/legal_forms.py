@@ -1,10 +1,35 @@
 from django import forms
 
-from .forms import AppleProfileCompletionForm, CustomerRegistrationForm
+from .forms import AppleProfileCompletionForm, CustomerRegistrationForm, validate_adult_birth_date
 from .legal_models import AccountDeletionRequest, LegalConfiguration, PrivacyPreference
 
 
-class LegalCustomerRegistrationForm(CustomerRegistrationForm):
+class OptionalMemberDetailsMixin:
+    """Keep non-essential profile data genuinely optional for App Review and users."""
+
+    phone = forms.CharField(
+        label="Mobilnummer (optional)",
+        max_length=40,
+        required=False,
+    )
+    birth_date = forms.DateField(
+        label="Geburtsdatum (optional)",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+
+    def clean_phone(self):
+        phone = (self.cleaned_data.get("phone") or "").strip()
+        if phone and len(phone) < 6:
+            raise forms.ValidationError("Bitte eine gültige Mobilnummer eingeben oder das Feld leer lassen.")
+        return phone
+
+    def clean_birth_date(self):
+        birth_date = self.cleaned_data.get("birth_date")
+        return validate_adult_birth_date(birth_date) if birth_date else None
+
+
+class LegalCustomerRegistrationForm(OptionalMemberDetailsMixin, CustomerRegistrationForm):
     accept_terms = forms.BooleanField(
         label="Ich akzeptiere die Allgemeinen Geschäftsbedingungen.",
         required=True,
@@ -23,7 +48,7 @@ class LegalCustomerRegistrationForm(CustomerRegistrationForm):
     )
 
 
-class LegalAppleProfileCompletionForm(AppleProfileCompletionForm):
+class LegalAppleProfileCompletionForm(OptionalMemberDetailsMixin, AppleProfileCompletionForm):
     accept_terms = forms.BooleanField(
         label="Ich akzeptiere die Allgemeinen Geschäftsbedingungen.",
         required=True,
