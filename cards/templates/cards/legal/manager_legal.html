@@ -18,17 +18,22 @@
 
 <section class="panel settings-section">
   <div class="section-heading"><div><span class="eyebrow">Betroffenenrechte</span><h2>Anträge auf Kontolöschung</h2></div></div>
+  <div class="legal-warning"><strong>Abschluss ist endgültig</strong>Vor „Abgeschlossen“ Identität, offene Vorgänge und gesetzliche Aufbewahrungspflichten prüfen. Beim Abschluss werden Apple-Zugangsdaten widerrufen und direkte Konto-, Profil-, Kontakt- und Push-Daten gelöscht oder anonymisiert.</div>
   <div class="deletion-list">
     {% for item in deletion_requests %}
     <article class="deletion-item">
       <div><strong>{{ item.reference_number }}</strong> · {{ item.get_status_display }}</div>
       <small>{{ item.requested_at|date:"d.m.Y H:i" }} · {{ item.email }}{% if item.member_number %} · Mitglied {{ item.member_number }}{% endif %}</small>
       {% if item.reason %}<p>{{ item.reason }}</p>{% endif %}
+      {% if item.status != 'COMPLETED' %}
       <form method="post">{% csrf_token %}<input type="hidden" name="action" value="deletion-status"><input type="hidden" name="request_id" value="{{ item.pk }}">
-        <select name="status"><option value="RECEIVED" {% if item.status == 'RECEIVED' %}selected{% endif %}>Eingegangen</option><option value="PROCESSING" {% if item.status == 'PROCESSING' %}selected{% endif %}>In Bearbeitung</option><option value="COMPLETED" {% if item.status == 'COMPLETED' %}selected{% endif %}>Abgeschlossen</option><option value="REJECTED" {% if item.status == 'REJECTED' %}selected{% endif %}>Abgelehnt</option></select>
-        <input type="text" name="internal_note" value="{{ item.internal_note }}" placeholder="Interne Notiz">
+        <select name="status"><option value="RECEIVED" {% if item.status == 'RECEIVED' %}selected{% endif %}>Eingegangen</option><option value="PROCESSING" {% if item.status == 'PROCESSING' %}selected{% endif %}>In Bearbeitung</option><option value="COMPLETED">Abgeschlossen – Daten jetzt entfernen</option></select>
+        <input type="text" name="internal_note" value="{{ item.internal_note }}" placeholder="Interne Prüfnotiz">
         <button class="button secondary small" type="submit">Status speichern</button>
       </form>
+      {% else %}
+      <small>Abgeschlossen am {{ item.completed_at|date:"d.m.Y H:i" }}. {{ item.internal_note }}</small>
+      {% endif %}
     </article>
     {% empty %}<div class="empty-state">Noch keine Löschanträge eingegangen.</div>{% endfor %}
   </div>
