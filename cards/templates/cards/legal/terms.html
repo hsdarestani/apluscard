@@ -15,8 +15,10 @@
     <p>Anbieter ist <strong>{{ legal.responsible_name }}</strong>{% if legal.controller_address %}, <span class="legal-address">{{ legal.controller_address }}</span>{% endif %}. Die App wird technisch durch A+ bereitgestellt. Vertragspartner für Guthaben, Zahlungen, Angebote und Leistungen vor Ort bleibt der in dieser App genannte Anbieter.</p>
 
     <h2>2. Voraussetzungen und Registrierung</h2>
-    <p>Die App richtet sich ausschließlich an Personen ab 18 Jahren. Die bei der Registrierung gemachten Angaben müssen richtig und aktuell sein. Jede Person darf grundsätzlich nur ein persönliches Mitgliedskonto führen. Zugangsdaten dürfen nicht an Dritte weitergegeben werden.</p>
-    <p>Die Registrierung kann mit E-Mail-Adresse und Passwort oder über „Mit Apple fortfahren“ erfolgen. Bei einer Anmeldung über Apple werden anschließend die für Mitgliedschaft und Altersprüfung notwendigen Angaben ergänzt.</p>
+    <p>Die App richtet sich ausschließlich an Personen ab 18 Jahren. Für die Mitgliedschaft werden Vorname, Nachname, eine bestätigte E-Mail-Adresse und die Bestätigung benötigt, dass der Nutzer mindestens 18 Jahre alt ist. Ein konkretes Geburtsdatum ist für die Altersbestätigung nicht erforderlich.</p>
+    <p>Mobilnummer und Geburtsdatum sind freiwillige Profilangaben. Beide Felder können leer bleiben; Anmeldung, Mitgliedskonto, digitale Mitgliedskarte, Guthaben und Zahlungen funktionieren unabhängig davon.</p>
+    <p>Die Registrierung kann mit E-Mail-Adresse und Passwort oder über „Mit Apple fortfahren“ erfolgen. Wenn Apple den Namen nicht übermittelt, wird er anschließend ergänzt. Auch bei der Apple-Anmeldung bleiben Mobilnummer und Geburtsdatum freiwillig.</p>
+    <p>Die gemachten Pflichtangaben müssen richtig und aktuell sein. Jede Person darf grundsätzlich nur ein persönliches Mitgliedskonto führen. Zugangsdaten dürfen nicht an Dritte weitergegeben werden.</p>
 
     <h2>3. Digitale Mitgliedskarte</h2>
     <p>Nach erfolgreicher Registrierung erhält der Kunde eine persönliche Mitgliedsnummer und eine digitale QR-Mitgliedskarte. Die Karte ist nicht übertragbar. Bei Verdacht auf Missbrauch kann sie vorübergehend gesperrt werden.</p>
@@ -47,11 +49,13 @@
     <h2>11. Haftung</h2>
     <p>Für Vorsatz und grobe Fahrlässigkeit sowie bei Verletzung von Leben, Körper oder Gesundheit wird nach den gesetzlichen Vorschriften gehaftet. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vorhersehbaren, vertragstypischen Schaden begrenzt. Gesetzlich zwingende Haftung bleibt unberührt.</p>
 
-    <h2>12. Kontosperrung und Beendigung</h2>
-    <p>Der Kunde kann die Löschung seines Kontos über den in der App bereitgestellten Löschweg beantragen. Bei Missbrauch, falschen Angaben, Sicherheitsrisiken oder erheblichen Vertragsverstößen kann der Anbieter das Konto sperren. Offene Vorgänge und gesetzliche Aufbewahrungspflichten bleiben davon unberührt.</p>
+    <h2>12. Kontosperrung, Kontolöschung und Beendigung</h2>
+    <p>Der Kunde kann die Löschung des Kontos jederzeit direkt innerhalb der App oder über die öffentlich erreichbare Löschseite beantragen. Ein zusätzlicher Kontakt zum Support ist nicht erforderlich. Der Antrag wird spätestens innerhalb von sieben Kalendertagen bearbeitet; Eingang und Abschluss werden per E-Mail bestätigt.</p>
+    <p>Beim Abschluss werden nicht mehr benötigte Konto-, Kontakt-, Profil-, Push- und Anmeldedaten gelöscht oder anonymisiert. Bei Sign in with Apple wird die gespeicherte Autorisierung widerrufen, soweit sie technisch verfügbar ist. Die digitale Mitgliedskarte wird geschlossen und direkt identifizierende Angaben werden entfernt. Gesetzlich aufzubewahrende Transaktions-, Beleg-, Steuer- und Prüfunterlagen dürfen bis zum Ablauf der jeweiligen Frist anonymisiert oder pseudonymisiert gespeichert bleiben.</p>
+    <p>Bei Missbrauch, Sicherheitsrisiken oder erheblichen Vertragsverstößen kann der Anbieter das Konto sperren. Zwingende gesetzliche Ansprüche des Kunden bleiben unberührt.</p>
 
     <h2>13. Datenschutz</h2>
-    <p>Informationen zur Verarbeitung personenbezogener Daten, zu Speicherdauer, Empfängern und Betroffenenrechten enthält die <a href="{% url 'app_privacy_policy' business.slug %}">Datenschutzerklärung</a>.</p>
+    <p>Informationen zur Verarbeitung personenbezogener Daten, zu freiwilligen Profilangaben, Speicherdauer, Empfängern und Betroffenenrechten enthält die <a href="{% url 'app_privacy_policy' business.slug %}">Datenschutzerklärung</a>.</p>
 
     <h2>14. Schlussbestimmungen</h2>
     <p>Es gilt das Recht der Bundesrepublik Deutschland unter Wahrung zwingender Verbraucherschutzvorschriften des Staates, in dem der Verbraucher seinen gewöhnlichen Aufenthalt hat. Sollte eine Bestimmung unwirksam sein, bleibt die Wirksamkeit der übrigen Bestimmungen unberührt.</p>
