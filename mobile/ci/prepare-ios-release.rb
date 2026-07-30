@@ -87,6 +87,27 @@ unless target.resources_build_phase.files_references.include?(privacy_reference)
   target.resources_build_phase.add_file_reference(privacy_reference, true)
 end
 
+review_phase = target.shell_script_build_phases.find { |phase| phase.name == 'App Review compliance gate' }
+review_phase ||= target.new_shell_script_build_phase('App Review compliance gate')
+review_phase.shell_path = '/bin/bash'
+review_phase.shell_script = <<~'SH'
+  set -Eeuo pipefail
+  APP_BUNDLE="${TARGET_BUILD_DIR}/${WRAPPER_NAME}"
+  APP_INFO="${APP_BUNDLE}/Info.plist"
+  PRIVACY_MANIFEST="${APP_BUNDLE}/PrivacyInfo.xcprivacy"
+
+  test -f "$APP_INFO" || { echo "Finales Info.plist fehlt: $APP_INFO"; exit 1; }
+  CAMERA_REASON="$(/usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$APP_INFO" 2>/dev/null || true)"
+  test -n "$CAMERA_REASON" || { echo "NSCameraUsageDescription fehlt im finalen App-Bundle."; exit 1; }
+
+  test -f "$PRIVACY_MANIFEST" || { echo "PrivacyInfo.xcprivacy fehlt im finalen App-Bundle."; exit 1; }
+  /usr/bin/plutil -lint "$PRIVACY_MANIFEST"
+  TRACKING="$(/usr/libexec/PlistBuddy -c 'Print :NSPrivacyTracking' "$PRIVACY_MANIFEST" 2>/dev/null || true)"
+  test "$TRACKING" = "false" || { echo "NSPrivacyTracking muss false sein."; exit 1; }
+
+  echo "App Review gate bestanden: Kamera-Hinweis und gültiges Privacy Manifest sind im Bundle."
+SH
+
 target.build_configurations.each do |configuration|
   settings = configuration.build_settings
   settings['PRODUCT_BUNDLE_IDENTIFIER'] = ENV.fetch('IOS_BUNDLE_ID')
