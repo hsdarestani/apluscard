@@ -1,9 +1,20 @@
+import uuid
 from decimal import Decimal
+from io import BytesIO
 
 from django import forms
+from django.core.files.base import ContentFile
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 
 from .experience_models import LocationVisual, TransactionCase
 from .models import Location
+
+
+register_heif_opener(thumbnails=False)
+
+MAX_LOCATION_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_LOCATION_IMAGE_DIMENSION = 2400
 
 
 class LocationVisualForm(forms.ModelForm):
@@ -18,14 +29,65 @@ class LocationVisualForm(forms.ModelForm):
         }
 
     def __init__(self, *args, business=None, **kwargs):
+        submitted_data = args[0] if args else kwargs.get("data")
+        if business is not None and submitted_data and kwargs.get("instance") is None:
+            location_id = submitted_data.get("location")
+            if location_id:
+                existing = LocationVisual.objects.filter(
+                    location_id=location_id,
+                    location__business=business,
+                ).first()
+                if existing is not None:
+                    kwargs["instance"] = existing
+
         super().__init__(*args, **kwargs)
         if business is not None:
             self.fields["location"].queryset = business.locations.filter(is_active=True)
 
+    def clean_image(self):
+        uploaded = self.cleaned_data.get("image")
+        if not uploaded or "image" not in self.files:
+            return uploaded
+        if uploaded.size > MAX_LOCATION_IMAGE_BYTES:
+            raise forms.ValidationError("Das Foto darf höchstens 10 MB groß sein.")
+
+        try:
+            uploaded.seek(0)
+            with Image.open(uploaded) as source:
+                normalized = ImageOps.exif_transpose(source)
+                normalized.thumbnail(
+                    (MAX_LOCATION_IMAGE_DIMENSION, MAX_LOCATION_IMAGE_DIMENSION),
+                    Image.Resampling.LANCZOS,
+                )
+                if normalized.mode in {"RGBA", "LA"} or (
+                    normalized.mode == "P" and "transparency" in normalized.info
+                ):
+                    rgba = normalized.convert("RGBA")
+                    background = Image.new("RGB", rgba.size, "white")
+                    background.paste(rgba, mask=rgba.getchannel("A"))
+                    normalized = background
+                else:
+                    normalized = normalized.convert("RGB")
+
+                output = BytesIO()
+                normalized.save(
+                    output,
+                    format="JPEG",
+                    quality=88,
+                    optimize=True,
+                    progressive=True,
+                )
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise forms.ValidationError(
+                "Das Foto konnte nicht gelesen werden. Bitte JPG, PNG, WebP, HEIC oder HEIF verwenden."
+            ) from exc
+
+        output.seek(0)
+        return ContentFile(output.read(), name=f"standort-{uuid.uuid4().hex}.jpg")
+
     def save(self, commit=True):
-        location = self.cleaned_data["location"]
-        visual, _ = LocationVisual.objects.get_or_create(location=location)
-        visual.image = self.cleaned_data.get("image") or visual.image
+        visual = super().save(commit=False)
+        visual.location = self.cleaned_data["location"]
         visual.short_description = self.cleaned_data.get("short_description", "").strip()
         if commit:
             visual.save()

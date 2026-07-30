@@ -20,6 +20,15 @@ def client_ip(request):
     return forwarded.split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR")
 
 
+def _form_error_summary(form):
+    details = []
+    for field_name, field_errors in form.errors.items():
+        label = form.fields[field_name].label if field_name in form.fields else ""
+        for error in field_errors:
+            details.append(f"{label}: {error}" if label else str(error))
+    return " ".join(details)
+
+
 def service_worker(request):
     content = """
 const CACHE = 'sams-club-lounge-v13';
@@ -131,7 +140,11 @@ def location_visual_update(request):
         visual = form.save()
         messages.success(request, f"Foto und Beschreibung für {visual.location.name} wurden gespeichert.")
     else:
-        messages.error(request, "Standortbild konnte nicht gespeichert werden. Bitte Datei und Angaben prüfen.")
+        details = _form_error_summary(form)
+        messages.error(
+            request,
+            f"Standortbild konnte nicht gespeichert werden. {details or 'Bitte Datei und Angaben prüfen.'}",
+        )
     return redirect("manager_settings")
 
 
