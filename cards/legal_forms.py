@@ -108,6 +108,27 @@ class AccountDeletionRequestForm(forms.ModelForm):
         return self.cleaned_data.get("member_number", "").strip()
 
 
+class AuthenticatedAccountDeletionForm(forms.Form):
+    confirmation = forms.BooleanField(
+        label=(
+            "Ich bestätige, dass mein Konto geschlossen und meine nicht mehr benötigten personenbezogenen "
+            "Daten gelöscht oder anonymisiert werden sollen."
+        ),
+        required=True,
+    )
+    confirmation_text = forms.CharField(
+        label="Zur Bestätigung LÖSCHEN eingeben",
+        max_length=20,
+        strip=True,
+    )
+
+    def clean_confirmation_text(self):
+        value = (self.cleaned_data.get("confirmation_text") or "").strip().upper()
+        if value != "LÖSCHEN":
+            raise forms.ValidationError("Bitte genau LÖSCHEN eingeben.")
+        return value
+
+
 class LegalConfigurationForm(forms.ModelForm):
     class Meta:
         model = LegalConfiguration
