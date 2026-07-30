@@ -51,6 +51,7 @@
 
 <dialog id="scan-member" class="app-dialog manager-scan-dialog">
   <div class="dialog-head"><div><span class="eyebrow">Mitglied finden</span><h2>Mitgliedskarte scannen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div>
+  <p class="muted">Die Kamera wird nur für diesen Scan verwendet. Alternativ kannst du den Kartencode unten manuell eingeben.</p>
   <div id="manager-reader" class="scanner-box manager-scanner-box"><div class="scanner-placeholder"><strong>⌁</strong>QR-Code scannen</div></div>
   <div id="manager-scan-status" class="manager-scan-status" aria-live="polite"></div>
   <form method="get" action="{% url 'manager_wallet_scan' %}" class="stack-form" id="manager-scan-form"><label>Kartencode<input id="manager-wallet-token" type="text" name="token" placeholder="Code der Mitgliedskarte" required></label><button class="button primary full" type="submit">Mitglied öffnen</button></form>
@@ -59,13 +60,13 @@
 <dialog id="new-wallet" class="app-dialog"><form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">{% csrf_token %}<div class="dialog-head"><div><span class="eyebrow">Neues Mitglied</span><h2>Mitgliedskarte anlegen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div><label>Name<input name="display_name" required></label><label>Telefon<input name="phone"></label><label>E-Mail-Adresse<input type="email" name="email"></label><button class="button primary full" type="submit">Mitgliedskarte erstellen</button></form></dialog>
 {% endblock %}
 {% block scripts %}
+<script src="{% static 'cards/vendor/html5-qrcode.min.js' %}?v=2.3.8"></script>
 <script>
 (function(){
   const open=document.getElementById('open-manager-scanner'),dialog=document.getElementById('scan-member'),form=document.getElementById('manager-scan-form'),input=document.getElementById('manager-wallet-token'),status=document.getElementById('manager-scan-status');
-  let scanner=null,handled=false,loading=false;
+  let scanner=null,handled=false;
   const stop=async()=>{try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}scanner=null;handled=false;};
-  const loadLibrary=()=>new Promise((resolve,reject)=>{if(window.Html5Qrcode)return resolve();if(loading)return document.addEventListener('sams-manager-scanner-ready',resolve,{once:true});loading=true;const script=document.createElement('script');script.src='https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';script.onload=()=>{loading=false;document.dispatchEvent(new Event('sams-manager-scanner-ready'));resolve();};script.onerror=()=>reject(new Error('load'));document.head.appendChild(script);});
-  open?.addEventListener('click',async()=>{dialog.showModal();status.textContent='';try{await loadLibrary();scanner=new Html5Qrcode('manager-reader');await scanner.start({facingMode:'environment'},{fps:5,qrbox:210,aspectRatio:1},async text=>{if(handled)return;handled=true;const match=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);if(!match){handled=false;status.textContent='Kein gültiger Mitgliedscode.';return;}input.value=match[0];await stop();form.requestSubmit();});}catch(e){status.textContent='Kamera konnte nicht gestartet werden.';await stop();}});
+  open?.addEventListener('click',async()=>{dialog.showModal();status.textContent='';if(!window.Html5Qrcode){status.textContent='Der Scanner ist nicht verfügbar. Bitte den Kartencode manuell eingeben.';return;}try{scanner=new Html5Qrcode('manager-reader');await scanner.start({facingMode:'environment'},{fps:5,qrbox:210,aspectRatio:1},async text=>{if(handled)return;handled=true;const match=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);if(!match){handled=false;status.textContent='Kein gültiger Mitgliedscode.';return;}input.value=match[0];await stop();form.requestSubmit();});}catch(e){status.textContent='Kamera konnte nicht gestartet werden. Bitte Berechtigung prüfen oder den Code manuell eingeben.';await stop();}});
   dialog?.addEventListener('close',stop);document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});window.addEventListener('pagehide',stop);
 })();
 </script>
