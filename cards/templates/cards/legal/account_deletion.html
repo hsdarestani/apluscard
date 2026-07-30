@@ -5,37 +5,54 @@
   <header class="panel legal-hero">
     <span class="eyebrow">Datenschutzrecht</span>
     <h1>Konto und Daten löschen</h1>
-    <p class="muted">Hier kannst du die Löschung deines {{ business.name }}-Kontos und der nicht mehr benötigten personenbezogenen Daten beantragen. Diese Seite ist auch ohne Anmeldung erreichbar.</p>
+    <p class="muted">Hier kannst du die Löschung deines {{ business.name }}-Kontos direkt beantragen. Die Bearbeitung wird spätestens innerhalb von {{ completion_days }} Kalendertagen abgeschlossen.</p>
   </header>
 
-  {% if reference %}
+  {% if submitted and reference %}
   <article class="panel legal-document">
-    <span class="eyebrow">Antrag eingegangen</span>
+    <span class="eyebrow">Antrag bestätigt</span>
     <h2>Deine Referenznummer</h2>
     <p class="deletion-reference">{{ reference }}</p>
-    <p>Bitte bewahre diese Nummer auf. Zur Vermeidung fremder Löschanträge kann vor der Bearbeitung eine Identitätsprüfung erforderlich sein.</p>
+    <p>Der Antrag wurde angenommen. Eine Eingangsbestätigung wurde per E-Mail versendet. Nach Abschluss erhältst du eine zweite E-Mail.</p>
+    <p><strong>Bearbeitungszeit:</strong> spätestens innerhalb von {{ completion_days }} Kalendertagen.</p>
+    <p class="muted">Du wurdest zur Sicherheit aus der App abgemeldet. Du musst weder den Support kontaktieren noch einen zusätzlichen Antrag außerhalb der App stellen.</p>
   </article>
   {% else %}
   <article class="panel legal-document">
-    <form method="post" class="stack-form">{% csrf_token %}
-      {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
-      <label>E-Mail-Adresse des Kontos{{ form.email }}{{ form.email.errors }}</label>
-      <label>Mitgliedsnummer{{ form.member_number }}{{ form.member_number.errors }}</label>
-      <label>Zusätzliche Nachricht{{ form.reason }}{{ form.reason.errors }}</label>
-      <label class="consent-row">{{ form.confirmation }}<span>{{ form.confirmation.label }}</span></label>{{ form.confirmation.errors }}
-      <button class="button primary" type="submit">Löschung verbindlich beantragen</button>
-    </form>
+    {% if authenticated_flow %}
+      <h2>Dein Konto verbindlich schließen</h2>
+      <p>Mit dem Absenden wird dein Konto zur Löschung vorgemerkt und du wirst sofort abgemeldet. Nicht mehr benötigte Konto-, Kontakt-, Profil-, Push- und Anmeldedaten werden gelöscht oder anonymisiert.</p>
+      <form method="post" class="stack-form">{% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <label class="consent-row">{{ form.confirmation }}<span>{{ form.confirmation.label }}</span></label>{{ form.confirmation.errors }}
+        <label>{{ form.confirmation_text.label }}{{ form.confirmation_text }}{{ form.confirmation_text.errors }}</label>
+        <button class="button primary" type="submit">Konto und Daten löschen</button>
+      </form>
+    {% else %}
+      <h2>Löschung ohne Anmeldung beantragen</h2>
+      <p>Diese Seite ist auch ohne Anmeldung erreichbar. Gib die E-Mail-Adresse deines Kontos und – soweit vorhanden – deine Mitgliedsnummer an.</p>
+      <form method="post" class="stack-form">{% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <label>E-Mail-Adresse des Kontos{{ form.email }}{{ form.email.errors }}</label>
+        <label>Mitgliedsnummer{{ form.member_number }}{{ form.member_number.errors }}</label>
+        <label>Zusätzliche Nachricht{{ form.reason }}{{ form.reason.errors }}</label>
+        <label class="consent-row">{{ form.confirmation }}<span>{{ form.confirmation.label }}</span></label>{{ form.confirmation.errors }}
+        <button class="button primary" type="submit">Löschung verbindlich beantragen</button>
+      </form>
+    {% endif %}
   </article>
   {% endif %}
 
   <article class="panel legal-document">
     <h2>Was geschieht nach dem Antrag?</h2>
     <ul>
-      <li>Der Antrag wird dem für diese App verantwortlichen Inhaber zugeordnet.</li>
-      <li>Zur Sicherheit kann die Identität über E-Mail-Adresse und Mitgliedsnummer geprüft werden.</li>
-      <li>Nicht mehr benötigte Konto-, Kontakt-, Push- und Profildaten werden gelöscht oder anonymisiert.</li>
-      <li>Gesetzlich aufzubewahrende Transaktions-, Beleg-, Steuer- und Prüfunterlagen dürfen bis zum Ablauf der jeweiligen Frist gespeichert bleiben.</li>
-      <li>Ein vorhandenes Guthaben und offene Vorgänge werden vor Abschluss geprüft; zwingende gesetzliche Ansprüche bleiben unberührt.</li>
+      <li>Du erhältst sofort eine Eingangsbestätigung mit Referenznummer per E-Mail.</li>
+      <li>Der Antrag wird spätestens innerhalb von {{ completion_days }} Kalendertagen abgeschlossen.</li>
+      <li>Bei einer Anmeldung mit Apple wird die gespeicherte Apple-Autorisierung widerrufen, soweit sie technisch verfügbar ist.</li>
+      <li>Nicht mehr benötigte Konto-, Kontakt-, Profil-, Push- und Anmeldedaten werden gelöscht oder anonymisiert.</li>
+      <li>Deine digitale Mitgliedskarte wird geschlossen und ihre direkt identifizierenden Angaben werden entfernt.</li>
+      <li>Gesetzlich aufzubewahrende Transaktions-, Beleg-, Steuer- und Prüfunterlagen bleiben nur für die erforderliche Frist anonymisiert oder pseudonymisiert erhalten.</li>
+      <li>Nach Abschluss erhältst du eine Bestätigung per E-Mail.</li>
     </ul>
     <p>Weitere Informationen enthält die <a href="{% url 'app_privacy_policy' business.slug %}">Datenschutzerklärung</a>.</p>
   </article>
