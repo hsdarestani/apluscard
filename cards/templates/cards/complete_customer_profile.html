@@ -5,7 +5,7 @@
   <article class="auth-copy">
     <span class="eyebrow">Anmeldung mit Apple</span>
     <h1>Fast geschafft.<br><span class="gradient-text">Deine Mitgliedskarte wartet.</span></h1>
-    <p>Apple hat deine Identität sicher bestätigt. Für den Jugendschutz und dein SAMS-Mitgliedskonto benötigen wir noch wenige Angaben.</p>
+    <p>Apple hat deine Identität sicher bestätigt. Bestätige nur noch, dass du mindestens 18 Jahre alt bist, und ergänze deinen Namen, falls Apple ihn nicht übermittelt hat.</p>
     <div class="feature-pills"><span>Ein Konto</span><span>Drei Standorte</span><span>Gemeinsames Guthaben</span><span>Ab 18 Jahren</span></div>
   </article>
   <article class="panel registration-card">
@@ -16,8 +16,12 @@
         <label>Vorname{{ form.first_name }}{{ form.first_name.errors }}</label>
         <label>Nachname{{ form.last_name }}{{ form.last_name.errors }}</label>
       </div>
-      <label>Mobilnummer{{ form.phone }}{{ form.phone.errors }}</label>
-      <label>Geburtsdatum{{ form.birth_date }}{{ form.birth_date.errors }}</label>
+      <div class="optional-profile-fields">
+        <strong>Freiwillige Profilangaben</strong>
+        <label>Mobilnummer <small>(optional)</small>{{ form.phone }}{{ form.phone.errors }}</label>
+        <label>Geburtsdatum <small>(optional)</small>{{ form.birth_date }}{{ form.birth_date.errors }}</label>
+        <small class="muted">Diese Angaben sind für Anmeldung, Mitgliedskarte, Guthaben und Zahlungen nicht erforderlich. Du kannst beide Felder leer lassen.</small>
+      </div>
       <label class="consent-row">{{ form.age_confirmed }}<span>{{ form.age_confirmed.label }}</span></label>{{ form.age_confirmed.errors }}
       <div class="legal-consent">
         <label class="consent-row">{{ form.accept_terms }}<span>Ich akzeptiere die <a href="{% url 'app_terms' business.slug %}" target="_blank" rel="noopener">Allgemeinen Geschäftsbedingungen</a>.</span></label>{{ form.accept_terms.errors }}
@@ -30,7 +34,7 @@
         <small class="muted">Diese Einwilligungen können jederzeit in den Datenschutz-Einstellungen widerrufen werden.</small>
       </div>
       <button class="button primary full" type="submit">Mitgliedskonto fertigstellen</button>
-      <p class="form-note">Deine Angaben werden für Mitgliedskonto, Altersprüfung, Zahlung und digitale Mitgliedskarte verwendet. Einzelheiten stehen in der Datenschutzerklärung.</p>
+      <p class="form-note">Für die Mitgliedschaft werden nur dein Name, deine bestätigte E-Mail-Adresse und die Bestätigung des Mindestalters benötigt.</p>
     </form>
   </article>
 </section>
