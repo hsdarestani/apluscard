@@ -14,8 +14,12 @@
       {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
       <div class="two-col"><label>Vorname{{ form.first_name }}{{ form.first_name.errors }}</label><label>Nachname{{ form.last_name }}{{ form.last_name.errors }}</label></div>
       <label>E-Mail-Adresse{{ form.email }}{{ form.email.errors }}</label>
-      <label>Mobilnummer{{ form.phone }}{{ form.phone.errors }}</label>
-      <label>Geburtsdatum{{ form.birth_date }}{{ form.birth_date.errors }}</label>
+      <div class="legal-consent optional-profile-fields">
+        <strong>Freiwillige Profilangaben</strong>
+        <label>Mobilnummer <small>(optional)</small>{{ form.phone }}{{ form.phone.errors }}</label>
+        <label>Geburtsdatum <small>(optional)</small>{{ form.birth_date }}{{ form.birth_date.errors }}</label>
+        <small class="muted">Diese Angaben sind für die Erstellung und Nutzung deiner Mitgliedskarte nicht erforderlich. Du kannst beide Felder leer lassen.</small>
+      </div>
       <label>Passwort{{ form.password1 }}{{ form.password1.errors }}</label>
       <label>Passwort wiederholen{{ form.password2 }}{{ form.password2.errors }}</label>
       <label class="consent-row">{{ form.age_confirmed }}<span>{{ form.age_confirmed.label }}</span></label>{{ form.age_confirmed.errors }}
