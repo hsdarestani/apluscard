@@ -151,11 +151,14 @@ def _anonymize_protected_user(user):
 @transaction.atomic
 def complete_account_deletion(deletion_request):
     """Revoke Apple access and erase/anonymize the account behind an approved request."""
-    deletion_request = AccountDeletionRequest.objects.select_for_update().select_related(
+    # Lock only the request row first. PostgreSQL rejects FOR UPDATE when a
+    # select_related() outer join reaches nullable user/wallet relations.
+    locked_request = AccountDeletionRequest.objects.select_for_update().get(pk=deletion_request.pk)
+    deletion_request = AccountDeletionRequest.objects.select_related(
         "business",
         "user",
         "wallet__owner",
-    ).get(pk=deletion_request.pk)
+    ).get(pk=locked_request.pk)
 
     if deletion_request.status == AccountDeletionRequest.Status.COMPLETED:
         return {"status": "already_completed", "reference": deletion_request.reference_number}
@@ -180,7 +183,10 @@ def complete_account_deletion(deletion_request):
         LegalAcceptance.objects.filter(user=user).update(user=None)
         AccountDeletionRequest.objects.filter(user=user).update(user=None)
         try:
-            user.delete()
+            # Keep a savepoint around Collector.delete(); a protected legal row
+            # must not poison the surrounding deletion transaction.
+            with transaction.atomic():
+                user.delete()
             deletion_mode = "deleted"
         except ProtectedError:
             logger.info("Protected records require user anonymization for user_id=%s", user_id)
