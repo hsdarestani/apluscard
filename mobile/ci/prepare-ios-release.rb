@@ -23,10 +23,13 @@ app_dir = File.join(ios_root, 'App')
 info_plist_path = File.join(app_dir, 'Info.plist')
 entitlements_path = File.join(app_dir, 'App.entitlements')
 app_delegate_path = File.join(app_dir, 'AppDelegate.swift')
+privacy_manifest_source = File.join(mobile_root, 'ci', 'PrivacyInfo.xcprivacy')
+privacy_manifest_path = File.join(app_dir, 'PrivacyInfo.xcprivacy')
 
 abort("Xcode-Projekt fehlt: #{project_path}") unless File.directory?(project_path)
 abort("Info.plist fehlt: #{info_plist_path}") unless File.file?(info_plist_path)
 abort("AppDelegate.swift fehlt: #{app_delegate_path}") unless File.file?(app_delegate_path)
+abort("Privacy Manifest fehlt: #{privacy_manifest_source}") unless File.file?(privacy_manifest_source)
 
 entitlements = {
   'aps-environment' => 'production',
@@ -37,6 +40,7 @@ entitlements = {
   'com.apple.developer.applesignin' => ['Default']
 }
 Xcodeproj::Plist.write_to_path(entitlements, entitlements_path)
+FileUtils.cp(privacy_manifest_source, privacy_manifest_path)
 
 info_plist = Xcodeproj::Plist.read_from_path(info_plist_path)
 background_modes = Array(info_plist['UIBackgroundModes'])
@@ -45,6 +49,7 @@ info_plist['UIBackgroundModes'] = background_modes
 info_plist['UIViewControllerBasedStatusBarAppearance'] = false
 info_plist['UIStatusBarStyle'] = 'UIStatusBarStyleLightContent'
 info_plist['CFBundleDisplayName'] = 'Sams Club Lounge'
+info_plist['NSCameraUsageDescription'] = 'Die Kamera wird ausschließlich zum Scannen der QR-Mitgliedskarte verwendet.'
 # The app only relies on exempt encryption provided by Apple frameworks,
 # such as HTTPS/TLS connections. This prevents repeated export-compliance
 # prompts for future App Store Connect uploads.
@@ -73,6 +78,14 @@ end
 project = Xcodeproj::Project.open(project_path)
 target = project.targets.find { |candidate| candidate.name == 'App' }
 abort('Xcode Target "App" wurde nicht gefunden.') unless target
+
+privacy_reference = project.files.find do |file|
+  ['PrivacyInfo.xcprivacy', 'App/PrivacyInfo.xcprivacy'].include?(file.path)
+end
+privacy_reference ||= project.main_group.new_file('App/PrivacyInfo.xcprivacy')
+unless target.resources_build_phase.files_references.include?(privacy_reference)
+  target.resources_build_phase.add_file_reference(privacy_reference, true)
+end
 
 target.build_configurations.each do |configuration|
   settings = configuration.build_settings
