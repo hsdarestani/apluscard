@@ -18,6 +18,7 @@ from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+from .apple_credentials import seal_apple_refresh_token
 from .forms import AppleProfileCompletionForm
 from .models import Business, Wallet
 
@@ -220,13 +221,21 @@ def native_apple_login(request):
         if changed_fields:
             user.save(update_fields=changed_fields)
 
-        social_account.extra_data = {
-            "sub": apple_uid,
-            "email": email or user.email,
-            "email_verified": bool(email),
-            "is_private_email": claims.get("is_private_email"),
-            "real_user_status": payload.get("realUserStatus"),
-        }
+        account_data = dict(social_account.extra_data or {})
+        account_data.update(
+            {
+                "sub": apple_uid,
+                "email": email or user.email,
+                "email_verified": bool(email),
+                "is_private_email": claims.get("is_private_email"),
+                "real_user_status": payload.get("realUserStatus"),
+            }
+        )
+        refresh_token = str(token_payload.get("refresh_token") or "").strip()
+        if refresh_token:
+            account_data["refresh_token_encrypted"] = seal_apple_refresh_token(refresh_token)
+            account_data["refresh_token_client_id"] = client_id
+        social_account.extra_data = account_data
         social_account.save(update_fields=["extra_data"])
 
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")

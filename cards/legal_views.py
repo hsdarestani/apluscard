@@ -1,15 +1,25 @@
+import logging
+
 from allauth.socialaccount.models import SocialAccount
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
+from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
+from .account_deletion import (
+    DELETION_COMPLETION_DAYS,
+    complete_account_deletion,
+    send_deletion_received_email,
+)
 from .legal_forms import (
     AccountDeletionRequestForm,
+    AuthenticatedAccountDeletionForm,
     CurrentLegalAcceptanceForm,
     LegalAppleProfileCompletionForm,
     LegalConfigurationForm,
@@ -21,6 +31,8 @@ from .legal_services import client_ip, get_legal_configuration, has_current_acce
 from .models import Business, MemberProfile, Wallet
 from .services import OWNER_ROLES, get_active_membership, require_role
 from .views import _send_verification_email
+
+logger = logging.getLogger(__name__)
 
 
 def _business_for_public_page(business_slug=None):
@@ -168,36 +180,111 @@ def privacy_choices(request):
     return render(request, "cards/legal/privacy_choices.html", {"form": form, "business": wallet.business, "preference": preference})
 
 
+def _send_deletion_receipt_safely(deletion_request):
+    try:
+        send_deletion_received_email(deletion_request)
+    except Exception:
+        logger.exception("Deletion receipt email failed for reference=%s", deletion_request.reference_number)
+
+
 def account_deletion(request, business_slug=None):
     business = _business_for_public_page(business_slug)
     wallet = None
-    initial = {}
+    reference = None
+    submitted = False
+    authenticated_flow = False
+
     if request.user.is_authenticated:
         wallet = Wallet.objects.filter(owner=request.user, business=business).first()
-        initial = {"email": request.user.email or (wallet.email if wallet else ""), "member_number": wallet.member_number if wallet else ""}
+        if wallet is not None and not request.user.business_memberships.filter(is_active=True).exists():
+            authenticated_flow = True
+            form = AuthenticatedAccountDeletionForm(request.POST or None)
+            if request.method == "POST" and form.is_valid():
+                email = (request.user.email or wallet.email).strip().lower()
+                deletion_request, created = AccountDeletionRequest.objects.get_or_create(
+                    business=business,
+                    user=request.user,
+                    status__in=[AccountDeletionRequest.Status.RECEIVED, AccountDeletionRequest.Status.PROCESSING],
+                    defaults={
+                        "wallet": wallet,
+                        "email": email,
+                        "member_number": wallet.member_number,
+                        "status": AccountDeletionRequest.Status.PROCESSING,
+                        "requested_ip": client_ip(request),
+                        "requested_user_agent": request.META.get("HTTP_USER_AGENT", "")[:500],
+                    },
+                )
+                if not created:
+                    deletion_request.wallet = wallet
+                    deletion_request.email = email
+                    deletion_request.member_number = wallet.member_number
+                    deletion_request.status = AccountDeletionRequest.Status.PROCESSING
+                    deletion_request.requested_ip = client_ip(request)
+                    deletion_request.requested_user_agent = request.META.get("HTTP_USER_AGENT", "")[:500]
+                    deletion_request.save(
+                        update_fields=[
+                            "wallet",
+                            "email",
+                            "member_number",
+                            "status",
+                            "requested_ip",
+                            "requested_user_agent",
+                        ]
+                    )
+                reference = deletion_request.reference_number
+                submitted = True
+                _send_deletion_receipt_safely(deletion_request)
+                auth_logout(request)
+                form = AuthenticatedAccountDeletionForm()
+        else:
+            form = AccountDeletionRequestForm(request.POST or None)
+    else:
+        form = AccountDeletionRequestForm(request.POST or None)
 
-    form = AccountDeletionRequestForm(request.POST or None, initial=initial)
-    reference = None
-    if request.method == "POST" and form.is_valid():
+    if not authenticated_flow and request.method == "POST" and form.is_valid():
         email = form.cleaned_data["email"].strip().lower()
         member_number = form.cleaned_data.get("member_number", "")
-        existing = AccountDeletionRequest.objects.filter(business=business, email__iexact=email, status__in=[AccountDeletionRequest.Status.RECEIVED, AccountDeletionRequest.Status.PROCESSING]).first()
+        existing = AccountDeletionRequest.objects.filter(
+            business=business,
+            email__iexact=email,
+            status__in=[AccountDeletionRequest.Status.RECEIVED, AccountDeletionRequest.Status.PROCESSING],
+        ).first()
         if existing:
             deletion_request = existing
         else:
+            linked_wallet = None
+            if member_number:
+                linked_wallet = Wallet.objects.filter(
+                    business=business,
+                    member_number=member_number,
+                ).filter(Q(email__iexact=email) | Q(owner__email__iexact=email)).select_related("owner").first()
             deletion_request = form.save(commit=False)
             deletion_request.business = business
-            deletion_request.user = request.user if request.user.is_authenticated else None
-            deletion_request.wallet = wallet
+            deletion_request.user = linked_wallet.owner if linked_wallet else None
+            deletion_request.wallet = linked_wallet
             deletion_request.email = email
             deletion_request.member_number = member_number
             deletion_request.requested_ip = client_ip(request)
             deletion_request.requested_user_agent = request.META.get("HTTP_USER_AGENT", "")[:500]
             deletion_request.save()
         reference = deletion_request.reference_number
-        form = AccountDeletionRequestForm(initial=initial)
+        submitted = True
+        _send_deletion_receipt_safely(deletion_request)
+        form = AccountDeletionRequestForm()
 
-    return render(request, "cards/legal/account_deletion.html", {"form": form, "business": business, "reference": reference, "wallet": wallet})
+    return render(
+        request,
+        "cards/legal/account_deletion.html",
+        {
+            "form": form,
+            "business": business,
+            "reference": reference,
+            "wallet": wallet,
+            "submitted": submitted,
+            "authenticated_flow": authenticated_flow,
+            "completion_days": DELETION_COMPLETION_DAYS,
+        },
+    )
 
 
 @login_required
@@ -218,11 +305,18 @@ def manager_legal(request):
         if action == "deletion-status":
             deletion_request = get_object_or_404(AccountDeletionRequest, pk=request.POST.get("request_id"), business=membership.business)
             status = request.POST.get("status")
-            if status not in AccountDeletionRequest.Status.values:
+            if status == AccountDeletionRequest.Status.COMPLETED:
+                result = complete_account_deletion(deletion_request)
+                messages.success(
+                    request,
+                    f"Kontolöschung {result['reference']} abgeschlossen. Direkt identifizierende Daten wurden entfernt und die Bestätigung wurde versendet.",
+                )
+                return redirect("manager_legal")
+            if status not in [AccountDeletionRequest.Status.RECEIVED, AccountDeletionRequest.Status.PROCESSING]:
                 raise PermissionDenied
             deletion_request.status = status
             deletion_request.internal_note = request.POST.get("internal_note", "").strip()
-            deletion_request.completed_at = timezone.now() if status == AccountDeletionRequest.Status.COMPLETED else None
+            deletion_request.completed_at = None
             deletion_request.save(update_fields=["status", "internal_note", "completed_at"])
             messages.success(request, "Status des Löschantrags wurde aktualisiert.")
             return redirect("manager_legal")
