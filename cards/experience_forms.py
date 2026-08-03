@@ -45,6 +45,24 @@ class LocationVisualForm(forms.ModelForm):
         fields = ["location", "image", "short_description"]
 
     def __init__(self, *args, business=None, **kwargs):
+        data = kwargs.get("data")
+        if data is None and args:
+            data = args[0]
+
+        # LocationVisual.location is one-to-one. When a location already has an
+        # image record, bind the form to that record before ModelForm performs
+        # uniqueness validation so a new upload updates it instead of being
+        # rejected as a duplicate.
+        if business is not None and kwargs.get("instance") is None and data:
+            location_id = data.get("location")
+            if location_id:
+                existing_visual = LocationVisual.objects.filter(
+                    location_id=location_id,
+                    location__business=business,
+                ).first()
+                if existing_visual is not None:
+                    kwargs["instance"] = existing_visual
+
         super().__init__(*args, **kwargs)
         if business is not None:
             self.fields["location"].queryset = business.locations.filter(is_active=True)
@@ -75,8 +93,13 @@ class LocationVisualForm(forms.ModelForm):
 
     def save(self, commit=True):
         location = self.cleaned_data["location"]
-        visual, _ = LocationVisual.objects.get_or_create(location=location)
-        visual.image = self.cleaned_data.get("image") or visual.image
+        visual = self.instance if self.instance.pk else LocationVisual(location=location)
+        visual.location = location
+
+        uploaded_image = self.cleaned_data.get("image")
+        if uploaded_image:
+            visual.image = uploaded_image
+
         visual.short_description = self.cleaned_data.get("short_description", "").strip()
         if commit:
             visual.save()
