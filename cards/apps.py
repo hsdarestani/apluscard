@@ -12,6 +12,11 @@ class CardsConfig(AppConfig):
         from . import experience_models, legal_models, push_models  # noqa: F401
 
     def ready(self):
+        # Register HEIC/HEIF with Pillow before Django validates uploaded images.
+        from pillow_heif import register_heif_opener
+
+        register_heif_opener(thumbnails=False)
+
         from . import experience_signals  # noqa: F401
         from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
         from .models import (
