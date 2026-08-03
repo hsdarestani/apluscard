@@ -8,19 +8,24 @@ from .models import Location
 
 class LocationVisualForm(forms.ModelForm):
     MAX_IMAGE_SIZE = 10 * 1024 * 1024
-    ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
+    ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP", "AVIF", "HEIF", "HEIC"}
 
     location = forms.ModelChoiceField(label="Standort", queryset=Location.objects.none())
     image = forms.ImageField(
         label="Foto des Standorts",
         required=False,
         widget=forms.ClearableFileInput(
-            attrs={"accept": "image/jpeg,image/png,image/webp"}
+            attrs={
+                "accept": (
+                    "image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif,"
+                    ".jpg,.jpeg,.png,.webp,.avif,.heic,.heif"
+                )
+            }
         ),
         error_messages={
             "invalid_image": (
                 "Die Datei konnte nicht als Bild gelesen werden. "
-                "Bitte ein JPG-, PNG- oder WebP-Bild verwenden."
+                "Bitte ein JPG-, PNG-, WebP-, AVIF- oder HEIC/HEIF-Bild verwenden."
             ),
         },
     )
@@ -59,7 +64,7 @@ class LocationVisualForm(forms.ModelForm):
         ).upper()
         if detected_format not in self.ALLOWED_IMAGE_FORMATS:
             raise forms.ValidationError(
-                "Dieses Bildformat wird nicht unterstützt. Bitte JPG, PNG oder WebP verwenden."
+                "Dieses Bildformat wird nicht unterstützt. Bitte JPG, PNG, WebP, AVIF oder HEIC/HEIF verwenden."
             )
 
         try:
