@@ -7,20 +7,66 @@ from .models import Location
 
 
 class LocationVisualForm(forms.ModelForm):
+    MAX_IMAGE_SIZE = 10 * 1024 * 1024
+    ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
+
     location = forms.ModelChoiceField(label="Standort", queryset=Location.objects.none())
+    image = forms.ImageField(
+        label="Foto des Standorts",
+        required=False,
+        widget=forms.ClearableFileInput(
+            attrs={"accept": "image/jpeg,image/png,image/webp"}
+        ),
+        error_messages={
+            "invalid_image": (
+                "Die Datei konnte nicht als Bild gelesen werden. "
+                "Bitte ein JPG-, PNG- oder WebP-Bild verwenden."
+            ),
+        },
+    )
+    short_description = forms.CharField(
+        label="Kurze Beschreibung",
+        required=False,
+        max_length=180,
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": "Optional, z. B. Lounge, Shisha und Sportübertragungen"
+            }
+        ),
+    )
 
     class Meta:
         model = LocationVisual
         fields = ["location", "image", "short_description"]
-        labels = {
-            "image": "Foto des Standorts",
-            "short_description": "Kurze Beschreibung",
-        }
 
     def __init__(self, *args, business=None, **kwargs):
         super().__init__(*args, **kwargs)
         if business is not None:
             self.fields["location"].queryset = business.locations.filter(is_active=True)
+
+    def clean_image(self):
+        image = self.cleaned_data.get("image")
+        if not image:
+            return image
+
+        if image.size > self.MAX_IMAGE_SIZE:
+            raise forms.ValidationError(
+                "Das Bild ist größer als 10 MB. Bitte das Bild verkleinern und erneut hochladen."
+            )
+
+        detected_format = str(
+            getattr(getattr(image, "image", None), "format", "") or ""
+        ).upper()
+        if detected_format not in self.ALLOWED_IMAGE_FORMATS:
+            raise forms.ValidationError(
+                "Dieses Bildformat wird nicht unterstützt. Bitte JPG, PNG oder WebP verwenden."
+            )
+
+        try:
+            image.seek(0)
+        except (AttributeError, OSError):
+            pass
+        return image
 
     def save(self, commit=True):
         location = self.cleaned_data["location"]
