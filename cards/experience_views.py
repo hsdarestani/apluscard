@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -13,6 +15,8 @@ from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
 from .models import AppNotification, LedgerEntry, Membership, Wallet
 from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, get_active_membership, require_role
+
+logger = logging.getLogger(__name__)
 
 
 def client_ip(request):
@@ -119,6 +123,17 @@ def notifications_read_all(request):
     return redirect("notification_center")
 
 
+def _location_visual_error_message(form):
+    details = []
+    for field_name, field_errors in form.errors.items():
+        label = "Formular"
+        if field_name != "__all__" and field_name in form.fields:
+            label = form.fields[field_name].label or field_name
+        for error in field_errors:
+            details.append(f"{label}: {error}")
+    return " ".join(details)
+
+
 @login_required
 @require_POST
 def location_visual_update(request):
@@ -131,7 +146,18 @@ def location_visual_update(request):
         visual = form.save()
         messages.success(request, f"Foto und Beschreibung für {visual.location.name} wurden gespeichert.")
     else:
-        messages.error(request, "Standortbild konnte nicht gespeichert werden. Bitte Datei und Angaben prüfen.")
+        detail = _location_visual_error_message(form)
+        logger.info(
+            "Location visual upload rejected for business_id=%s user_id=%s errors=%s",
+            membership.business_id,
+            request.user.pk,
+            form.errors.get_json_data(),
+        )
+        messages.error(
+            request,
+            "Standortbild konnte nicht gespeichert werden. "
+            + (detail or "Bitte Datei und Angaben prüfen."),
+        )
     return redirect("manager_settings")
 
 
