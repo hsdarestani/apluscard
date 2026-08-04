@@ -1,4 +1,4 @@
 Deployment trigger
 
-Timestamp: 2026-08-03T17:43:00+03:30
-Purpose: rebuild production with precise location-image validation and HEIC/HEIF/AVIF upload support.
+Timestamp: 2026-08-04T22:17:00+03:30
+Purpose: deploy the App Review onboarding guard that replaces incomplete Apple-account 403 responses with a safe profile-completion redirect.
