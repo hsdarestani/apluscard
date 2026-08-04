@@ -171,3 +171,55 @@ class AccountDeletionReviewTests(TestCase):
         self.assertContains(privacy, "sieben Kalendertagen")
         self.assertContains(terms, "Mobilnummer und Geburtsdatum sind freiwillige Profilangaben")
         self.assertContains(deletion, "7 Kalendertagen")
+
+
+@override_settings(DEFAULT_BUSINESS_SLUG="shisha-bar")
+class AppReviewOnboardingGuardTests(TestCase):
+    def setUp(self):
+        self.business = Business.objects.create(name="Sams Club Lounge", slug="shisha-bar")
+        self.user = get_user_model().objects.create_user(
+            username="app-review-apple",
+            email="app-review-apple@example.com",
+        )
+        SocialAccount.objects.create(
+            user=self.user,
+            provider="apple",
+            uid="app-review-apple-uid",
+            extra_data={"email": self.user.email},
+        )
+        self.client.force_login(self.user)
+
+    def test_incomplete_apple_user_is_redirected_from_every_protected_navigation_target(self):
+        for route_name in (
+            "dashboard",
+            "notification_center",
+            "transaction_cases",
+            "privacy_choices",
+        ):
+            with self.subTest(route_name=route_name):
+                response = self.client.get(reverse(route_name))
+                self.assertRedirects(
+                    response,
+                    reverse("complete_customer_profile"),
+                    fetch_redirect_response=False,
+                )
+
+    def test_incomplete_apple_user_receives_actionable_json_instead_of_api_403(self):
+        response = self.client.get(
+            reverse("api_me"),
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["action_url"], reverse("complete_customer_profile"))
+        self.assertIn("Einrichtung", response.json()["detail"])
+
+    def test_public_legal_pages_and_profile_completion_remain_accessible(self):
+        for route_name in (
+            "privacy_policy",
+            "account_deletion",
+            "complete_customer_profile",
+        ):
+            with self.subTest(route_name=route_name):
+                response = self.client.get(reverse(route_name))
+                self.assertEqual(response.status_code, 200)
