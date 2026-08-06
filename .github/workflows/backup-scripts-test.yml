@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - "ops/backup/**"
+      - "ops/security/**"
       - ".github/workflows/configure-production-backups.yml"
+      - ".github/workflows/harden-strato-security.yml"
       - ".github/workflows/monitor-production-backups.yml"
       - ".github/workflows/backup-scripts-test.yml"
       - "docs/BACKUP-*.md"
@@ -12,7 +14,9 @@ on:
     branches: [main]
     paths:
       - "ops/backup/**"
+      - "ops/security/**"
       - ".github/workflows/configure-production-backups.yml"
+      - ".github/workflows/harden-strato-security.yml"
       - ".github/workflows/monitor-production-backups.yml"
       - ".github/workflows/backup-scripts-test.yml"
       - "docs/BACKUP-*.md"
@@ -35,19 +39,22 @@ jobs:
           bash -n ops/backup/backup.sh
           bash -n ops/backup/restore-drill.sh
           bash -n ops/backup/restore-production.sh
+          bash -n ops/security/harden-strato.sh
       - name: Kritische ShellCheck-Fehler ausschließen
         run: |
           shellcheck -x -S error \
             ops/backup/common.sh \
             ops/backup/backup.sh \
             ops/backup/restore-drill.sh \
-            ops/backup/restore-production.sh
+            ops/backup/restore-production.sh \
+            ops/security/harden-strato.sh
       - name: Schutzmaßnahmen im Production-Restore prüfen
         run: |
           grep -Fq 'RESTORE_PRODUCTION' ops/backup/restore-production.sh
           grep -Fq 'dropdb --force' ops/backup/restore-production.sh
           grep -Fq 'sha256sum -c SHA256SUMS' ops/backup/restore-production.sh
           grep -Fq 'pg_restore' ops/backup/restore-drill.sh
+          grep -Fq 'verify_audit_chain' ops/backup/restore-drill.sh
           grep -Fq 'last-restore-drill.json' ops/backup/restore-drill.sh
       - name: Google-Drive- und S3-Unterstützung prüfen
         run: |
@@ -56,3 +63,11 @@ jobs:
           grep -Fq 'BACKUP_RCLONE_CONFIG_BASE64' .github/workflows/configure-production-backups.yml
           grep -Fq 'rclone:gdrive:apluscard-production-backups' docs/BACKUP-GOOGLE-DRIVE-SETUP-FA.md
           grep -Fq 'apt-get install -y restic rclone jq' .github/workflows/configure-production-backups.yml
+      - name: STRATO-Host-Hardening prüfen
+        run: |
+          grep -Fq 'PasswordAuthentication no' ops/security/harden-strato.sh
+          grep -Fq 'PermitRootLogin prohibit-password' ops/security/harden-strato.sh
+          grep -Fq 'ufw default deny incoming' ops/security/harden-strato.sh
+          grep -Fq 'fail2ban' ops/security/harden-strato.sh
+          grep -Fq 'unattended-upgrades' ops/security/harden-strato.sh
+          grep -Fq 'auditd' ops/security/harden-strato.sh
