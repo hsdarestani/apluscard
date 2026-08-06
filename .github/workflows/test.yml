@@ -28,10 +28,14 @@ jobs:
         env:
           DJANGO_DEBUG: "1"
           DJANGO_SECURE_COOKIES: "0"
+          PRIVILEGED_MFA_REQUIRED: "0"
+          MFA_ENCRYPTION_KEY: "ci-only-mfa-encryption-key-not-for-production"
       - run: python manage.py test
         env:
           DJANGO_DEBUG: "1"
           DJANGO_SECURE_COOKIES: "0"
+          PRIVILEGED_MFA_REQUIRED: "0"
+          MFA_ENCRYPTION_KEY: "ci-only-mfa-encryption-key-not-for-production"
 
   deploy:
     name: Deploy to STRATO
@@ -44,6 +48,7 @@ jobs:
       SSH_PORT: "22"
       SSH_USER: root
       SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      MFA_ENCRYPTION_KEY_INPUT: ${{ secrets.MFA_ENCRYPTION_KEY }}
       APP_DIR: /root/apluscard
       SITE_DOMAIN: app.samsclublounge.de
       STAGE_DOMAIN: new-app.samsclublounge.de
@@ -62,6 +67,10 @@ jobs:
             echo "HETZNER_SSH_PRIVATE_KEY is missing"
             exit 1
           }
+          test "${#MFA_ENCRYPTION_KEY_INPUT}" -ge 32 || {
+            echo "MFA_ENCRYPTION_KEY is missing or shorter than 32 characters"
+            exit 1
+          }
 
       - name: Configure SSH
         shell: bash
@@ -74,6 +83,16 @@ jobs:
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      - name: Transfer dedicated MFA encryption key
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          KEY_PAYLOAD="$RUNNER_TEMP/mfa-encryption-key.payload"
+          printf '%s' "$MFA_ENCRYPTION_KEY_INPUT" > "$KEY_PAYLOAD"
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$APP_DIR'"
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" "$KEY_PAYLOAD" "$SSH_USER@$SSH_HOST:$APP_DIR/.mfa-encryption-key.payload"
+
       - name: Deploy application to STRATO
         shell: bash
         run: |
@@ -84,6 +103,7 @@ jobs:
           cd "$APP_DIR"
           test -d .git
           test -s .env
+          test -s .mfa-encryption-key.payload
 
           git fetch --prune origin main
           git checkout -B main origin/main
@@ -94,7 +114,13 @@ jobs:
           import os
           from pathlib import Path
 
-          env_path = Path(os.environ["APP_DIR"]) / ".env"
+          app_dir = Path(os.environ["APP_DIR"])
+          env_path = app_dir / ".env"
+          mfa_key_path = app_dir / ".mfa-encryption-key.payload"
+          mfa_key = mfa_key_path.read_text(encoding="utf-8").strip()
+          if len(mfa_key) < 32:
+              raise SystemExit("MFA encryption key is missing or too short")
+
           values = {}
           order = []
           passthrough = []
@@ -132,6 +158,9 @@ jobs:
               "ALLOW_TEST_DATA_PURGE": "0",
               "WALLET_QR_MAX_AGE_SECONDS": "90",
               "WALLET_QR_REFRESH_SECONDS": "45",
+              "PRIVILEGED_MFA_REQUIRED": "1",
+              "PRIVILEGED_MFA_SESSION_SECONDS": "43200",
+              "MFA_ENCRYPTION_KEY": mfa_key,
           }
           values.update(overrides)
           for key in overrides:
@@ -144,11 +173,13 @@ jobs:
           rendered.extend(f"{key}={values[key]}" for key in order)
           env_path.write_text("\n".join(rendered).rstrip() + "\n", encoding="utf-8")
           os.chmod(env_path, 0o600)
+          mfa_key_path.unlink(missing_ok=True)
           PY
 
           docker compose up -d --build --remove-orphans
           docker compose exec -T web python manage.py migrate --noinput </dev/null
           docker compose exec -T web python manage.py check </dev/null
+          docker compose exec -T web python manage.py verify_audit_chain </dev/null
 
           healthy=0
           for attempt in $(seq 1 60); do
@@ -169,7 +200,7 @@ jobs:
             http://127.0.0.1/health/ >/dev/null
 
           docker compose ps
-          echo "STRATO deployment and health checks completed."
+          echo "STRATO deployment, migrations, MFA and audit integrity checks completed."
           REMOTE
 
       - name: Verify public production endpoint
