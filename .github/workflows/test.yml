@@ -8,14 +8,14 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: apluscard-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   django:
+    name: Django tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,270 +34,150 @@ jobs:
           DJANGO_SECURE_COOKIES: "0"
 
   deploy:
-    name: Deploy to Hetzner
+    name: Deploy to STRATO
     needs: django
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     env:
-      SSH_HOST: 91.107.145.196
+      SSH_HOST: ${{ secrets.NEWHOST }}
       SSH_PORT: "22"
       SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
       APP_DIR: /root/apluscard
-      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+      SITE_DOMAIN: app.samsclublounge.de
+      STAGE_DOMAIN: new-app.samsclublounge.de
+      LEGACY_DOMAIN: cards.smarbiz.sbs
 
     steps:
-      - name: Validate deployment secret
+      - name: Validate STRATO deployment secrets
+        shell: bash
         run: |
-          set -eu
-          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD is missing" && exit 1)
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71" || {
+            echo "Unexpected production host: $SSH_HOST"
+            exit 1
+          }
+          test -n "$SSH_PRIVATE_KEY" || {
+            echo "HETZNER_SSH_PRIVATE_KEY is missing"
+            exit 1
+          }
 
-      - name: Install SSH password client
+      - name: Configure SSH
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y sshpass
-
-      - name: Trust Hetzner host key
-        run: |
-          set -eu
+          set -Eeuo pipefail
           install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Bootstrap application directory
+      - name: Deploy application to STRATO
+        shell: bash
         run: |
-          set -eu
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
           set -Eeuo pipefail
-          mkdir -p "$APP_DIR"
-          cd "$APP_DIR"
-
-          if [ ! -d .git ]; then
-            git init
-            git remote add origin https://github.com/hsdarestani/apluscard.git
-          else
-            git remote set-url origin https://github.com/hsdarestani/apluscard.git
-          fi
-          REMOTE
-
-      - name: Deploy and verify
-        run: |
-          set -eu
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' SITE_DOMAIN='$SITE_DOMAIN' STAGE_DOMAIN='$STAGE_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' SSH_HOST='$SSH_HOST' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           cd "$APP_DIR"
+          test -d .git
+          test -s .env
 
           git fetch --prune origin main
           git checkout -B main origin/main
           git reset --hard origin/main
 
-          if [ ! -f .env ]; then
-            DJANGO_KEY="$(openssl rand -hex 48)"
-            DB_PASSWORD="$(openssl rand -hex 24)"
+          export APP_DIR SITE_DOMAIN STAGE_DOMAIN LEGACY_DOMAIN SSH_HOST
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
 
-            cat > .env <<EOF
-          DJANGO_SECRET_KEY=$DJANGO_KEY
-          DJANGO_DEBUG=0
-          DJANGO_ALLOWED_HOSTS=cards.smarbiz.sbs,91.107.145.196,localhost,127.0.0.1
-          DJANGO_CSRF_TRUSTED_ORIGINS=http://cards.smarbiz.sbs,https://cards.smarbiz.sbs
-          DJANGO_TIME_ZONE=Europe/Berlin
-          DJANGO_SECURE_COOKIES=0
-          DJANGO_HSTS_SECONDS=0
-          DEFAULT_BUSINESS_SLUG=shisha-bar
-          DATABASE_URL=postgresql://apluscard:$DB_PASSWORD@db:5432/apluscard
-          POSTGRES_DB=apluscard
-          POSTGRES_USER=apluscard
-          POSTGRES_PASSWORD=$DB_PASSWORD
-          EOF
-            chmod 600 .env
-            echo "Created production environment file."
-          fi
+          env_path = Path(os.environ["APP_DIR"]) / ".env"
+          values = {}
+          order = []
+          passthrough = []
+          for raw in env_path.read_text(encoding="utf-8").splitlines():
+              if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+                  passthrough.append(raw)
+                  continue
+              key, value = raw.split("=", 1)
+              key = key.strip()
+              if key not in values:
+                  order.append(key)
+              values[key] = value
 
-          if grep -q '^DJANGO_CSRF_TRUSTED_ORIGINS=' .env; then
-            sed -i 's|^DJANGO_CSRF_TRUSTED_ORIGINS=.*|DJANGO_CSRF_TRUSTED_ORIGINS=http://cards.smarbiz.sbs,https://cards.smarbiz.sbs|' .env
-          else
-            echo 'DJANGO_CSRF_TRUSTED_ORIGINS=http://cards.smarbiz.sbs,https://cards.smarbiz.sbs' >> .env
-          fi
+          site = os.environ["SITE_DOMAIN"]
+          stage = os.environ["STAGE_DOMAIN"]
+          legacy = os.environ["LEGACY_DOMAIN"]
+          host = os.environ["SSH_HOST"]
+          overrides = {
+              "DJANGO_DEBUG": "0",
+              "DJANGO_ALLOWED_HOSTS": f"{site},{stage},{legacy},{host},localhost,127.0.0.1",
+              "DJANGO_CSRF_TRUSTED_ORIGINS": f"https://{site},https://{stage},https://{legacy}",
+              "DJANGO_SECURE_COOKIES": "1",
+              "DJANGO_HSTS_SECONDS": "31536000",
+              "DEFAULT_BUSINESS_SLUG": "shisha-bar",
+              "APP_NAME": "Sams Club Lounge",
+              "APP_SHORT_NAME": "Sams Lounge",
+              "APP_PUBLISHER": "A+ Solution GmbH",
+              "APP_PUBLIC_BASE_URL": f"https://{site}",
+              "ANDROID_PACKAGE_NAME": "de.aplussolution.samscard",
+              "IOS_BUNDLE_ID": "de.aplussolution.samscard",
+              "IOS_APP_TEAM_ID": "884MVA2MD5",
+              "APPLE_BUNDLE_ID": "de.aplussolution.samscard",
+              "APPLE_REDIRECT_URI": f"https://{site}/accounts/apple/callback/",
+              "APNS_USE_SANDBOX": "0",
+              "ALLOW_TEST_DATA_PURGE": "0",
+              "WALLET_QR_MAX_AGE_SECONDS": "90",
+              "WALLET_QR_REFRESH_SECONDS": "45",
+          }
+          values.update(overrides)
+          for key in overrides:
+              if key not in order:
+                  order.append(key)
 
-          if grep -q '^DEFAULT_BUSINESS_SLUG=' .env; then
-            sed -i 's/^DEFAULT_BUSINESS_SLUG=.*/DEFAULT_BUSINESS_SLUG=shisha-bar/' .env
-          else
-            echo 'DEFAULT_BUSINESS_SLUG=shisha-bar' >> .env
-          fi
-
-          if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
-            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=1/' .env
-            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=31536000/' .env
-          else
-            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=0/' .env
-            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=0/' .env
-          fi
+          rendered = []
+          if passthrough:
+              rendered.extend(passthrough)
+          rendered.extend(f"{key}={values[key]}" for key in order)
+          env_path.write_text("\n".join(rendered).rstrip() + "\n", encoding="utf-8")
+          os.chmod(env_path, 0o600)
+          PY
 
           docker compose up -d --build --remove-orphans
+          docker compose exec -T web python manage.py migrate --noinput </dev/null
+          docker compose exec -T web python manage.py check </dev/null
 
           healthy=0
-          for attempt in $(seq 1 45); do
+          for attempt in $(seq 1 60); do
             if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
               healthy=1
               break
             fi
             sleep 2
           done
-
           if [ "$healthy" -ne 1 ]; then
-            echo "Application health check failed."
             docker compose ps
-            docker compose logs --tail=200 web
+            docker compose logs --tail=250 web
             exit 1
           fi
 
-          if [ ! -f .initial-credentials ]; then
-            cat > .initial-credentials <<EOF
-          INITIAL_OWNER_USERNAME=owner
-          INITIAL_OWNER_PASSWORD=$(openssl rand -hex 12)
-          INITIAL_STAFF_USERNAME=staff
-          INITIAL_STAFF_PASSWORD=$(openssl rand -hex 12)
-          INITIAL_CUSTOMER_USERNAME=customer
-          INITIAL_CUSTOMER_PASSWORD=$(openssl rand -hex 12)
-          EOF
-            chmod 600 .initial-credentials
-          fi
-
-          set -a
-          . ./.initial-credentials
-          set +a
-
-          docker compose exec -T \
-            -e INITIAL_OWNER_USERNAME="$INITIAL_OWNER_USERNAME" \
-            -e INITIAL_OWNER_PASSWORD="$INITIAL_OWNER_PASSWORD" \
-            -e INITIAL_STAFF_USERNAME="$INITIAL_STAFF_USERNAME" \
-            -e INITIAL_STAFF_PASSWORD="$INITIAL_STAFF_PASSWORD" \
-            -e INITIAL_CUSTOMER_USERNAME="$INITIAL_CUSTOMER_USERNAME" \
-            -e INITIAL_CUSTOMER_PASSWORD="$INITIAL_CUSTOMER_PASSWORD" \
-            web python manage.py bootstrap_production
-
-          cp deploy/nginx/cards.smarbiz.sbs.conf /etc/nginx/sites-available/cards.smarbiz.sbs
-          ln -sfn /etc/nginx/sites-available/cards.smarbiz.sbs /etc/nginx/sites-enabled/cards.smarbiz.sbs
-          nginx -t
-          systemctl reload nginx
-
           curl --fail --silent --show-error \
-            -H 'Host: cards.smarbiz.sbs' \
+            -H "Host: $SITE_DOMAIN" \
             http://127.0.0.1/health/ >/dev/null
 
-          if [ ! -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
-            certbot --nginx \
-              --domain cards.smarbiz.sbs \
-              --non-interactive \
-              --agree-tos \
-              --register-unsafely-without-email \
-              --redirect || echo "SSL setup was skipped or failed; HTTP remains available."
-          fi
-
-          if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then
-            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=1/' .env
-            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=31536000/' .env
-            SITE_URL='https://cards.smarbiz.sbs'
-          else
-            sed -i 's/^DJANGO_SECURE_COOKIES=.*/DJANGO_SECURE_COOKIES=0/' .env
-            sed -i 's/^DJANGO_HSTS_SECONDS=.*/DJANGO_HSTS_SECONDS=0/' .env
-            SITE_URL='http://cards.smarbiz.sbs'
-          fi
-          docker compose restart web
-
-          healthy=0
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
-              healthy=1
-              break
-            fi
-            sleep 2
-          done
-          test "$healthy" -eq 1 || (echo 'Application did not recover after restart.' && exit 1)
-
-          COOKIE_JAR="$(mktemp)"
-          LOGIN_HTML="$(mktemp)"
-          LOGIN_HEADERS="$(mktemp)"
-          SMOKE_USERNAME="deploy-smoke-$(date +%s)-$RANDOM"
-          SMOKE_PASSWORD="$(openssl rand -hex 24)"
-
-          cleanup() {
-            rm -f "$COOKIE_JAR" "$LOGIN_HTML" "$LOGIN_HEADERS"
-            docker compose exec -T -e SMOKE_USERNAME="$SMOKE_USERNAME" web python - <<'PY' >/dev/null 2>&1 || true
-          import os
-          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
-          import django
-          django.setup()
-          from django.contrib.auth import get_user_model
-          get_user_model().objects.filter(username=os.environ["SMOKE_USERNAME"]).delete()
-          PY
-          }
-          trap cleanup EXIT
-
-          docker compose exec -T \
-            -e SMOKE_USERNAME="$SMOKE_USERNAME" \
-            -e SMOKE_PASSWORD="$SMOKE_PASSWORD" \
-            web python - <<'PY'
-          import os
-          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
-          import django
-          django.setup()
-          from django.contrib.auth import get_user_model
-          User = get_user_model()
-          user, _ = User.objects.get_or_create(username=os.environ["SMOKE_USERNAME"])
-          user.set_password(os.environ["SMOKE_PASSWORD"])
-          user.save()
-          PY
-
-          curl --fail --silent --show-error -k \
-            -c "$COOKIE_JAR" \
-            "$SITE_URL/accounts/login/" > "$LOGIN_HTML"
-
-          CSRF_TOKEN="$(awk '$6 == "csrftoken" {print $7}' "$COOKIE_JAR" | tail -n 1)"
-          test -n "$CSRF_TOKEN" || (echo 'Login CSRF cookie was not issued.' && exit 1)
-
-          LOGIN_STATUS="$(curl --silent --show-error -k \
-            -o /dev/null \
-            -D "$LOGIN_HEADERS" \
-            -w '%{http_code}' \
-            -b "$COOKIE_JAR" \
-            -c "$COOKIE_JAR" \
-            -e "$SITE_URL/accounts/login/" \
-            --data-urlencode "username=$SMOKE_USERNAME" \
-            --data-urlencode "password=$SMOKE_PASSWORD" \
-            --data-urlencode "csrfmiddlewaretoken=$CSRF_TOKEN" \
-            "$SITE_URL/accounts/login/")"
-
-          test "$LOGIN_STATUS" = '302' || (echo "Login smoke test returned HTTP $LOGIN_STATUS" && exit 1)
-
-          echo "Deployment, migrations, health check and login flow are healthy."
           docker compose ps
+          echo "STRATO deployment and health checks completed."
           REMOTE
 
-      - name: Inspect production endpoint
-        id: production
-        if: success()
+      - name: Verify public production endpoint
+        shell: bash
         run: |
-          set -eu
-          SCHEME="$(sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "if [ -d /etc/letsencrypt/live/cards.smarbiz.sbs ]; then echo https; else echo http; fi")"
-          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
-
-      - name: Report deployment result
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const status = '${{ job.status }}';
-            const icon = status === 'success' ? '✅' : '❌';
-            const scheme = '${{ steps.production.outputs.scheme }}' || 'http';
-            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `${icon} Production deployment **${status}**\n\n- Commit: \`${context.sha}\`\n- Site: ${scheme}://cards.smarbiz.sbs\n- Migration and login smoke test: ${status === 'success' ? 'passed' : 'failed'}\n- Run: ${runUrl}\n- Time: ${new Date().toISOString()}`;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: 2,
-              body,
-            });
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            "https://$SITE_DOMAIN/health/" >/dev/null
+          curl --fail --silent --show-error --max-time 30 \
+            "https://$SITE_DOMAIN/accounts/login/" >/dev/null
+          echo "Public production endpoint is healthy."
