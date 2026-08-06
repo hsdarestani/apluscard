@@ -73,7 +73,6 @@ class OperationsFlowTests(TestCase):
             self.assertIsNotNone(notification)
             self.assertTrue(PushDelivery.objects.filter(notification=notification).exists())
 
-
     def test_owner_charge_notifies_owner_and_customer(self):
         self.client.force_login(self.owner)
         with self.captureOnCommitCallbacks(execute=True):
@@ -96,7 +95,7 @@ class OperationsFlowTests(TestCase):
     def test_management_privacy_choice_link_redirects_safely(self):
         self.client.force_login(self.owner)
         response = self.client.get(reverse("privacy_choices"))
-        self.assertRedirects(response, reverse("dashboard"))
+        self.assertRedirects(response, reverse("manager_dashboard"))
 
     def test_broadcast_and_direct_notifications_are_created_and_queued(self):
         self.client.force_login(self.manager)
