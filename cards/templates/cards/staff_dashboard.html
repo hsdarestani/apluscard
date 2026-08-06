@@ -37,6 +37,7 @@
 </section>
 {% endblock %}
 {% block scripts %}
+<script src="{% static 'cards/camera-permissions.js' %}"></script>
 <script src="{% static 'cards/vendor/html5-qrcode.min.js' %}"></script>
 <script>
 (function(){
@@ -46,7 +47,16 @@
   let scanner=null,handled=false;
   const stop=async()=>{try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}scanner=null;handled=false;button.disabled=false;};
   button?.addEventListener('click',async()=>{
-    button.disabled=true;status.textContent='Kamera wird geöffnet …';
+    button.disabled=true;status.textContent='Kameraberechtigung wird geprüft …';
+    const permission=await window.SamsCameraPermissions?.prepareForScanner?.();
+    if(permission && !permission.allowed){
+      status.textContent=permission.state==='denied'
+        ? 'Der Kamerazugriff wurde bereits dauerhaft abgelehnt. Das System kann das Fenster nicht erneut anzeigen.'
+        : 'Die Kameraberechtigung wurde nicht erteilt.';
+      button.disabled=false;
+      return;
+    }
+    status.textContent='Kamera wird geöffnet …';
     if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Bitte App neu öffnen oder Kartencode manuell eingeben.';button.disabled=false;return;}
     try{
       scanner=new Html5Qrcode('reader');
@@ -60,7 +70,7 @@
     }catch(e){
       console.error('SAMS scanner error',e);
       const denied=String(e?.name||e).toLowerCase().includes('notallowed')||String(e).toLowerCase().includes('permission');
-      status.textContent=denied?'Kamerazugriff wurde verweigert. Bitte in den Geräteeinstellungen für Sams Club Lounge erlauben.':'Kamera konnte nicht gestartet werden. Bitte App neu öffnen oder Kartencode manuell eingeben.';
+      status.textContent=denied?'Kameraberechtigung wurde nicht erteilt. Bitte App aktualisieren und erneut versuchen.':'Kamera konnte nicht gestartet werden. Bitte App neu öffnen oder Kartencode manuell eingeben.';
       await stop();
     }
   });
