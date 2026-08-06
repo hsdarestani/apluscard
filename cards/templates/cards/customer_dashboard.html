@@ -29,13 +29,19 @@
 {% for payment in pending_payments %}
 <section class="payment-confirm-card">
   <div class="payment-confirm-head">
-    <div><span class="eyebrow">Ausnahme: Zahlungsfreigabe</span><h2>{{ payment.base_amount|floatformat:2 }} € bestätigen</h2></div>
+    <div><span class="eyebrow">Zahlungsfreigabe</span><h2>{{ payment.base_amount|floatformat:2 }} € bestätigen</h2></div>
     <span class="status-pill pending">{{ payment.location.name }}</span>
   </div>
   <p>{{ payment.description|default:"SAMS Zahlung" }}{% if payment.order_reference %} · {{ payment.order_reference }}{% endif %}</p>
-  <p class="muted">Normalerweise wird eine abgestimmte Zahlung direkt an der Kasse abgebucht. Für diesen Vorgang wurde ausnahmsweise eine Kundenfreigabe angefordert. Wähle einen festen Trinkgeldbetrag in Euro.</p>
-  <form method="post" action="{% url 'customer_confirm_payment' payment.id %}" class="tip-choice-form">{% csrf_token %}
-    {% for tip in tip_choices %}<button type="submit" name="tip_amount" value="{{ tip.value }}">{{ tip.label }}</button>{% endfor %}
+  <p class="muted">Wähle 10 Cent, 1 Euro oder gib einen eigenen Trinkgeldbetrag ein.</p>
+  <form method="post" action="{% url 'customer_confirm_payment' payment.id %}" class="tip-custom-form" data-tip-form>{% csrf_token %}
+    <div class="tip-quick-actions">
+      <button type="button" data-tip-value="0.10">0,10 €</button>
+      <button type="button" data-tip-value="1.00">1,00 €</button>
+      <button type="button" data-tip-value="0.00">Kein Trinkgeld</button>
+    </div>
+    <label class="custom-tip-input"><span>Eigener Betrag (€)</span><input type="number" name="tip_amount" min="0" max="100" step="0.01" inputmode="decimal" value="0.00" required></label>
+    <button class="button primary full" type="submit">Zahlung bestätigen</button>
   </form>
 </section>
 {% endfor %}
@@ -60,14 +66,14 @@
   </article>
 
   <div class="dashboard-stack">
-    {% if should_request_review %}
-    <article class="panel review-card">
-      <span class="eyebrow">Deine Meinung zählt</span>
-      <h2>Wie war dein Besuch?</h2>
-      <p>Bewerte {{ active_location.name }} auf Google. Nach deiner ersten Bewertung wird diese Erinnerung nicht mehr angezeigt.</p>
+    {% if active_location and active_location.google_review_url %}
+    <article class="panel review-card" id="google-review">
+      <span class="eyebrow">Google Bewertung</span>
+      <h2>Wie gefällt dir {{ active_location.name }}?</h2>
+      <p>{% if should_request_review %}Danke für deinen Besuch. Teile deine Erfahrung direkt auf Google.{% else %}Du kannst jederzeit eine Google-Bewertung für diesen Standort abgeben.{% endif %}</p>
       <div class="action-row">
         <a class="button primary" href="{{ active_location.google_review_url }}" target="_blank" rel="noopener">Google-Bewertung öffnen</a>
-        <form method="post" action="{% url 'mark_reviewed' active_location.id %}">{% csrf_token %}<button class="button secondary">Als bewertet markieren</button></form>
+        {% if should_request_review %}<form method="post" action="{% url 'mark_reviewed' active_location.id %}">{% csrf_token %}<button class="button secondary">Erinnerung ausblenden</button></form>{% endif %}
       </div>
     </article>
     {% endif %}
@@ -101,6 +107,16 @@
 </section>
 <script>
 (() => {
+  document.querySelectorAll('[data-tip-form]').forEach(form => {
+    const input = form.querySelector('input[name="tip_amount"]');
+    form.querySelectorAll('[data-tip-value]').forEach(button => {
+      button.addEventListener('click', () => {
+        input.value = button.dataset.tipValue;
+        input.focus();
+      });
+    });
+  });
+
   const image = document.getElementById('wallet-payment-qr');
   if (!image) return;
   const refresh = async () => {
