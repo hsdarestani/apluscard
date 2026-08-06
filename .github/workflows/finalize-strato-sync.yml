@@ -1,0 +1,263 @@
+name: Finalize STRATO Data Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/finalize-strato-sync.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-strato-final-sync
+  cancel-in-progress: false
+
+jobs:
+  final-sync:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Finalize STRATO cutover'
+    name: Freeze old production and restore final data to STRATO
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PORT: "22"
+      NEW_USER: root
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+      STAGE_DOMAIN: new-app.samsclublounge.de
+      FINAL_DOMAIN: app.samsclublounge.de
+      LEGACY_DOMAIN: cards.smarbiz.sbs
+
+    steps:
+      - name: Validate migration access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${OLD_HOST:?HETZNER_HOST is missing}"
+          : "${OLD_PASSWORD:?HETZNER_PASSWORD is missing}"
+          : "${NEW_HOST:?NEWHOST is missing}"
+          : "${NEW_PRIVATE_KEY:?HETZNER_SSH_PRIVATE_KEY is missing}"
+          test "$NEW_HOST" = "217.160.50.71" || { echo "Unexpected STRATO host: $NEW_HOST"; exit 1; }
+
+      - name: Configure SSH clients
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H -p "$NEW_PORT" "$NEW_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Freeze old production writes
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test -f docker-compose.yml
+          docker compose stop push-worker web
+          date -u +%FT%TZ > .strato-cutover-frozen-at
+          docker compose ps
+          REMOTE
+
+      - name: Create final production snapshot
+        id: snapshot
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          SNAPSHOT_DIR="$RUNNER_TEMP/sams-final-snapshot"
+          mkdir -p "$SNAPSHOT_DIR"
+          chmod 700 "$SNAPSHOT_DIR"
+
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "cd '$APP_DIR' && docker compose exec -T db sh -lc 'pg_dump -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Fc'" \
+            > "$SNAPSHOT_DIR/database.dump"
+
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "cd '$APP_DIR' && docker compose run --rm -T --no-deps --entrypoint sh web -lc 'tar -C /app/media -czf - .'" \
+            > "$SNAPSHOT_DIR/media.tar.gz"
+
+          test -s "$SNAPSHOT_DIR/database.dump"
+          test -s "$SNAPSHOT_DIR/media.tar.gz"
+          sha256sum "$SNAPSHOT_DIR/database.dump" "$SNAPSHOT_DIR/media.tar.gz"
+          echo "dir=$SNAPSHOT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Upload final snapshot to STRATO
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" \
+            "mkdir -p /root/sams-final-cutover && chmod 700 /root/sams-final-cutover"
+          scp -i ~/.ssh/strato_sams -P "$NEW_PORT" \
+            "${{ steps.snapshot.outputs.dir }}/database.dump" \
+            "${{ steps.snapshot.outputs.dir }}/media.tar.gz" \
+            "$NEW_USER@$NEW_HOST:/root/sams-final-cutover/"
+
+      - name: Restore final data and prepare production domain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" \
+            "APP_DIR='$APP_DIR' STAGE_DOMAIN='$STAGE_DOMAIN' FINAL_DOMAIN='$FINAL_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' NEW_HOST='$NEW_HOST' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          CUTOVER_DIR=/root/sams-final-cutover
+          cd "$APP_DIR"
+          test -s .env
+          test -s "$CUTOVER_DIR/database.dump"
+          test -s "$CUTOVER_DIR/media.tar.gz"
+
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          docker compose stop push-worker web || true
+          docker compose up -d db
+          ready=0
+          for attempt in $(seq 1 60); do
+            if docker compose exec -T db sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' </dev/null >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1 || { docker compose logs --tail=200 db; exit 1; }
+
+          docker compose exec -T db sh -lc \
+            'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges' \
+            < "$CUTOVER_DIR/database.dump" || {
+              echo "pg_restore returned warnings; validating restored schema."
+              docker compose exec -T db sh -lc \
+                'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select count(*) from django_migrations"' \
+                </dev/null | grep -Eq '^[1-9][0-9]*$'
+            }
+
+          docker compose build web push-worker
+          docker compose run --rm -T --no-deps --entrypoint sh web -lc \
+            'find /app/media -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xzf - -C /app/media' \
+            < "$CUTOVER_DIR/media.tar.gz"
+
+          export APP_DIR STAGE_DOMAIN FINAL_DOMAIN LEGACY_DOMAIN NEW_HOST
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          env_path = Path(os.environ["APP_DIR"]) / ".env"
+          values = {}
+          order = []
+          for raw in env_path.read_text(encoding="utf-8").splitlines():
+              if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+                  continue
+              key, value = raw.split("=", 1)
+              key = key.strip()
+              if key not in values:
+                  order.append(key)
+              values[key] = value
+
+          stage = os.environ["STAGE_DOMAIN"]
+          final = os.environ["FINAL_DOMAIN"]
+          legacy = os.environ["LEGACY_DOMAIN"]
+          new_host = os.environ["NEW_HOST"]
+          overrides = {
+              "DJANGO_DEBUG": "0",
+              "DJANGO_ALLOWED_HOSTS": f"{stage},{final},{legacy},{new_host},localhost,127.0.0.1",
+              "DJANGO_CSRF_TRUSTED_ORIGINS": f"https://{stage},https://{final},https://{legacy}",
+              "DJANGO_SECURE_COOKIES": "1",
+              "DJANGO_HSTS_SECONDS": "31536000",
+              "APP_NAME": "Sams Club Lounge",
+              "APP_SHORT_NAME": "Sams Lounge",
+              "APP_PUBLISHER": "A+ Solution GmbH",
+              "APP_PUBLIC_BASE_URL": f"https://{final}",
+              "IOS_APP_TEAM_ID": "884MVA2MD5",
+              "APPLE_BUNDLE_ID": "de.aplussolution.samscard",
+              "APPLE_REDIRECT_URI": f"https://{final}/accounts/apple/callback/",
+              "PUSH_NOTIFICATIONS_ENABLED": "0",
+              "APNS_USE_SANDBOX": "0",
+          }
+          values.update(overrides)
+          for key in overrides:
+              if key not in order:
+                  order.append(key)
+          env_path.write_text("".join(f"{key}={values[key]}\n" for key in order), encoding="utf-8")
+          os.chmod(env_path, 0o600)
+          PY
+
+          docker compose up -d --build --remove-orphans
+          healthy=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" -eq 1 || { docker compose ps; docker compose logs --tail=250 web; exit 1; }
+
+          cat > "/etc/nginx/sites-available/$FINAL_DOMAIN" <<NGINX
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name $FINAL_DOMAIN;
+              client_max_body_size 12m;
+              add_header X-SAMS-Origin strato always;
+              location / {
+                  proxy_pass http://127.0.0.1:8010;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_read_timeout 60s;
+              }
+          }
+          NGINX
+          ln -sfn "/etc/nginx/sites-available/$FINAL_DOMAIN" "/etc/nginx/sites-enabled/$FINAL_DOMAIN"
+          nginx -t
+          systemctl reload nginx
+
+          curl --fail --silent --show-error -H "Host: $FINAL_DOMAIN" http://127.0.0.1/health/ >/dev/null
+          docker compose exec -T web python manage.py migrate --noinput </dev/null
+          docker compose exec -T web python manage.py check </dev/null
+          docker compose exec -T web python - <<'PY' </dev/null
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.contrib.auth import get_user_model
+          from cards.models import Wallet, LedgerEntry, PushDevice
+          print({
+              "users": get_user_model().objects.count(),
+              "wallets": Wallet.objects.count(),
+              "ledger_entries": LedgerEntry.objects.count(),
+              "push_devices": PushDevice.objects.count(),
+          })
+          PY
+          docker compose ps
+          echo "Final data is restored on STRATO. Push remains disabled until DNS cutover."
+          REMOTE
+
+      - name: Verify STRATO origin directly
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            --resolve "$FINAL_DOMAIN:80:$NEW_HOST" \
+            -D "$RUNNER_TEMP/headers.txt" \
+            "http://$FINAL_DOMAIN/health/" >/dev/null
+          grep -qi '^X-SAMS-Origin: strato' "$RUNNER_TEMP/headers.txt"
+          echo "Final production data is frozen and ready on STRATO. Change the app A record to 217.160.50.71, then run the activation workflow."
