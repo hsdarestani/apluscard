@@ -43,51 +43,63 @@ def _extract_signed_token(raw_value):
     return match.group(0)[len(QR_PREFIX):]
 
 
-def resolve_payment_qr(raw_value, *, business=None, max_age=None):
-    """Resolve a short-lived payment QR and reject static copied card UUIDs."""
-
-    signed_value = _extract_signed_token(raw_value)
-    payload = signing.loads(
-        signed_value,
-        salt=QR_SIGNING_SALT,
-        max_age=max_age or settings.WALLET_QR_MAX_AGE_SECONDS,
-    )
-    if payload.get("v") != 1:
-        raise signing.BadSignature("Unsupported SAMS QR version")
-    try:
-        wallet_id = UUID(str(payload["wallet_id"]))
-        card_id = UUID(str(payload["card_id"]))
-    except (KeyError, TypeError, ValueError) as exc:
-        raise signing.BadSignature("Invalid SAMS QR payload") from exc
-
+def _active_wallet_from_static_code(raw_value, *, business=None):
+    match = UUID_PATTERN.search(str(raw_value or "").strip())
+    if match is None:
+        return None
     wallets = Wallet.objects.select_related("business", "owner", "owner__member_profile").filter(
-        pk=wallet_id,
-        qr_token=card_id,
+        qr_token=match.group(0),
         status=Wallet.Status.ACTIVE,
     )
     if business is not None:
         wallets = wallets.filter(business=business)
-    wallet = wallets.first()
-    if wallet is None:
-        raise signing.BadSignature("Wallet not found or inactive")
-    return wallet
+    return wallets.first()
+
+
+def resolve_payment_qr(raw_value, *, business=None, max_age=None):
+    """Resolve either the rotating in-app QR or the static Apple Wallet QR.
+
+    Both paths remain protected by the authenticated staff payment endpoint,
+    business scoping, active-card checks, balance validation and audit logging.
+    """
+
+    try:
+        signed_value = _extract_signed_token(raw_value)
+        payload = signing.loads(
+            signed_value,
+            salt=QR_SIGNING_SALT,
+            max_age=max_age or settings.WALLET_QR_MAX_AGE_SECONDS,
+        )
+        if payload.get("v") != 1:
+            raise signing.BadSignature("Unsupported SAMS QR version")
+        try:
+            wallet_id = UUID(str(payload["wallet_id"]))
+            card_id = UUID(str(payload["card_id"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise signing.BadSignature("Invalid SAMS QR payload") from exc
+
+        wallets = Wallet.objects.select_related("business", "owner", "owner__member_profile").filter(
+            pk=wallet_id,
+            qr_token=card_id,
+            status=Wallet.Status.ACTIVE,
+        )
+        if business is not None:
+            wallets = wallets.filter(business=business)
+        wallet = wallets.first()
+        if wallet is None:
+            raise signing.BadSignature("Wallet not found or inactive")
+        return wallet
+    except signing.BadSignature as signed_error:
+        wallet = _active_wallet_from_static_code(raw_value, business=business)
+        if wallet is not None:
+            return wallet
+        raise signed_error
 
 
 def resolve_identity_qr(raw_value, *, business):
-    """Resolve either a rotating payment QR or a static membership-card UUID.
-
-    Static codes are accepted only for opening the member record. Payment
-    endpoints call resolve_payment_qr() and therefore reject screenshots or old
-    Apple Wallet barcodes.
-    """
+    """Resolve either a rotating app QR or a static Apple Wallet/member QR."""
 
     try:
         return resolve_payment_qr(raw_value, business=business)
     except signing.BadSignature:
-        match = UUID_PATTERN.search(str(raw_value or "").strip())
-        if match is None:
-            return None
-        return Wallet.objects.filter(
-            business=business,
-            qr_token=match.group(0),
-        ).first()
+        return None
