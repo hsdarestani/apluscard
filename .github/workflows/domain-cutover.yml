@@ -1,0 +1,106 @@
+name: SAMS App Domain Cutover
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Test and Deploy"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apluscard-production
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    name: app.samsclublounge.de ohne Downtime aktivieren
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: 91.107.145.196
+      SSH_PORT: "22"
+      SSH_USER: root
+      APP_DIR: /root/apluscard
+      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+      NEW_DOMAIN: app.samsclublounge.de
+      OLD_DOMAIN: cards.smarbiz.sbs
+
+    steps:
+      - name: SSH-Werkzeuge installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Server-Schlüssel vertrauen
+        run: |
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: DNS prüfen und Domain sicher zuschalten
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSHPASS"
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' NEW_DOMAIN='$NEW_DOMAIN' OLD_DOMAIN='$OLD_DOMAIN' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+          test -f .env
+
+          set_env() {
+            key="$1"
+            value="$2"
+            if grep -q "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${value}|" .env
+            else
+              printf '%s=%s\n' "$key" "$value" >> .env
+            fi
+          }
+
+          cp deploy/nginx/app.samsclublounge.de.conf "/etc/nginx/sites-available/$NEW_DOMAIN"
+          ln -sfn "/etc/nginx/sites-available/$NEW_DOMAIN" "/etc/nginx/sites-enabled/$NEW_DOMAIN"
+          nginx -t
+          systemctl reload nginx
+
+          if ! getent ahosts "$NEW_DOMAIN" >/dev/null 2>&1; then
+            echo "$NEW_DOMAIN ist noch nicht im DNS sichtbar. Nginx ist vorbereitet; der eigentliche Cutover wird übersprungen."
+            exit 0
+          fi
+
+          if [ ! -d "/etc/letsencrypt/live/$NEW_DOMAIN" ]; then
+            certbot --nginx \
+              --domain "$NEW_DOMAIN" \
+              --non-interactive \
+              --agree-tos \
+              --register-unsafely-without-email \
+              --redirect
+          fi
+
+          test -d "/etc/letsencrypt/live/$NEW_DOMAIN"
+          set_env DJANGO_ALLOWED_HOSTS "$NEW_DOMAIN,$OLD_DOMAIN,91.107.145.196,localhost,127.0.0.1"
+          set_env DJANGO_CSRF_TRUSTED_ORIGINS "https://$NEW_DOMAIN,https://$OLD_DOMAIN"
+          set_env APP_PUBLIC_BASE_URL "https://$NEW_DOMAIN"
+          set_env APPLE_REDIRECT_URI "https://$NEW_DOMAIN/accounts/apple/callback/"
+          set_env DJANGO_SECURE_COOKIES 1
+          set_env DJANGO_HSTS_SECONDS 31536000
+
+          docker compose up -d --build --remove-orphans
+          docker compose restart web push-worker
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "https://$NEW_DOMAIN/health/" >/dev/null; then
+              echo "Domain cutover erfolgreich."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Neue Domain ist nach dem Cutover nicht gesund."
+          docker compose logs --tail=150 web
+          exit 1
+          REMOTE
