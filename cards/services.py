@@ -48,7 +48,7 @@ def normalize_tip_amount(value):
     try:
         amount = Decimal(str(value or "0")).quantize(Decimal("0.01"))
     except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValidationError("Ungültige Trinkgeld-Auswahl.") from exc
+        raise ValidationError("Ungültiger Trinkgeldbetrag.") from exc
     if amount < 0 or amount > Decimal("100.00"):
         raise ValidationError("Das Trinkgeld muss zwischen 0 und 100 Euro liegen.")
     return amount
@@ -152,7 +152,7 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
 
 @transaction.atomic
 def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_amount=Decimal("0.00"), tip_employee=None, ip_address=None, force_immediate=False, tip_percentage=None):
-    """Create a charge. `tip_percentage` remains a temporary numeric alias."""
+    """Create a charge with a fixed or customer-entered euro tip."""
     require_role(actor, wallet.business, STAFF_ROLES)
     if location.business_id != wallet.business_id or not location.is_active:
         raise ValidationError("Ungültiger Standort.")
@@ -161,9 +161,6 @@ def create_payment_request(*, wallet, location, actor, amount, description="", o
     if tip_percentage is not None and tip_amount in (None, "", Decimal("0.00"), 0, "0"):
         tip_amount = tip_percentage
     selected_tip = normalize_tip_amount(tip_amount)
-    allowed_tips = {normalize_tip_amount(value) for value in settings_obj.tip_options()}
-    if selected_tip not in allowed_tips:
-        raise ValidationError("Bitte einen der angebotenen Trinkgeldbeträge wählen.")
     payable_wallet = Wallet.objects.select_related("owner", "owner__member_profile").get(pk=wallet.pk)
     _assert_wallet_payable(payable_wallet)
     if payable_wallet.balance < amount + selected_tip:
@@ -208,13 +205,9 @@ def finalize_payment_request(*, payment, confirmed_by, tip_amount=None, ip_addre
         raise ValidationError("Diese Zahlungsanfrage ist abgelaufen.")
     if payment.customer_confirmation_required and payment.wallet.owner_id != confirmed_by.id:
         raise PermissionDenied("Nur der betroffene Member kann diese Zahlung bestätigen.")
-    settings_obj = get_business_settings(payment.business)
     if tip_amount is None:
         tip_amount = tip_percentage if tip_percentage is not None else payment.tip_selected_amount
     selected_tip = normalize_tip_amount(tip_amount)
-    allowed = {normalize_tip_amount(value) for value in settings_obj.tip_options()}
-    if selected_tip not in allowed:
-        raise ValidationError("Bitte einen der angebotenen Trinkgeldbeträge wählen.")
     if payment.wallet.balance < payment.base_amount + selected_tip:
         raise ValidationError("Nicht genügend Guthaben für Zahlung und Trinkgeld.")
     purchase = post_wallet_entry(wallet=payment.wallet, location=payment.location, payment_request=payment, entry_type=LedgerEntry.Type.PURCHASE, amount=payment.base_amount, actor=payment.created_by, description=payment.description or f"Zahlung bei {payment.location.name}", order_reference=payment.order_reference, ip_address=ip_address)
