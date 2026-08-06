@@ -114,6 +114,14 @@ class ComplianceHardeningTests(TestCase):
         self.assertTrue(response.json()["qr_token"].startswith("samsqr1."))
         self.assertNotEqual(response.json()["qr_token"], str(self.wallet.qr_token))
 
+    def test_profile_api_never_exposes_the_static_database_qr_uuid(self):
+        self.client.force_login(self.customer)
+        response = self.client.get(reverse("api_me"))
+        self.assertEqual(response.status_code, 200)
+        wallet_payload = response.json()["customer_wallets"][0]
+        self.assertTrue(wallet_payload["qr_token"].startswith("samsqr1."))
+        self.assertNotEqual(wallet_payload["qr_token"], str(self.wallet.qr_token))
+
     def test_staff_payment_rejects_static_qr_but_accepts_current_signed_qr(self):
         self.client.force_login(self.staff)
         payload = {
