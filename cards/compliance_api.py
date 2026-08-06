@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .compliance_qr import issue_wallet_qr, resolve_payment_qr
-from .models import LedgerEntry, Location, PaymentRequest, Wallet
+from .models import LedgerEntry, Location, Membership, PaymentRequest, Wallet
 from .serializers import LedgerEntrySerializer, MoneyActionSerializer, PaymentRequestSerializer, WalletSerializer
 from .services import OWNER_ROLES, STAFF_ROLES, create_payment_request, get_active_membership, post_wallet_entry, require_role
 
@@ -28,8 +28,50 @@ class SecureWalletSerializer(WalletSerializer):
         return issue_wallet_qr(obj) if obj.status == Wallet.Status.ACTIVE else None
 
 
+class SecureMeSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    email = serializers.EmailField()
+    email_verified = serializers.BooleanField()
+    roles = serializers.ListField(child=serializers.DictField())
+    customer_wallets = SecureWalletSerializer(many=True)
+
+    @staticmethod
+    def from_user(user):
+        memberships = Membership.objects.select_related("business").filter(user=user, is_active=True)
+        profile = getattr(user, "member_profile", None)
+        return {
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+            "email_verified": bool(profile and profile.email_verified),
+            "roles": [
+                {
+                    "business": item.business.name,
+                    "business_slug": item.business.slug,
+                    "role": item.role,
+                    "can_manage_content": item.can_manage_content,
+                }
+                for item in memberships
+            ],
+            "customer_wallets": Wallet.objects.select_related(
+                "business", "owner", "owner__member_profile"
+            ).filter(owner=user),
+        }
+
+
 class SecureMoneyActionSerializer(MoneyActionSerializer):
     wallet_token = serializers.CharField(max_length=1200)
+
+
+class SecureMeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        payload = SecureMeSerializer.from_user(request.user)
+        return Response(SecureMeSerializer(payload).data)
 
 
 class SecureMyWalletView(APIView):
