@@ -2,7 +2,7 @@
 {% load sams_de %}
 {% block title %}App-Einstellungen · SAMS Club Lounge{% endblock %}
 {% block content %}
-<section class="dashboard-head"><div><span class="eyebrow">SAMS-App-Verwaltung</span><h1>App und<br><span class="gradient-text">Inhaltsverwaltung</span></h1><p class="muted">Zahlungen, feste Trinkgeldbeträge, Treueprogramm, Standorte, Angebote und Mitteilungen steuern.</p></div><a class="button secondary" href="{% url 'manager_dashboard' %}">← Zur Übersicht</a></section>
+<section class="dashboard-head"><div><span class="eyebrow">SAMS-App-Verwaltung</span><h1>App und<br><span class="gradient-text">Inhaltsverwaltung</span></h1><p class="muted">Zahlungen, Trinkgeld, Treueprogramm, Standorte, Angebote und Mitteilungen steuern.</p></div><a class="button secondary" href="{% url 'manager_dashboard' %}">← Zur Übersicht</a></section>
 {% if is_owner %}
 <section class="panel settings-section">
   <div class="section-heading"><div><span class="eyebrow">Rechtliche Pflichtangaben</span><h2>AGB und Datenschutz</h2></div><a class="button secondary" href="{% url 'manager_legal' %}">Rechtliches verwalten</a></div>
@@ -12,7 +12,7 @@
   <div class="section-heading"><div><span class="eyebrow">Zahlungssystem</span><h2>Zahlung und Treueprogramm</h2></div></div>
   <div class="platform-alert"><strong>Empfohlener Zahlungsfluss</strong><span>Der Rechnungsbetrag wird nach Abstimmung an der Kasse direkt abgebucht. Die Kundenbestätigung ist nur ein optionaler Ausnahmebetrieb. Reklamationen laufen über Beleg und Prüffall.</span></div>
   <form method="post" class="settings-grid settings-grid-polished">{% csrf_token %}<input type="hidden" name="action" value="settings">{% for field in settings_form %}<label class="{% if field.field.widget.input_type == 'checkbox' %}setting-check{% else %}setting-field{% endif %}">{% if field.field.widget.input_type == 'checkbox' %}{{ field }}<span><strong>{{ field.label }}</strong><small>{% if field.name == 'require_customer_confirmation' %}Nur einschalten, wenn jede Zahlung erst vom Kunden bestätigt werden soll.{% elif field.name == 'offer_scheduling_enabled' %}Beginn und Ende bleiben im Angebotsformular trotzdem optional verfügbar.{% else %}Diese Funktion für die App aktivieren oder deaktivieren.{% endif %}</small></span>{% else %}<span>{{ field.label }}</span>{{ field }}{% endif %}{{ field.errors }}</label>{% endfor %}<button class="button primary" type="submit">Einstellungen speichern</button></form>
-  <p class="form-note">Trinkgeldoptionen sind feste Eurobeträge, zum Beispiel 0 €, 2 €, 5 € und 10 €. Standardstufen: Silber bis 499,99 € monatliche Aufladung, Gold ab 500 € und Platin ab 700 €.</p>
+  <p class="form-note">Beim Bezahlen stehen 0,10 €, 1,00 €, kein Trinkgeld und ein frei eingebbarer Betrag mit Cent-Genauigkeit zur Verfügung. Standardstufen: Silber bis 499,99 € monatliche Aufladung, Gold ab 500 € und Platin ab 700 €.</p>
 </section>
 <section class="panel settings-section">
   <div class="section-heading"><div><span class="eyebrow">Drei Standorte</span><h2>Standorte und Bilder verwalten</h2></div></div>
