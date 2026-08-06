@@ -1,0 +1,67 @@
+name: Verify STRATO Staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-strato-stage.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Verify STRATO staging'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      STAGE_DOMAIN: new-app.samsclublounge.de
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Direct server and service checks
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keyscan -H "$NEW_HOST" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" <<'REMOTE'
+          set -Eeuo pipefail
+          cd /root/apluscard
+          docker compose ps
+          curl --fail --silent --show-error http://127.0.0.1:8010/health/
+          nginx -t
+          test -d /etc/letsencrypt/live/new-app.samsclublounge.de
+          curl --fail --silent --show-error https://new-app.samsclublounge.de/health/
+          REMOTE
+
+      - name: Verify TLS directly against STRATO IP
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            --resolve "$STAGE_DOMAIN:443:$NEW_HOST" \
+            "https://$STAGE_DOMAIN/health/" >/dev/null
+
+      - name: Wait for public DNS and endpoint
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y dnsutils >/dev/null
+          for attempt in $(seq 1 24); do
+            echo "DNS/HTTPS check $attempt/24"
+            dig +short A "$STAGE_DOMAIN" @1.1.1.1 || true
+            dig +short A "$STAGE_DOMAIN" @8.8.8.8 || true
+            if curl --fail --silent --show-error --max-time 20 "https://$STAGE_DOMAIN/health/" >/dev/null; then
+              echo "Public STRATO staging endpoint is healthy."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Direct STRATO TLS works, but public DNS/HTTPS is not available yet. Check the Cloudflare A record for new-app."
+          exit 1
