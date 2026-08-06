@@ -1,0 +1,117 @@
+name: Publish Android to Google Play
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: GitHub Actions run containing the signed AAB artifact
+        required: true
+        default: "31107996225"
+        type: string
+      artifact_name:
+        description: Signed Android artifact name
+        required: true
+        default: "SAMS-Card-Android-1.0.2-5"
+        type: string
+      track:
+        description: Google Play release track
+        required: true
+        default: internal
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      release_status:
+        description: Release state in Google Play
+        required: true
+        default: completed
+        type: choice
+        options:
+          - draft
+          - completed
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: sams-google-play-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Upload signed AAB to Google Play
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+      PACKAGE_NAME: de.aplussolution.samscard
+
+    steps:
+      - name: Validate Android Publisher credential
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64" || {
+            echo "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 is missing. Add a Google Play service-account JSON with app release access."
+            exit 1
+          }
+
+      - name: Download signed AAB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+          path: dist
+
+      - name: Prepare Google Play credential and verify bundle
+        id: bundle
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          printf '%s' "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64" | base64 --decode > "$RUNNER_TEMP/google-play-service-account.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ["RUNNER_TEMP"]) / "google-play-service-account.json"
+          data = json.loads(path.read_text(encoding="utf-8"))
+          if data.get("type") != "service_account" or not data.get("client_email") or not data.get("private_key"):
+              raise SystemExit("Invalid Google Play service-account JSON")
+          print("Google Play credential structure is valid.")
+          PY
+          AAB_PATH="$(find dist -type f -name '*.aab' -print -quit)"
+          test -s "$AAB_PATH" || { echo "Signed AAB was not found in artifact."; exit 1; }
+          jarsigner -verify -certs "$AAB_PATH" >/dev/null
+          sha256sum "$AAB_PATH"
+          echo "aab_path=$AAB_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Install Fastlane
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo gem install fastlane --no-document
+
+      - name: Publish to Google Play
+        shell: bash
+        env:
+          AAB_PATH: ${{ steps.bundle.outputs.aab_path }}
+          PLAY_TRACK: ${{ inputs.track }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
+        run: |
+          set -Eeuo pipefail
+          fastlane supply \
+            --json_key "$RUNNER_TEMP/google-play-service-account.json" \
+            --package_name "$PACKAGE_NAME" \
+            --aab "$AAB_PATH" \
+            --track "$PLAY_TRACK" \
+            --release_status "$RELEASE_STATUS" \
+            --skip_upload_metadata true \
+            --skip_upload_images true \
+            --skip_upload_screenshots true \
+            --skip_upload_changelogs true
+          echo "Android bundle was published to Google Play track: $PLAY_TRACK ($RELEASE_STATUS)."
