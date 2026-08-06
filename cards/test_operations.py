@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from .compliance_qr import issue_wallet_qr
 from .models import AppNotification, Business, BusinessSettings, Location, MemberProfile, Membership, PushDevice, Wallet
 from .push_models import PushDelivery
 
@@ -59,7 +60,7 @@ class OperationsFlowTests(TestCase):
             response = self.client.post(
                 reverse("staff_charge"),
                 {
-                    "wallet_token": str(self.wallet.qr_token),
+                    "wallet_token": issue_wallet_qr(self.wallet),
                     "location_id": self.location.pk,
                     "amount": "20.00",
                     "tip_amount": "0.00",
