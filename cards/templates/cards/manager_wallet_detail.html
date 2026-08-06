@@ -1,5 +1,5 @@
 {% extends 'cards/base.html' %}
-{% load sams_de experience_tags %}
+{% load sams_de experience_tags compliance_tags %}
 {% block title %}{{ wallet.display_name }} · SAMS Club Lounge{% endblock %}
 {% block content %}
 <a class="back-link" href="{% url 'manager_dashboard' %}">← Zurück zur Verwaltungszentrale</a>
@@ -12,7 +12,7 @@
     <div class="wallet-top"><span class="wallet-brand">SAMS CLUB<br>LOUNGE<small>bereitgestellt von <span class="aplus-signature">A+</span></small></span><span>{{ wallet.tier|sams_label|upper }}</span></div>
     <div class="wallet-label">Aktuelles Guthaben</div><div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div>
     <div class="wallet-bonus">Monatliche Aufladung: {{ wallet.monthly_topup_total|floatformat:2 }} €</div>
-    <div class="qr-frame small-frame"><div class="qr-box small-qr"><img src="{{ wallet.qr_token|qr_data_uri }}" width="140" height="140" alt="QR-Code für Mitglied {{ wallet.member_number }}"></div></div>
+    <div class="qr-frame small-frame"><div class="qr-box small-qr"><img src="{{ wallet.qr_token|qr_data_uri }}" width="140" height="140" alt="Statischer Mitgliedscode für Mitglied {{ wallet.member_number }}"></div></div>
     <div class="wallet-code">Mitgliedsnummer {{ wallet.member_number }}</div>
     <div class="member-line"><span>{% if wallet.owner.member_profile.email_verified %}E-Mail-Adresse bestätigt{% else %}E-Mail-Bestätigung offen{% endif %}</span><span>{% if wallet.owner.member_profile.birth_date %}{{ wallet.owner.member_profile.birth_date|date:"d.m.Y" }}{% else %}Geburtsdatum fehlt{% endif %}</span></div>
   </article>
@@ -54,13 +54,14 @@
 
 <section class="panel"><div class="section-heading"><div><span class="eyebrow">Prüfprotokoll und Kassenbuch</span><h2>Transaktionshistorie</h2></div></div><div class="wallet-table-wrap responsive-ledger-table"><table class="data-table"><thead><tr><th>Zeit</th><th>Standort</th><th>Beleg</th><th>Art</th><th>Beschreibung</th><th>Prüffall</th><th>Betrag</th><th>Saldo</th></tr></thead><tbody>{% for entry in entries %}<tr data-row-link="{% url 'bill_detail' entry.id %}"><td data-label="Zeit">{{ entry.created_at|date:"d.m.Y H:i" }}</td><td data-label="Standort">{{ entry.location.name|default:"Alle Standorte" }}</td><td data-label="Beleg"><a class="text-link" href="{% url 'bill_detail' entry.id %}">{{ entry.bill_number }}</a></td><td data-label="Art">{{ entry.entry_type|sams_label }}</td><td data-label="Beschreibung">{{ entry.description|default:"–" }}<span>{{ entry.order_reference|default:"" }}</span></td><td data-label="Prüffall">{% for case in entry.transaction_cases.all %}<a class="case-link" href="{% url 'transaction_case_detail' case.id %}">{{ case.case_number }} · {{ case.get_status_display }}</a>{% empty %}<a class="case-link" href="{% url 'transaction_case_create' entry.id %}">Prüffall anlegen</a>{% endfor %}</td><td data-label="Betrag" class="{% if entry.amount > 0 %}positive{% else %}negative{% endif %}">{{ entry.amount|floatformat:2 }} €</td><td data-label="Saldo">{{ entry.balance_after|floatformat:2 }} €</td></tr>{% empty %}<tr><td colspan="8" class="empty-state">Noch keine Transaktionen.</td></tr>{% endfor %}</tbody></table></div></section>
 
-{% if is_owner %}
+{% test_purge_allowed wallet as can_purge_test_data %}
+{% if is_owner and can_purge_test_data %}
 <section class="panel settings-section destructive-tools">
-  <div class="section-heading"><div><span class="eyebrow">Nur für Testdaten</span><h2>Testdaten bereinigen</h2></div></div>
-  <div class="platform-alert warning"><strong>Endgültige Löschung</strong><span>Diese Aktionen sind nicht rückgängig zu machen. Nur für Testkonten und Testbuchungen verwenden.</span></div>
+  <div class="section-heading"><div><span class="eyebrow">Nur für ausdrücklich markierte Testdaten</span><h2>Testdaten bereinigen</h2></div></div>
+  <div class="platform-alert warning"><strong>Nur im freigegebenen Testbetrieb</strong><span>Diese Werkzeuge sind in Production standardmäßig deaktiviert und erscheinen nur bei zusätzlicher Testkonto-Markierung.</span></div>
   <div class="destructive-grid">
-    <form method="post" action="{% url 'manager_clear_wallet_history' wallet.id %}" class="stack-form">{% csrf_token %}<strong>Nur Transaktionshistorie löschen</strong><small>Prüffälle, Zahlungsanfragen und Buchungen werden entfernt. Saldo und Monatsaufladung werden auf 0 gesetzt.</small><label>Zur Bestätigung LÖSCHEN eingeben<input name="confirmation" autocomplete="off" required></label><button class="button secondary full" type="submit">Transaktionshistorie löschen</button></form>
-    <form method="post" action="{% url 'manager_delete_test_account' wallet.id %}" class="stack-form">{% csrf_token %}<strong>Testkonto vollständig löschen</strong><small>Mitgliedskarte, Benutzerkonto, Push-Geräte, Mitteilungen und Transaktionen werden gelöscht.</small><label>Zur Bestätigung TESTKONTO LÖSCHEN eingeben<input name="confirmation" autocomplete="off" required></label><button class="button danger-button full" type="submit">Testkonto vollständig löschen</button></form>
+    <form method="post" action="{% url 'manager_clear_wallet_history' wallet.id %}" class="stack-form">{% csrf_token %}<strong>Nur Test-Transaktionshistorie löschen</strong><small>Prüffälle, Zahlungsanfragen und Testbuchungen werden entfernt. Saldo und Monatsaufladung werden auf 0 gesetzt.</small><label>Zur Bestätigung LÖSCHEN eingeben<input name="confirmation" autocomplete="off" required></label><button class="button secondary full" type="submit">Testhistorie löschen</button></form>
+    <form method="post" action="{% url 'manager_delete_test_account' wallet.id %}" class="stack-form">{% csrf_token %}<strong>Testkonto vollständig löschen</strong><small>Nur das ausdrücklich markierte Testkonto und seine Testdaten werden gelöscht.</small><label>Zur Bestätigung TESTKONTO LÖSCHEN eingeben<input name="confirmation" autocomplete="off" required></label><button class="button danger-button full" type="submit">Testkonto vollständig löschen</button></form>
   </div>
 </section>
 {% endif %}

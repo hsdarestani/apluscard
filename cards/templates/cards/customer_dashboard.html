@@ -1,5 +1,5 @@
 {% extends 'cards/base.html' %}
-{% load sams_de experience_tags %}
+{% load sams_de experience_tags compliance_tags %}
 {% block title %}Meine Mitgliedskarte · {{ app_name }}{% endblock %}
 {% block content %}
 <section class="dashboard-head">
@@ -40,6 +40,7 @@
 </section>
 {% endfor %}
 
+{% wallet_qr_payload wallet as qr_payload %}
 <section class="customer-grid">
   <article class="wallet-card tier-{{ wallet.tier|lower }}">
     <div class="wallet-top"><span class="wallet-brand">SAMS CLUB<br>LOUNGE<small>bereitgestellt von <span class="aplus-signature">A+</span></small></span><span>{{ wallet.tier|sams_label|upper }}</span></div>
@@ -47,12 +48,14 @@
     <div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div>
     <div class="wallet-bonus">Diesen Monat aufgeladen: {{ wallet.monthly_topup_total|floatformat:2 }} €</div>
     <div class="tier-progress"><span style="width:{% if wallet.tier == 'PLATINUM' %}100{% elif wallet.tier == 'GOLD' %}72{% else %}35{% endif %}%"></span></div>
-    <div class="qr-frame"><div class="qr-box"><img src="{{ wallet.qr_token|qr_data_uri }}" width="194" height="194" alt="QR-Code der Mitgliedskarte"></div></div>
+    <div class="qr-frame"><div class="qr-box"><img id="wallet-payment-qr" src="{{ qr_payload.data_uri }}" width="194" height="194" alt="Sicherer QR-Code der Mitgliedskarte" data-refresh-url="{% url 'customer_qr_refresh' %}" data-refresh-seconds="{{ qr_payload.refresh_in }}"></div></div>
+    <div class="wallet-code">Sicherer Zahlungs-QR · wird automatisch erneuert</div>
     <div class="wallet-code">Mitgliedsnummer {{ wallet.member_number }}</div>
     <div class="member-line"><span>Für alle SAMS Standorte</span><span>✦ {{ wallet.tier|sams_label }}</span></div>
     <div class="wallet-actions">
       {% if apple_wallet_enabled %}<a class="apple-wallet-button" href="{% url 'apple_wallet_pass' %}" data-wallet-link-url="{% url 'apple_wallet_link' %}"><span>＋</span><strong>Zu Apple Wallet hinzufügen</strong></a>{% endif %}
       <a class="button secondary full" href="{% url 'transaction_cases' %}">Transaktionen & Prüffälle</a>
+      <a class="button secondary full" href="{% url 'customer_data_export' %}">Meine Daten als JSON exportieren</a>
     </div>
   </article>
 
@@ -96,4 +99,29 @@
     </article>
   </div>
 </section>
+<script>
+(() => {
+  const image = document.getElementById('wallet-payment-qr');
+  if (!image) return;
+  const refresh = async () => {
+    try {
+      const response = await fetch(image.dataset.refreshUrl, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {'Accept': 'application/json'}
+      });
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload.data_uri) image.src = payload.data_uri;
+    } catch (_) {
+      // Keep the current QR visible; the cashier can request a page refresh.
+    }
+  };
+  const seconds = Math.max(15, Number(image.dataset.refreshSeconds || 45));
+  window.setInterval(refresh, seconds * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refresh();
+  });
+})();
+</script>
 {% endblock %}

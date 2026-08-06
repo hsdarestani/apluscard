@@ -12,3 +12,4 @@ cryptography>=45,<47
 firebase-admin>=7,<8
 PyJWT[crypto]>=2.10,<3
 httpx[http2]>=0.28,<1
+argon2-cffi>=23.1,<26

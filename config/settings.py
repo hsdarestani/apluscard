@@ -43,6 +43,11 @@ APNS_TEAM_ID = os.getenv("APNS_TEAM_ID", IOS_APP_TEAM_ID).strip()
 APNS_PRIVATE_KEY_BASE64 = os.getenv("APNS_PRIVATE_KEY_BASE64", "").strip()
 APNS_USE_SANDBOX = os.getenv("APNS_USE_SANDBOX", "0") == "1"
 
+# Compliance defaults are deliberately restrictive in production.
+WALLET_QR_MAX_AGE_SECONDS = max(30, int(os.getenv("WALLET_QR_MAX_AGE_SECONDS", "90")))
+WALLET_QR_REFRESH_SECONDS = max(15, min(int(os.getenv("WALLET_QR_REFRESH_SECONDS", "45")), WALLET_QR_MAX_AGE_SECONDS - 5))
+ALLOW_TEST_DATA_PURGE = os.getenv("ALLOW_TEST_DATA_PURGE", "0") == "1"
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -61,6 +66,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "cards.security_middleware.SecurityHeadersMiddleware",
+    "cards.compliance_security.ComplianceRateLimitMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -94,6 +100,13 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+    "django.contrib.auth.hashers.ScryptPasswordHasher",
 ]
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
