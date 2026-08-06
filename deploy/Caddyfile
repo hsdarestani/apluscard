@@ -1,4 +1,4 @@
-cards.smarbiz.sbs {
+app.samsclublounge.de, cards.smarbiz.sbs {
     encode zstd gzip
     reverse_proxy web:8000
 }

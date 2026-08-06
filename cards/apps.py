@@ -18,6 +18,7 @@ class CardsConfig(AppConfig):
         register_heif_opener(thumbnails=False)
 
         from . import experience_signals  # noqa: F401
+        from .notification_bootstrap import install_notification_queueing
         from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
         from .models import (
             AppNotification,
@@ -35,6 +36,8 @@ class CardsConfig(AppConfig):
             Wallet,
         )
         from .push_models import PushDelivery
+
+        install_notification_queueing()
 
         translated_choices = {
             (Membership, "role"): [("OWNER", "Inhaber"), ("MANAGER", "Leitung"), ("STAFF", "Mitarbeiter")],

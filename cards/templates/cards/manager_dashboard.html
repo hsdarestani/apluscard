@@ -5,7 +5,7 @@
 {% block content %}
 <section class="dashboard-head">
   <div><span class="eyebrow">{{ membership.business.name }}</span><h1>SAMS<br><span class="gradient-text">Verwaltungszentrale</span></h1><p class="muted">Drei Standorte und ein gemeinsames Guthabensystem.</p></div>
-  <div class="dashboard-context"><span class="vip-chip">A+ Pay aktiv</span><span class="role-pill">{{ membership.role|sams_label }}</span><a class="button secondary small" href="{% url 'notification_center' %}">Alle Mitteilungen</a><a class="button primary small" href="{% url 'transaction_cases' %}">Transaktionsfälle</a></div>
+  <div class="dashboard-context"><span class="vip-chip">Zahlung aktiv</span><span class="role-pill">{{ membership.role|sams_label }}</span><a class="button secondary small" href="{% url 'notification_center' %}">Alle Mitteilungen</a><a class="button primary small" href="{% url 'transaction_cases' %}">Transaktionsfälle</a></div>
 </section>
 
 <section class="location-strip">
@@ -24,9 +24,9 @@
 </section>
 
 {% if notifications %}
-<section class="panel notification-panel">
+<section class="panel notification-panel compact-notification-panel">
   <div class="section-heading"><div><span class="eyebrow">Sofortmeldungen</span><h2>Neue Vorgänge</h2></div><a class="text-link" href="{% url 'notification_center' %}">Alle öffnen →</a></div>
-  <div class="notification-list">{% for notification in notifications %}<article><div><strong>{{ notification.title }}</strong><span>{{ notification.body }} · {{ notification.created_at|date:"H:i:s" }}</span></div><form method="post" action="{% url 'notification_read' notification.id %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'manager_dashboard' %}"><button class="link-button">Öffnen oder gelesen markieren</button></form></article>{% endfor %}</div>
+  <div class="notification-list">{% for notification in notifications %}<article><div><strong>{{ notification.title|cut:"A+ Pay " }}</strong><span>{{ notification.created_at|date:"d.m.Y H:i" }}</span><small>{{ notification.body|truncatechars:110 }}</small></div><form method="post" action="{% url 'notification_read' notification.id %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'manager_dashboard' %}"><button class="link-button">Öffnen</button></form></article>{% endfor %}</div>
 </section>
 {% endif %}
 
@@ -60,13 +60,13 @@
 <dialog id="new-wallet" class="app-dialog"><form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">{% csrf_token %}<div class="dialog-head"><div><span class="eyebrow">Neues Mitglied</span><h2>Mitgliedskarte anlegen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div><label>Name<input name="display_name" required></label><label>Telefon<input name="phone"></label><label>E-Mail-Adresse<input type="email" name="email"></label><button class="button primary full" type="submit">Mitgliedskarte erstellen</button></form></dialog>
 {% endblock %}
 {% block scripts %}
-<script src="{% static 'cards/vendor/html5-qrcode.min.js' %}?v=2.3.8"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function(){
   const open=document.getElementById('open-manager-scanner'),dialog=document.getElementById('scan-member'),form=document.getElementById('manager-scan-form'),input=document.getElementById('manager-wallet-token'),status=document.getElementById('manager-scan-status');
   let scanner=null,handled=false;
   const stop=async()=>{try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}scanner=null;handled=false;};
-  open?.addEventListener('click',async()=>{dialog.showModal();status.textContent='';if(!window.Html5Qrcode){status.textContent='Der Scanner ist nicht verfügbar. Bitte den Kartencode manuell eingeben.';return;}try{scanner=new Html5Qrcode('manager-reader');await scanner.start({facingMode:'environment'},{fps:5,qrbox:210,aspectRatio:1},async text=>{if(handled)return;handled=true;const match=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);if(!match){handled=false;status.textContent='Kein gültiger Mitgliedscode.';return;}input.value=match[0];await stop();form.requestSubmit();});}catch(e){status.textContent='Kamera konnte nicht gestartet werden. Bitte Berechtigung prüfen oder den Code manuell eingeben.';await stop();}});
+  open?.addEventListener('click',async()=>{dialog.showModal();status.textContent='';if(!window.Html5Qrcode){status.textContent='Der Scanner konnte nicht geladen werden. Bitte den Kartencode manuell eingeben.';return;}try{scanner=new Html5Qrcode('manager-reader');await scanner.start({facingMode:'environment'},{fps:8,qrbox:230,aspectRatio:1},async text=>{if(handled)return;handled=true;const match=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);if(!match){handled=false;status.textContent='Kein gültiger Mitgliedscode.';return;}input.value=match[0];await stop();form.requestSubmit();});}catch(e){console.error('Manager scanner error',e);status.textContent='Kamera konnte nicht gestartet werden. Bitte Berechtigung prüfen oder den Code manuell eingeben.';await stop();}});
   dialog?.addEventListener('close',stop);document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});window.addEventListener('pagehide',stop);
 })();
 </script>

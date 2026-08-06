@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, apple_views, experience_views, legal_views, manager_views, notification_views, release_views, views
+from . import api, apple_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
@@ -12,7 +12,7 @@ urlpatterns = [
     path("agb/", legal_views.terms, name="terms"),
     path("datenschutz/", legal_views.privacy_policy, name="privacy_policy"),
     path("impressum/", legal_views.imprint, name="imprint"),
-    path("datenschutz/einstellungen/", legal_views.privacy_choices, name="privacy_choices"),
+    path("datenschutz/einstellungen/", operations_views.privacy_choices_safe, name="privacy_choices"),
     path("datenschutz/konto-loeschen/", legal_views.account_deletion, name="account_deletion"),
     path("rechtliches-bestaetigen/", legal_views.legal_acceptance, name="legal_acceptance"),
     path("apps/<slug:business_slug>/agb/", legal_views.terms, name="app_terms"),
@@ -44,11 +44,13 @@ urlpatterns = [
     path("transaktionsfaelle/<uuid:case_id>/pruefen/", experience_views.transaction_case_review, name="transaction_case_review"),
     path("bills/<uuid:entry_id>/", views.bill_detail, name="bill_detail"),
     path("staff/", views.staff_dashboard, name="staff_dashboard"),
-    path("staff/charge/", views.staff_charge, name="staff_charge"),
+    path("staff/charge/", operations_views.staff_charge_safe, name="staff_charge"),
     path("manager/", views.manager_dashboard, name="manager_dashboard"),
     path("manager/settings/", views.manager_settings, name="manager_settings"),
     path("manager/standortbild/", experience_views.location_visual_update, name="location_visual_update"),
     path("manager/rechtliches/", legal_views.manager_legal, name="manager_legal"),
+    path("manager/notifications/broadcast/", operations_views.manager_broadcast_notification, name="manager_broadcast_notification"),
+    path("manager/notifications/<uuid:wallet_id>/send/", operations_views.manager_direct_notification, name="manager_direct_notification"),
     path("manager/notifications/<int:notification_id>/read/", views.mark_notification_read, name="mark_notification_read"),
     path("manager/wallets/create/", views.manager_wallet_create, name="manager_wallet_create"),
     path("manager/wallets/scan/", manager_views.manager_wallet_scan, name="manager_wallet_scan"),
@@ -57,6 +59,8 @@ urlpatterns = [
     path("manager/wallets/<uuid:wallet_id>/topup/", views.manager_topup, name="manager_topup"),
     path("manager/wallets/<uuid:wallet_id>/refund/", views.manager_refund, name="manager_refund"),
     path("manager/wallets/<uuid:wallet_id>/status/", views.manager_wallet_status, name="manager_wallet_status"),
+    path("manager/wallets/<uuid:wallet_id>/clear-history/", operations_views.manager_clear_wallet_history, name="manager_clear_wallet_history"),
+    path("manager/wallets/<uuid:wallet_id>/delete-test-account/", operations_views.manager_delete_test_account, name="manager_delete_test_account"),
     path("api/v1/me/", api.MeView.as_view(), name="api_me"),
     path("api/v1/locations/", api.LocationsView.as_view(), name="api_locations"),
     path("api/v1/offers/", api.OffersView.as_view(), name="api_offers"),

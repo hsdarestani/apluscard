@@ -5,9 +5,9 @@ const config: CapacitorConfig = {
   appName: 'Sams Club Lounge',
   webDir: 'www',
   server: {
-    url: 'https://cards.smarbiz.sbs',
+    url: 'https://app.samsclublounge.de',
     cleartext: false,
-    allowNavigation: ['cards.smarbiz.sbs'],
+    allowNavigation: ['app.samsclublounge.de', 'cards.smarbiz.sbs'],
   },
   plugins: {
     PushNotifications: {

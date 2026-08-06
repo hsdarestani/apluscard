@@ -34,6 +34,8 @@ abort("Privacy Manifest fehlt: #{privacy_manifest_source}") unless File.file?(pr
 entitlements = {
   'aps-environment' => 'production',
   'com.apple.developer.associated-domains' => [
+    'applinks:app.samsclublounge.de',
+    'webcredentials:app.samsclublounge.de',
     'applinks:cards.smarbiz.sbs',
     'webcredentials:cards.smarbiz.sbs'
   ],
@@ -49,6 +51,8 @@ info_plist['UIBackgroundModes'] = background_modes
 info_plist['UIViewControllerBasedStatusBarAppearance'] = false
 info_plist['UIStatusBarStyle'] = 'UIStatusBarStyleLightContent'
 info_plist['CFBundleDisplayName'] = 'Sams Club Lounge'
+info_plist['CFBundleDevelopmentRegion'] = 'de'
+info_plist['CFBundleLocalizations'] = ['de']
 info_plist['NSCameraUsageDescription'] = 'Die Kamera wird ausschließlich zum Scannen der QR-Mitgliedskarte verwendet.'
 # The app only relies on exempt encryption provided by Apple frameworks,
 # such as HTTPS/TLS connections. This prevents repeated export-compliance

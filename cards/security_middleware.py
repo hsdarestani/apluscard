@@ -23,9 +23,10 @@ class SecurityHeadersMiddleware:
             "img-src 'self' data: blob: https://appleid.cdn-apple.com; "
             "font-src 'self' data:; "
             "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline' https://unpkg.com; "
             "connect-src 'self'; "
             "media-src 'self' blob:; "
+            "worker-src 'self' blob:; "
             "form-action 'self' https://appleid.apple.com"
         )
         if getattr(request, "user", None) and request.user.is_authenticated:

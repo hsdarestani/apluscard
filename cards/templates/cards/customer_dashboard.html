@@ -23,7 +23,7 @@
 
 <section class="location-strip location-strip-simple">
   <div><span class="eyebrow">Dein aktueller Standort</span><strong>{{ active_location.name|default:"Standort wählen" }}</strong>{% if active_location %}<small>{{ active_location.address|location_address_only }}</small>{% endif %}</div>
-  <a class="button secondary" href="{% url 'customer_location_select' %}?next={% url 'customer_dashboard' %}">Standort mit Bildern wechseln</a>
+  <a class="button secondary" href="{% url 'customer_location_select' %}?next={% url 'customer_dashboard' %}">Standort wechseln</a>
 </section>
 
 {% for payment in pending_payments %}

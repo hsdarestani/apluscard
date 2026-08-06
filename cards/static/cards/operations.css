@@ -1,0 +1,35 @@
+.broadcast-form .broadcast-body { grid-column: 1 / -1; }
+.broadcast-form textarea { min-height: 130px; }
+.destructive-tools { border-color: rgba(255,92,126,.24); }
+.destructive-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px; }
+.destructive-grid form { padding:18px;border:1px solid rgba(255,92,126,.18);border-radius:18px;background:rgba(255,70,105,.035); }
+.destructive-grid form > strong { font-size:14px; }
+.destructive-grid form > small { color:var(--muted);line-height:1.6; }
+.danger-button { border:1px solid rgba(255,88,120,.5);background:linear-gradient(135deg,#9b2448,#ef456e);color:#fff; }
+.compact-notification-panel .notification-list article { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:15px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line); }
+.compact-notification-panel .notification-list article:last-child { border-bottom:0; }
+.compact-notification-panel .notification-list article > div { display:grid;gap:4px;min-width:0; }
+.compact-notification-panel .notification-list strong { font-size:13px; }
+.compact-notification-panel .notification-list span { color:#f18ac8;font-size:10px; }
+.compact-notification-panel .notification-list small { color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.responsive-ledger-table tr[data-row-link] { cursor:pointer; }
+.responsive-ledger-table tr[data-row-link]:hover { background:rgba(255,255,255,.025); }
+
+@media(max-width:700px){
+  .destructive-grid { grid-template-columns:1fr; }
+  .broadcast-form .broadcast-body { grid-column:auto; }
+  .responsive-ledger-table { overflow:visible; }
+  .responsive-ledger-table table,
+  .responsive-ledger-table tbody,
+  .responsive-ledger-table tr,
+  .responsive-ledger-table td { display:block;width:100%; }
+  .responsive-ledger-table thead { display:none; }
+  .responsive-ledger-table tbody { display:grid;gap:12px; }
+  .responsive-ledger-table tr { padding:14px 15px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.025);box-shadow:0 12px 32px rgba(0,0,0,.18); }
+  .responsive-ledger-table td { display:grid;grid-template-columns:92px minmax(0,1fr);gap:10px;padding:7px 0!important;border:0!important;text-align:left!important;white-space:normal!important; }
+  .responsive-ledger-table td::before { content:attr(data-label);color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em; }
+  .responsive-ledger-table td[data-label="Beleg"] { padding-top:11px!important; }
+  .responsive-ledger-table td[data-label="Beleg"]::after { content:"Antippen, um Beleg zu öffnen";grid-column:2;color:#f18ac8;font-size:9px;margin-top:2px; }
+  .compact-notification-panel .notification-list article { grid-template-columns:1fr; }
+  .compact-notification-panel .notification-list form { justify-self:start; }
+}

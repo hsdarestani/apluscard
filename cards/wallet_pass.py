@@ -10,15 +10,17 @@ from cryptography.hazmat.primitives.serialization import pkcs12, pkcs7
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.urls import reverse
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from .branding import load_brand_icon
 
 
-DARK = (8, 5, 14, 255)
-PURPLE = (123, 45, 255, 255)
+DARK = (6, 3, 11, 255)
+DARK_PURPLE = (28, 7, 40, 255)
+PURPLE = (133, 38, 244, 255)
+PINK = (235, 47, 171, 255)
 GOLD = (220, 167, 80, 255)
-GOLD_LIGHT = (255, 211, 128, 255)
+GOLD_LIGHT = (255, 218, 148, 255)
 WHITE = (255, 255, 255, 255)
 
 
@@ -101,40 +103,47 @@ def _icon_image(size):
 
 
 def _logo_image(width, height):
-    """Keep the Wallet header compact: icon only; Wallet renders logoText itself."""
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    icon_size = min(width, height)
+    icon_size = min(height, 42 if height >= 42 else height)
     emblem = _icon_image(icon_size)
     image.alpha_composite(emblem, (0, round((height - icon_size) / 2)))
     return image
 
 
 def _strip_image(width, height):
-    """Decorative background only; Wallet lays its fields on top of this image."""
-    image = _vertical_gradient(width, height, (20, 10, 35, 255), DARK)
-    glow_radius = round(height * 0.95)
+    """Premium, quiet Wallet background with subtle SAMS light signatures."""
+    image = _vertical_gradient(width, height, DARK_PURPLE, DARK)
+
     glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     glow_draw = ImageDraw.Draw(glow)
     glow_draw.ellipse(
-        (-glow_radius // 2, -glow_radius // 2, glow_radius, glow_radius),
-        fill=(116, 38, 255, 150),
+        (-round(width * .20), -round(height * .85), round(width * .58), round(height * 1.55)),
+        fill=(139, 34, 244, 105),
     )
+    glow_draw.ellipse(
+        (round(width * .48), -round(height * .75), round(width * 1.10), round(height * 1.20)),
+        fill=(235, 47, 171, 55),
+    )
+    glow = glow.filter(ImageFilter.GaussianBlur(max(12, height // 7)))
     image = Image.alpha_composite(image, glow)
-    draw = ImageDraw.Draw(image)
 
-    for offset, alpha in ((0, 120), (8, 70), (16, 35)):
+    draw = ImageDraw.Draw(image)
+    line_width = max(2, height // 55)
+    for x_offset, alpha in ((0, 170), (10, 90), (21, 40)):
         draw.arc(
             (
-                round(width * 0.58) - offset,
-                -round(height * 0.70) - offset,
-                width + round(height * 0.55) + offset,
-                round(height * 1.55) + offset,
+                round(width * .62) - x_offset,
+                -round(height * .95) - x_offset,
+                width + round(height * .70) + x_offset,
+                round(height * 1.70) + x_offset,
             ),
-            start=110,
-            end=245,
+            start=112,
+            end=244,
             fill=(220, 167, 80, alpha),
-            width=max(1, height // 45),
+            width=line_width,
         )
+
+    draw.line((round(width * .07), height - 2, round(width * .93), height - 2), fill=(255, 255, 255, 20), width=1)
     return image
 
 
@@ -152,6 +161,7 @@ def _pass_files(wallet, request):
         "format": "PKBarcodeFormatQR",
         "message": str(wallet.qr_token),
         "messageEncoding": "iso-8859-1",
+        "altText": f"Mitglied {wallet.member_number}",
     }
     pass_json = {
         "formatVersion": 1,
@@ -160,10 +170,10 @@ def _pass_files(wallet, request):
         "teamIdentifier": settings.APPLE_WALLET_TEAM_ID,
         "organizationName": settings.APP_PUBLISHER,
         "description": "Digitale Sams Club Lounge Mitgliedskarte",
-        "logoText": "SCL",
+        "logoText": "SAMS CLUB LOUNGE",
         "foregroundColor": "rgb(255, 255, 255)",
-        "backgroundColor": "rgb(8, 5, 14)",
-        "labelColor": "rgb(255, 204, 112)",
+        "backgroundColor": "rgb(6, 3, 11)",
+        "labelColor": "rgb(255, 211, 128)",
         "sharingProhibited": True,
         "suppressStripShine": True,
         "barcodes": [barcode],
@@ -174,13 +184,14 @@ def _pass_files(wallet, request):
             ],
             "secondaryFields": [
                 {"key": "memberName", "label": "MITGLIED", "value": wallet.display_name},
-                {"key": "tier", "label": "STATUS", "value": wallet.get_tier_display()},
             ],
             "auxiliaryFields": [
+                {"key": "tier", "label": "STATUS", "value": wallet.get_tier_display()},
                 {"key": "validAt", "label": "GÜLTIG", "value": "Alle Standorte"},
             ],
             "backFields": [
                 {"key": "partner", "label": "SAMS Standorte", "value": "Sams Club Lounge · Sams Club Lounge CITY · DIMA Sportsbar"},
+                {"key": "balanceInfo", "label": "Aktuelles Guthaben", "value": f"{wallet.balance:.2f} €"},
                 {"key": "provider", "label": "Bereitgestellt von", "value": settings.APP_PUBLISHER},
                 {"key": "usage", "label": "Verwendung", "value": "Diese digitale Mitgliedskarte ist persönlich und nicht übertragbar."},
                 {"key": "support", "label": "Support", "value": settings.APP_SUPPORT_EMAIL},
@@ -195,8 +206,8 @@ def _pass_files(wallet, request):
         "icon.png": _png_bytes(_icon_image(29)),
         "icon@2x.png": _png_bytes(_icon_image(58)),
         "icon@3x.png": _png_bytes(_icon_image(87)),
-        "logo.png": _png_bytes(_logo_image(50, 50)),
-        "logo@2x.png": _png_bytes(_logo_image(100, 100)),
+        "logo.png": _png_bytes(_logo_image(160, 50)),
+        "logo@2x.png": _png_bytes(_logo_image(320, 100)),
         "strip.png": _png_bytes(_strip_image(375, 123)),
         "strip@2x.png": _png_bytes(_strip_image(750, 246)),
         "thumbnail.png": _png_bytes(_icon_image(90)),

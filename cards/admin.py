@@ -3,6 +3,7 @@ from django.contrib import admin
 from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
 from .legal_models import AccountDeletionRequest, LegalAcceptance, LegalConfiguration, PrivacyPreference
 from .models import AppNotification, AuditEvent, Business, BusinessSettings, LedgerEntry, Location, MemberProfile, Membership, Offer, PaymentRequest, PushDevice, ReviewStatus, Wallet
+from .push_models import PushDelivery
 
 
 @admin.register(Business)
@@ -134,7 +135,7 @@ class ReviewStatusAdmin(admin.ModelAdmin):
 
 @admin.register(AppNotification)
 class AppNotificationAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "recipient", "kind", "location", "is_read")
+    list_display = ("created_at", "recipient", "kind", "title", "location", "is_read")
     list_filter = ("kind", "is_read", "business", "location")
     search_fields = ("recipient__username", "title", "body")
 
@@ -144,6 +145,16 @@ class PushDeviceAdmin(admin.ModelAdmin):
     list_display = ("user", "platform", "is_active", "updated_at")
     list_filter = ("platform", "is_active")
     search_fields = ("user__username", "token")
+
+
+@admin.register(PushDelivery)
+class PushDeliveryAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "notification", "status", "attempts", "sent_count", "processed_at")
+    list_filter = ("status", "created_at")
+    search_fields = ("notification__recipient__username", "notification__title", "last_error")
+    readonly_fields = [field.name for field in PushDelivery._meta.fields]
+    def has_add_permission(self, request): return False
+    def has_change_permission(self, request, obj=None): return False
 
 
 @admin.register(AuditEvent)

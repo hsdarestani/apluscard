@@ -2,14 +2,14 @@
 {% load sams_de %}
 {% block title %}App-Einstellungen · SAMS Club Lounge{% endblock %}
 {% block content %}
-<section class="dashboard-head"><div><span class="eyebrow">SAMS-App-Verwaltung</span><h1>App und<br><span class="gradient-text">Inhaltsverwaltung</span></h1><p class="muted">A+ Pay, feste Trinkgeldbeträge, Treueprogramm, Standorte und Angebote steuern.</p></div><a class="button secondary" href="{% url 'manager_dashboard' %}">← Zur Übersicht</a></section>
+<section class="dashboard-head"><div><span class="eyebrow">SAMS-App-Verwaltung</span><h1>App und<br><span class="gradient-text">Inhaltsverwaltung</span></h1><p class="muted">Zahlungen, feste Trinkgeldbeträge, Treueprogramm, Standorte, Angebote und Mitteilungen steuern.</p></div><a class="button secondary" href="{% url 'manager_dashboard' %}">← Zur Übersicht</a></section>
 {% if is_owner %}
 <section class="panel settings-section">
   <div class="section-heading"><div><span class="eyebrow">Rechtliche Pflichtangaben</span><h2>AGB und Datenschutz</h2></div><a class="button secondary" href="{% url 'manager_legal' %}">Rechtliches verwalten</a></div>
   <p class="muted">Anbieterangaben, Datenschutzerklärung, AGB-Versionen, freiwillige Werbeeinwilligungen und Anträge auf Kontolöschung werden je App getrennt verwaltet.</p>
 </section>
 <section class="panel settings-section">
-  <div class="section-heading"><div><span class="eyebrow">A+ Pay</span><h2>Zahlung und Treueprogramm</h2></div></div>
+  <div class="section-heading"><div><span class="eyebrow">Zahlungssystem</span><h2>Zahlung und Treueprogramm</h2></div></div>
   <div class="platform-alert"><strong>Empfohlener Zahlungsfluss</strong><span>Der Rechnungsbetrag wird nach Abstimmung an der Kasse direkt abgebucht. Die Kundenbestätigung ist nur ein optionaler Ausnahmebetrieb. Reklamationen laufen über Beleg und Prüffall.</span></div>
   <form method="post" class="settings-grid settings-grid-polished">{% csrf_token %}<input type="hidden" name="action" value="settings">{% for field in settings_form %}<label class="{% if field.field.widget.input_type == 'checkbox' %}setting-check{% else %}setting-field{% endif %}">{% if field.field.widget.input_type == 'checkbox' %}{{ field }}<span><strong>{{ field.label }}</strong><small>{% if field.name == 'require_customer_confirmation' %}Nur einschalten, wenn jede Zahlung erst vom Kunden bestätigt werden soll.{% elif field.name == 'offer_scheduling_enabled' %}Beginn und Ende bleiben im Angebotsformular trotzdem optional verfügbar.{% else %}Diese Funktion für die App aktivieren oder deaktivieren.{% endif %}</small></span>{% else %}<span>{{ field.label }}</span>{{ field }}{% endif %}{{ field.errors }}</label>{% endfor %}<button class="button primary" type="submit">Einstellungen speichern</button></form>
   <p class="form-note">Trinkgeldoptionen sind feste Eurobeträge, zum Beispiel 0 €, 2 €, 5 € und 10 €. Standardstufen: Silber bis 499,99 € monatliche Aufladung, Gold ab 500 € und Platin ab 700 €.</p>
@@ -22,6 +22,18 @@
 </section>
 {% endif %}
 {% if can_manage_content %}
+<section class="panel settings-section">
+  <div class="section-heading"><div><span class="eyebrow">Push und In-App</span><h2>Mitteilung an Mitglieder senden</h2></div></div>
+  <p class="muted">Die Nachricht erscheint sofort im persönlichen Posteingang. Auf registrierten iOS- und Android-Geräten wird sie zusätzlich als Push gesendet.</p>
+  <form method="post" action="{% url 'manager_broadcast_notification' %}" class="settings-grid broadcast-form">{% csrf_token %}
+    <label class="setting-field"><span>Titel</span><input type="text" name="title" maxlength="160" placeholder="Zum Beispiel: Heute Live-Musik" required></label>
+    <label class="setting-field"><span>Zielgruppe</span><select name="target"><option value="ALL">Alle aktiven Mitglieder</option><option value="SILVER">Nur Silber</option><option value="GOLD">Nur Gold</option><option value="PLATINUM">Nur Platin</option></select></label>
+    <label class="setting-field"><span>Art</span><select name="kind"><option value="SYSTEM">Allgemeine Mitteilung</option><option value="OFFER">Angebot</option><option value="PAYMENT">Zahlungshinweis</option><option value="BIRTHDAY">Geburtstag</option></select></label>
+    <label class="setting-field"><span>Interner Link (optional)</span><input type="text" name="target_url" placeholder="/customer/#offers"></label>
+    <label class="setting-field broadcast-body"><span>Inhalt</span><textarea name="body" rows="5" maxlength="2000" placeholder="Beliebiger Text oder wichtige Information für die Mitglieder" required></textarea></label>
+    <button class="button primary" type="submit">An alle ausgewählten Mitglieder senden</button>
+  </form>
+</section>
 <section class="panel settings-section">
   <div class="section-heading"><div><span class="eyebrow">Inhaltsverwaltung</span><h2>Angebot veröffentlichen</h2></div></div>
   <p class="muted">Beginn und Ende sind optional. Ohne Zeitraum wird das Angebot direkt veröffentlicht und bleibt aktiv, bis es deaktiviert wird.</p>

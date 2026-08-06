@@ -1,12 +1,12 @@
-# A+ Card – Store-Metadaten (Deutsch)
+# Sams Club Lounge – Store-Metadaten (Deutsch)
 
 ## Öffentliche Identität
 
-- **App-Name:** A+ Card
-- **Entwickler / Publisher:** A+Solution GmbH
+- **App-Name:** Sams Club Lounge
+- **Entwickler / Publisher:** A+ Solution GmbH
 - **Support-E-Mail:** app@aplus-solution.de
-- **Android Package Name:** `de.aplussolution.apluscard`
-- **iOS Bundle ID:** `de.aplussolution.apluscard`
+- **Android Package Name:** `de.aplussolution.samscard`
+- **iOS Bundle ID:** `de.aplussolution.samscard`
 - **Kategorie:** Lifestyle
 - **Preis:** Kostenlos
 - **Zielgruppe:** Erwachsene / nicht für Kinder konzipiert
@@ -15,7 +15,7 @@
 
 ### App-Titel
 
-A+ Card
+Sams Club Lounge
 
 ### Kurzbeschreibung
 
@@ -23,26 +23,26 @@ Digitale Mitgliedskarte mit QR-Code, Guthaben, Transaktionen und Angeboten.
 
 ### Vollständige Beschreibung
 
-Mit A+ Card hast du deine digitale Mitgliedskarte immer dabei.
+Mit Sams Club Lounge hast du deine digitale Mitgliedskarte immer dabei.
 
-Die App verbindet dich mit teilnehmenden A+ Partnerstandorten und stellt wichtige Mitgliedsfunktionen übersichtlich an einem Ort bereit:
+Die App stellt wichtige Mitgliedsfunktionen übersichtlich an einem Ort bereit:
 
 - digitale Mitgliedskarte mit persönlichem QR-Code
 - aktueller Guthabenstand
 - transparente Transaktions- und Belegübersicht
-- Auswahl des gewünschten Standorts
+- Auswahl des gewünschten SAMS-Standorts
 - Mitteilungen zu Zahlungen, Aufladungen und Angeboten
 - Apple-Wallet-Unterstützung auf kompatiblen Geräten
 - Meldung und Nachverfolgung unklarer Transaktionen
 - Datenschutz-Einstellungen und digitaler Antrag auf Kontolöschung
 
-A+ Card wird von der A+Solution GmbH bereitgestellt. Die jeweiligen Leistungen, Standorte, Angebote und rechtlichen Angaben werden vom teilnehmenden Partner innerhalb der App ausgewiesen.
+Sams Club Lounge wird technisch von der A+ Solution GmbH bereitgestellt.
 
 Support: app@aplus-solution.de
 
-### Release Notes 1.0.0
+### Release Notes 1.0.2
 
-Erste Veröffentlichung von A+ Card mit digitaler Mitgliedskarte, QR-Code, Guthaben, Transaktionsübersicht, Standortauswahl, Mitteilungen und Support für Apple Wallet.
+Verbesserte Push-Mitteilungen, zuverlässiger QR-Scanner, optimierte mobile Transaktionsansicht, neue Mitteilungsfunktionen und überarbeitete Apple-Wallet-Karte.
 
 ## Apple App Store
 
@@ -52,11 +52,11 @@ Deine digitale Mitgliedskarte
 
 ### Promotional Text
 
-Mitgliedskarte, QR-Code, Guthaben und Mitteilungen – sicher und übersichtlich in A+ Card.
+Mitgliedskarte, QR-Code, Guthaben und Mitteilungen – sicher und übersichtlich in Sams Club Lounge.
 
 ### Beschreibung
 
-A+ Card ist deine digitale Mitgliedskarte für teilnehmende A+ Partnerstandorte.
+Sams Club Lounge ist deine digitale Mitgliedskarte für alle teilnehmenden SAMS-Standorte.
 
 Mit der App kannst du deinen persönlichen QR-Code vorzeigen, dein aktuelles Guthaben prüfen, Transaktionen und Belege einsehen, Mitteilungen erhalten und bei Rückfragen direkt einen Prüffall zu einer Transaktion eröffnen.
 
@@ -66,39 +66,26 @@ Funktionen:
 - QR-Code zur sicheren Zuordnung
 - Guthaben- und Statusübersicht
 - Transaktionshistorie und digitale Belege
-- Auswahl zwischen teilnehmenden Standorten
-- relevante In-App-Mitteilungen
+- Auswahl zwischen den SAMS-Standorten
+- relevante In-App- und Push-Mitteilungen
 - Apple-Wallet-Integration
 - Datenschutz- und Kontolöschungsfunktionen
-
-A+ Card wird von der A+Solution GmbH bereitgestellt.
 
 Support: app@aplus-solution.de
 
 ### Keywords
 
-Mitgliedskarte,Loyalty,QR Code,Guthaben,Wallet,Treuekarte,Member Card
+Mitgliedskarte,Loyalty,QR Code,Guthaben,Wallet,Treuekarte,Member Card,SAMS
 
-### Versionshinweise 1.0.0
+### Versionshinweise 1.0.2
 
-Erste Version von A+ Card.
+Push-Mitteilungen und QR-Scanner wurden zuverlässiger gemacht. Außerdem wurden die mobile Transaktionsansicht und die Apple-Wallet-Karte überarbeitet.
 
 ## Öffentliche URLs
 
-Bis zur Entscheidung über eine eigene A+ Subdomain:
-
-- **Website / App:** `https://cards.smarbiz.sbs/`
-- **Datenschutz:** `https://cards.smarbiz.sbs/datenschutz/`
-- **AGB:** `https://cards.smarbiz.sbs/agb/`
-- **Impressum:** `https://cards.smarbiz.sbs/impressum/`
-- **Kontolöschung:** `https://cards.smarbiz.sbs/datenschutz/konto-loeschen/`
+- **Website / App:** `https://app.samsclublounge.de/`
+- **Datenschutz:** `https://app.samsclublounge.de/datenschutz/`
+- **AGB:** `https://app.samsclublounge.de/agb/`
+- **Impressum:** `https://app.samsclublounge.de/impressum/`
+- **Kontolöschung:** `https://app.samsclublounge.de/datenschutz/konto-loeschen/`
 - **Support:** `mailto:app@aplus-solution.de`
-
-## Noch einzusetzen
-
-- Support-Telefonnummer, falls öffentlich gewünscht
-- finale Marketing-URL oder A+ Subdomain
-- finale Screenshots von Android und iPhone
-- Feature Graphic für Google Play
-- App-Store-Screenshots
-- finale juristische Prüfung der Texte und Unternehmensdaten

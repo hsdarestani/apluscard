@@ -3,7 +3,7 @@
 {% block title %}Zahlungskasse · SAMS Club Lounge{% endblock %}
 {% block content %}
 <section class="dashboard-head">
-  <div><span class="eyebrow">{{ membership.business.name }}</span><h1>A+ Pay<br><span class="gradient-text">Zahlungskasse</span></h1><p class="muted">Der abgestimmte Rechnungsbetrag wird direkt vom Mitgliedsguthaben abgebucht. Fehler können anschließend über einen Prüffall nachvollziehbar korrigiert werden.</p></div>
+  <div><span class="eyebrow">{{ membership.business.name }}</span><h1>Zahlungs-<br><span class="gradient-text">kasse</span></h1><p class="muted">Der abgestimmte Rechnungsbetrag wird direkt vom Mitgliedsguthaben abgebucht. Fehler können anschließend über einen Prüffall nachvollziehbar korrigiert werden.</p></div>
   <div class="dashboard-context"><span class="vip-chip">{{ active_location.name|default:"Standort wählen" }}</span><span class="role-pill">{{ membership.role|sams_label }}</span><a class="button secondary small" href="{% url 'notification_center' %}">Mitteilungen</a><a class="button secondary small" href="{% url 'transaction_cases' %}">Transaktionen</a></div>
 </section>
 <section class="location-strip">
@@ -14,10 +14,10 @@
   <article class="panel scan-panel">
     <div class="section-heading"><div><span class="eyebrow">Zahlung</span><h2>Mitgliedskarte scannen</h2></div><button class="button secondary small" type="button" id="start-scanner">Kamera starten</button></div>
     <div id="reader" class="scanner-box"><div class="scanner-placeholder"><strong>⌁</strong>QR-Code in den Rahmen halten<br><span>oder Kartencode manuell eingeben</span></div></div>
-    <p class="form-note">Die Kamera läuft nur während des Scanvorgangs und wird danach vollständig beendet.</p>
+    <p class="form-note" id="scanner-status">Die Kamera läuft nur während des Scanvorgangs und wird danach vollständig beendet.</p>
     <form method="post" action="{% url 'staff_charge' %}" class="stack-form" id="charge-form">{% csrf_token %}
       <input type="hidden" name="location_id" value="{{ active_location.id }}">
-      <label>Kartencode<input id="wallet-token" type="text" name="wallet_token" placeholder="Code aus der Mitgliedskarte" required></label>
+      <label>Kartencode<input id="wallet-token" type="text" name="wallet_token" placeholder="Code aus der Mitgliedskarte" autocomplete="off" required></label>
       <div class="two-col"><label>Betrag (€)<input type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="30.00" required></label><label>Bestellnummer<input type="text" name="order_reference" placeholder="KASSE-12345"></label></div>
       <label>Bestellung oder Beschreibung<input type="text" name="description" placeholder="Zum Beispiel: Bestellung laut Kasse"></label>
       <fieldset class="tip-fieldset"><legend>Trinkgeld als fester Betrag</legend><p class="form-note">Den Kunden vor der Abbuchung fragen. Ein fester Eurobetrag ist transparenter als eine Prozentrechnung.</p><div class="tip-radio-grid">{% for tip in tip_choices %}<label><input type="radio" name="tip_amount" value="{{ tip.value }}" {% if forloop.first %}checked{% endif %}><span>{{ tip.label }}</span></label>{% endfor %}</div></fieldset>
@@ -37,33 +37,32 @@
 </section>
 {% endblock %}
 {% block scripts %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function(){
   const button=document.getElementById('start-scanner');
   const input=document.getElementById('wallet-token');
-  let scanner=null,loading=false;
-  const stop=async()=>{try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}scanner=null;button.disabled=false;};
-  const loadLibrary=()=>new Promise((resolve,reject)=>{
-    if(window.Html5Qrcode)return resolve();
-    if(loading)return document.addEventListener('sams-scanner-ready',resolve,{once:true});
-    loading=true;
-    const script=document.createElement('script');
-    script.src='https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
-    script.onload=()=>{loading=false;document.dispatchEvent(new Event('sams-scanner-ready'));resolve();};
-    script.onerror=()=>reject(new Error('load'));
-    document.head.appendChild(script);
-  });
+  const status=document.getElementById('scanner-status');
+  let scanner=null,handled=false;
+  const stop=async()=>{try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}scanner=null;handled=false;button.disabled=false;};
   button?.addEventListener('click',async()=>{
-    button.disabled=true;
+    button.disabled=true;status.textContent='Kamera wird geöffnet …';
+    if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Bitte Internetverbindung prüfen oder Kartencode manuell eingeben.';button.disabled=false;return;}
     try{
-      await loadLibrary();
       scanner=new Html5Qrcode('reader');
-      await scanner.start({facingMode:'environment'},{fps:5,qrbox:210,aspectRatio:1},async text=>{
+      await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:230,height:230},aspectRatio:1},async text=>{
+        if(handled)return;handled=true;
         const match=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
-        input.value=match?match[0]:String(text).trim();
-        await stop();input.focus();
-      });
-    }catch(e){await stop();alert('Kamera konnte nicht gestartet werden.');}
+        if(!match){handled=false;status.textContent='Kein gültiger Mitgliedscode erkannt. Bitte QR-Code erneut ausrichten.';return;}
+        input.value=match[0];status.textContent='Mitgliedskarte erkannt.';await stop();input.focus();
+      },()=>{});
+      status.textContent='QR-Code in den Rahmen halten.';
+    }catch(e){
+      console.error('SAMS scanner error',e);
+      const denied=String(e?.name||e).toLowerCase().includes('notallowed')||String(e).toLowerCase().includes('permission');
+      status.textContent=denied?'Kamerazugriff wurde verweigert. Bitte in den Geräteeinstellungen für Sams Club Lounge erlauben.':'Kamera konnte nicht gestartet werden. Bitte App neu öffnen oder Kartencode manuell eingeben.';
+      await stop();
+    }
   });
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   window.addEventListener('pagehide',stop);
