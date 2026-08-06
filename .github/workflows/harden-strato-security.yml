@@ -70,4 +70,4 @@ jobs:
           ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" \
             -o BatchMode=yes -o PasswordAuthentication=no \
             "$SSH_USER@$SSH_HOST" \
-            'sshd -t && jq -e '\'' .status == "success" '\'' /var/lib/apluscard-security/last-hardening.json >/dev/null && echo hardened-key-login-ok'
+            "sshd -t && jq -e '.status == \"success\"' /var/lib/apluscard-security/last-hardening.json >/dev/null && echo hardened-key-login-ok"
