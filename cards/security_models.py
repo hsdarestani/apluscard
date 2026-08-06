@@ -84,6 +84,7 @@ class PrivilegedMfaDevice(models.Model):
             update_fields=[
                 "is_confirmed",
                 "confirmed_at",
+                "last_counter",
                 "recovery_code_hashes",
                 "updated_at",
             ]
