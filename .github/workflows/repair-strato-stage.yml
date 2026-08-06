@@ -1,0 +1,165 @@
+name: Complete STRATO Staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/repair-strato-stage.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-strato-stage
+  cancel-in-progress: false
+
+jobs:
+  complete:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Complete STRATO staging'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      STAGE_DOMAIN: new-app.samsclublounge.de
+
+    steps:
+      - name: SSH-Zugang einrichten
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H "$NEW_HOST" > ~/.ssh/known_hosts
+
+      - name: Datenrestore abschließen und Anwendung starten
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" \
+            "STAGE_DOMAIN='$STAGE_DOMAIN' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          APP_DIR=/root/apluscard
+          MIGRATION_DIR=/root/sams-migration
+          cd "$APP_DIR"
+          test -s .env
+          test -s "$MIGRATION_DIR/database.dump"
+          test -s "$MIGRATION_DIR/media.tar.gz"
+
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          docker compose up -d db
+          ready=0
+          for attempt in $(seq 1 60); do
+            if docker compose exec -T db sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' </dev/null >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1 || { docker compose logs --tail=200 db; exit 1; }
+
+          docker compose exec -T db sh -lc \
+            'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges' \
+            < "$MIGRATION_DIR/database.dump" || {
+              echo "pg_restore returned warnings; validating restored schema."
+              docker compose exec -T db sh -lc \
+                'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select count(*) from django_migrations"' \
+                </dev/null | grep -Eq '^[1-9][0-9]*$'
+            }
+
+          docker compose build web push-worker
+          docker compose run --rm -T --no-deps --entrypoint sh web -lc \
+            'find /app/media -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xzf - -C /app/media' \
+            < "$MIGRATION_DIR/media.tar.gz"
+          docker compose up -d --build --remove-orphans
+
+          healthy=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" -eq 1 || { docker compose ps; docker compose logs --tail=250 web; exit 1; }
+
+          cat > "/etc/nginx/sites-available/$STAGE_DOMAIN" <<NGINX
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name $STAGE_DOMAIN;
+              client_max_body_size 12m;
+              location / {
+                  proxy_pass http://127.0.0.1:8010;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_read_timeout 60s;
+              }
+          }
+          NGINX
+          ln -sfn "/etc/nginx/sites-available/$STAGE_DOMAIN" "/etc/nginx/sites-enabled/$STAGE_DOMAIN"
+          rm -f /etc/nginx/sites-enabled/default
+          nginx -t
+          systemctl reload nginx
+
+          RESOLVED_IP="$(getent ahostsv4 "$STAGE_DOMAIN" | awk 'NR==1 {print $1}' || true)"
+          echo "Resolved stage IP: ${RESOLVED_IP:-none}"
+          if [ -n "$RESOLVED_IP" ]; then
+            if [ ! -d "/etc/letsencrypt/live/$STAGE_DOMAIN" ]; then
+              certbot --nginx --domain "$STAGE_DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect
+            fi
+            nginx -t
+            systemctl reload nginx
+          else
+            echo "Stage DNS is not visible yet; HTTPS certificate issuance is postponed."
+          fi
+
+          docker compose exec -T web python manage.py migrate --noinput </dev/null
+          docker compose exec -T web python manage.py check </dev/null
+          docker compose exec -T web python - <<'PY' </dev/null
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.contrib.auth import get_user_model
+          from cards.models import Wallet, LedgerEntry, PushDevice
+          print({
+              "users": get_user_model().objects.count(),
+              "wallets": Wallet.objects.count(),
+              "ledger_entries": LedgerEntry.objects.count(),
+              "push_devices": PushDevice.objects.count(),
+          })
+          PY
+          docker compose ps
+          REMOTE
+
+      - name: Nginx direkt über STRATO-IP prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            --resolve "$STAGE_DOMAIN:80:$NEW_HOST" \
+            "http://$STAGE_DOMAIN/health/" >/dev/null
+          echo "STRATO application and HTTP reverse proxy are healthy."
+
+      - name: Öffentlichen DNS/HTTPS-Status ausgeben
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y dnsutils >/dev/null
+          echo "Cloudflare DNS via 1.1.1.1:"
+          dig +short A "$STAGE_DOMAIN" @1.1.1.1 || true
+          if curl --fail --silent --show-error --max-time 30 "https://$STAGE_DOMAIN/health/" >/dev/null; then
+            echo "Public HTTPS stage is healthy."
+          else
+            echo "Application is ready on STRATO, but public DNS/HTTPS still needs to become visible."
+          fi
