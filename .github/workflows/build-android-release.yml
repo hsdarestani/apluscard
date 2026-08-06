@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: Sichtbare App-Version, z. B. 1.0.1
+        description: Sichtbare App-Version, z. B. 1.0.2
         required: true
-        default: "1.0.1"
+        default: "1.0.2"
         type: string
       version_code:
         description: Eindeutiger, bei jedem Upload höherer Versionscode
         required: true
-        default: "2"
+        default: "3"
         type: string
 
 permissions:
@@ -73,6 +73,17 @@ jobs:
           npx cap add android
           npx cap sync android
           npm run assets:android
+
+      - name: Kamera-Berechtigung für QR-Scanner eintragen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          MANIFEST="mobile/android/app/src/main/AndroidManifest.xml"
+          test -f "$MANIFEST"
+          if ! grep -q 'android.permission.CAMERA' "$MANIFEST"; then
+            sed -i '/<manifest/a\    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera.any" android:required="false" />' "$MANIFEST"
+          fi
+          grep -q 'android.permission.CAMERA' "$MANIFEST"
 
       - name: Firebase- und Signing-Dateien sicher bereitstellen
         shell: bash
