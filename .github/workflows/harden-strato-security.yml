@@ -1,0 +1,73 @@
+name: Harden STRATO Security
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apluscard-production
+  cancel-in-progress: false
+
+jobs:
+  harden:
+    name: Harden SSH, firewall, audit and automatic updates
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate production target and SSH key
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71" || {
+            echo "Unexpected host: $SSH_HOST"
+            exit 1
+          }
+          test -n "$SSH_PRIVATE_KEY" || {
+            echo "HETZNER_SSH_PRIVATE_KEY is missing"
+            exit 1
+          }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify key login before disabling password authentication
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" \
+            -o BatchMode=yes -o PasswordAuthentication=no \
+            "$SSH_USER@$SSH_HOST" 'test "$(id -u)" = 0 && echo key-login-ok'
+
+      - name: Install and apply host hardening
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod 700 ops/security/harden-strato.sh
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" \
+            ops/security/harden-strato.sh \
+            "$SSH_USER@$SSH_HOST:/root/harden-strato.sh"
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "EXPECTED_HOST='$SSH_HOST' SSH_PORT='$SSH_PORT' APP_DIR='$APP_DIR' bash /root/harden-strato.sh"
+
+      - name: Prove a fresh key-only SSH session still works
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" \
+            -o BatchMode=yes -o PasswordAuthentication=no \
+            "$SSH_USER@$SSH_HOST" \
+            'sshd -t && jq -e '\'' .status == "success" '\'' /var/lib/apluscard-security/last-hardening.json >/dev/null && echo hardened-key-login-ok'
