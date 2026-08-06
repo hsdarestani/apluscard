@@ -227,13 +227,6 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
-            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
-            PRODUCT_BUNDLE_IDENTIFIER="$IOS_BUNDLE_ID" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY='Apple Distribution' \
-            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROVISIONING_PROFILE_NAME" \
-            MARKETING_VERSION="$IOS_VERSION_NAME" \
-            CURRENT_PROJECT_VERSION="$IOS_BUILD_NUMBER" \
             archive
 
       - name: IPA für App Store Connect exportieren
