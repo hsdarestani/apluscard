@@ -1,0 +1,349 @@
+name: Stage STRATO Migration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/migrate-strato-stage.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-strato-stage
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Stage STRATO migration'
+    name: Clone production to new-app on STRATO
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PORT: "22"
+      NEW_USER: root
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+      STAGE_DOMAIN: new-app.samsclublounge.de
+      FINAL_DOMAIN: app.samsclublounge.de
+      LEGACY_DOMAIN: cards.smarbiz.sbs
+      APPLE_CLIENT_ID_INPUT: ${{ secrets.APPLE_CLIENT_ID }}
+      APPLE_KEY_ID_INPUT: ${{ secrets.APPLE_KEY_ID }}
+      APPLE_TEAM_ID_INPUT: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_PRIVATE_KEY_INPUT: ${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
+      APNS_KEY_ID_INPUT: ${{ secrets.APNS_KEY_ID }}
+      APNS_TEAM_ID_INPUT: ${{ secrets.APNS_TEAM_ID }}
+      APNS_PRIVATE_KEY_INPUT: ${{ secrets.APNS_PRIVATE_KEY_BASE64 }}
+      FIREBASE_PROJECT_ID_INPUT: ${{ secrets.FIREBASE_PROJECT_ID }}
+      FIREBASE_SERVICE_ACCOUNT_INPUT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 }}
+      APPLE_WALLET_PASS_TYPE_ID_INPUT: ${{ secrets.APPLE_WALLET_PASS_TYPE_ID }}
+      APPLE_WALLET_TEAM_ID_INPUT: ${{ secrets.APPLE_WALLET_TEAM_ID }}
+      APPLE_WALLET_P12_INPUT: ${{ secrets.APPLE_WALLET_P12_BASE64 }}
+      APPLE_WALLET_P12_PASSWORD_INPUT: ${{ secrets.APPLE_WALLET_P12_PASSWORD }}
+      APPLE_WALLET_WWDR_INPUT: ${{ secrets.APPLE_WALLET_WWDR_CERT_BASE64 }}
+      EMAIL_SMTP_PASSWORD_INPUT: ${{ secrets.EMAIL_SMTP_PASSWORD }}
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Migrationszugänge prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${OLD_HOST:?HETZNER_HOST fehlt}"
+          : "${OLD_PASSWORD:?HETZNER_PASSWORD fehlt}"
+          : "${NEW_HOST:?NEWHOST fehlt}"
+          : "${NEW_PRIVATE_KEY:?HETZNER_SSH_PRIVATE_KEY fehlt}"
+          test "$APPLE_TEAM_ID_INPUT" = "884MVA2MD5" || { echo "APPLE_TEAM_ID gehört nicht zu A+ Solution GmbH."; exit 1; }
+          test "$APNS_TEAM_ID_INPUT" = "884MVA2MD5" || { echo "APNS_TEAM_ID gehört nicht zu A+ Solution GmbH."; exit 1; }
+          test "$APPLE_WALLET_TEAM_ID_INPUT" = "884MVA2MD5" || { echo "APPLE_WALLET_TEAM_ID gehört nicht zu A+ Solution GmbH."; exit 1; }
+
+      - name: SSH-Werkzeuge einrichten
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H -p "$NEW_PORT" "$NEW_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Neue Apple- und Push-Konfiguration sicher verpacken
+        id: payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAYLOAD="$RUNNER_TEMP/strato-runtime-secrets.json"
+          export PAYLOAD
+          python3 - <<'PY'
+          import json, os
+          names = {
+              "APPLE_CLIENT_ID": "APPLE_CLIENT_ID_INPUT",
+              "APPLE_KEY_ID": "APPLE_KEY_ID_INPUT",
+              "APPLE_TEAM_ID": "APPLE_TEAM_ID_INPUT",
+              "APPLE_PRIVATE_KEY_BASE64": "APPLE_PRIVATE_KEY_INPUT",
+              "APNS_KEY_ID": "APNS_KEY_ID_INPUT",
+              "APNS_TEAM_ID": "APNS_TEAM_ID_INPUT",
+              "APNS_PRIVATE_KEY_BASE64": "APNS_PRIVATE_KEY_INPUT",
+              "FIREBASE_PROJECT_ID": "FIREBASE_PROJECT_ID_INPUT",
+              "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64": "FIREBASE_SERVICE_ACCOUNT_INPUT",
+              "APPLE_WALLET_PASS_TYPE_ID": "APPLE_WALLET_PASS_TYPE_ID_INPUT",
+              "APPLE_WALLET_TEAM_ID": "APPLE_WALLET_TEAM_ID_INPUT",
+              "APPLE_WALLET_P12_BASE64": "APPLE_WALLET_P12_INPUT",
+              "APPLE_WALLET_P12_PASSWORD": "APPLE_WALLET_P12_PASSWORD_INPUT",
+              "APPLE_WALLET_WWDR_CERT_BASE64": "APPLE_WALLET_WWDR_INPUT",
+              "EMAIL_HOST_PASSWORD": "EMAIL_SMTP_PASSWORD_INPUT",
+          }
+          payload = {target: os.environ.get(source, "") for target, source in names.items()}
+          required = [
+              "APPLE_CLIENT_ID", "APPLE_KEY_ID", "APPLE_TEAM_ID", "APPLE_PRIVATE_KEY_BASE64",
+              "APNS_KEY_ID", "APNS_TEAM_ID", "APNS_PRIVATE_KEY_BASE64",
+              "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64", "APPLE_WALLET_PASS_TYPE_ID",
+              "APPLE_WALLET_TEAM_ID", "APPLE_WALLET_P12_BASE64", "APPLE_WALLET_WWDR_CERT_BASE64",
+          ]
+          missing = [name for name in required if not payload.get(name)]
+          if missing:
+              raise SystemExit("Fehlende Runtime-Secrets: " + ", ".join(missing))
+          with open(os.environ["PAYLOAD"], "w", encoding="utf-8") as handle:
+              json.dump(payload, handle)
+          os.chmod(os.environ["PAYLOAD"], 0o600)
+          PY
+          echo "file=$PAYLOAD" >> "$GITHUB_OUTPUT"
+
+      - name: Konsistenten Produktions-Snapshot erstellen
+        id: snapshot
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          SNAPSHOT_DIR="$RUNNER_TEMP/sams-production-snapshot"
+          mkdir -p "$SNAPSHOT_DIR"
+          chmod 700 "$SNAPSHOT_DIR"
+
+          sshpass -e scp -P "${OLD_PORT:-22}" \
+            "$OLD_USER@$OLD_HOST:$APP_DIR/.env" "$SNAPSHOT_DIR/production.env"
+          sshpass -e scp -P "${OLD_PORT:-22}" \
+            "$OLD_USER@$OLD_HOST:$APP_DIR/.initial-credentials" "$SNAPSHOT_DIR/initial-credentials" 2>/dev/null || true
+
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "cd '$APP_DIR' && docker compose exec -T db sh -lc 'pg_dump -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Fc'" \
+            > "$SNAPSHOT_DIR/database.dump"
+
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "cd '$APP_DIR' && docker compose exec -T web tar -C /app/media -czf - ." \
+            > "$SNAPSHOT_DIR/media.tar.gz"
+
+          test -s "$SNAPSHOT_DIR/production.env"
+          test -s "$SNAPSHOT_DIR/database.dump"
+          test -s "$SNAPSHOT_DIR/media.tar.gz"
+          sha256sum "$SNAPSHOT_DIR/database.dump" "$SNAPSHOT_DIR/media.tar.gz"
+          echo "dir=$SNAPSHOT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: STRATO-Grundsystem installieren
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y git curl ca-certificates nginx certbot python3-certbot-nginx rsync docker.io
+          if ! docker compose version >/dev/null 2>&1; then
+            apt-get install -y docker-compose-v2 || apt-get install -y docker-compose-plugin
+          fi
+          systemctl enable --now docker nginx
+          mkdir -p "$APP_DIR" /root/sams-migration
+          chmod 700 /root/sams-migration
+          if command -v ufw >/dev/null 2>&1; then
+            ufw allow OpenSSH || true
+            ufw allow 'Nginx Full' || true
+          fi
+          REMOTE
+
+      - name: Snapshot und Secrets zu STRATO übertragen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scp -i ~/.ssh/strato_sams -P "$NEW_PORT" \
+            "${{ steps.snapshot.outputs.dir }}/production.env" \
+            "${{ steps.snapshot.outputs.dir }}/database.dump" \
+            "${{ steps.snapshot.outputs.dir }}/media.tar.gz" \
+            "${{ steps.payload.outputs.file }}" \
+            "$NEW_USER@$NEW_HOST:/root/sams-migration/"
+          if [ -s "${{ steps.snapshot.outputs.dir }}/initial-credentials" ]; then
+            scp -i ~/.ssh/strato_sams -P "$NEW_PORT" \
+              "${{ steps.snapshot.outputs.dir }}/initial-credentials" \
+              "$NEW_USER@$NEW_HOST:/root/sams-migration/"
+          fi
+
+      - name: Daten auf STRATO wiederherstellen und new-app aktivieren
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" \
+            "APP_DIR='$APP_DIR' STAGE_DOMAIN='$STAGE_DOMAIN' FINAL_DOMAIN='$FINAL_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' NEW_HOST='$NEW_HOST' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          MIGRATION_DIR=/root/sams-migration
+          cd "$APP_DIR"
+
+          if [ ! -d .git ]; then
+            git clone https://github.com/hsdarestani/apluscard.git "$APP_DIR"
+            cd "$APP_DIR"
+          fi
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          install -m 600 "$MIGRATION_DIR/production.env" .env
+          if [ -s "$MIGRATION_DIR/initial-credentials" ]; then
+            install -m 600 "$MIGRATION_DIR/initial-credentials" .initial-credentials
+          fi
+
+          export APP_DIR STAGE_DOMAIN FINAL_DOMAIN LEGACY_DOMAIN NEW_HOST
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          env_path = Path(os.environ["APP_DIR"]) / ".env"
+          runtime_path = Path("/root/sams-migration/strato-runtime-secrets.json")
+          values = {}
+          order = []
+          for raw in env_path.read_text(encoding="utf-8").splitlines():
+              line = raw.strip()
+              if not line or line.startswith("#") or "=" not in raw:
+                  continue
+              key, value = raw.split("=", 1)
+              key = key.strip()
+              if key not in values:
+                  order.append(key)
+              values[key] = value
+          values.update(json.loads(runtime_path.read_text(encoding="utf-8")))
+          stage = os.environ["STAGE_DOMAIN"]
+          final = os.environ["FINAL_DOMAIN"]
+          legacy = os.environ["LEGACY_DOMAIN"]
+          new_host = os.environ["NEW_HOST"]
+          overrides = {
+              "DJANGO_DEBUG": "0",
+              "DJANGO_ALLOWED_HOSTS": f"{stage},{final},{legacy},{new_host},localhost,127.0.0.1",
+              "DJANGO_CSRF_TRUSTED_ORIGINS": f"https://{stage},https://{final},https://{legacy}",
+              "DJANGO_TIME_ZONE": "Europe/Berlin",
+              "DJANGO_SECURE_COOKIES": "1",
+              "DJANGO_HSTS_SECONDS": "31536000",
+              "DEFAULT_BUSINESS_SLUG": "shisha-bar",
+              "APP_NAME": "Sams Club Lounge",
+              "APP_SHORT_NAME": "Sams Lounge",
+              "APP_PUBLISHER": "A+ Solution GmbH",
+              "APP_PUBLIC_BASE_URL": f"https://{stage}",
+              "ANDROID_PACKAGE_NAME": "de.aplussolution.samscard",
+              "IOS_BUNDLE_ID": "de.aplussolution.samscard",
+              "IOS_APP_TEAM_ID": "884MVA2MD5",
+              "APPLE_BUNDLE_ID": "de.aplussolution.samscard",
+              "APPLE_REDIRECT_URI": f"https://{stage}/accounts/apple/callback/",
+              "PUSH_NOTIFICATIONS_ENABLED": "0",
+              "APNS_USE_SANDBOX": "0",
+          }
+          values.update(overrides)
+          for key in list(values):
+              if key not in order:
+                  order.append(key)
+          env_path.write_text("".join(f"{key}={values[key]}\n" for key in order), encoding="utf-8")
+          os.chmod(env_path, 0o600)
+          PY
+
+          docker compose down --remove-orphans || true
+          docker compose up -d db
+          for attempt in $(seq 1 60); do
+            docker compose exec -T db sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker compose exec -T db sh -lc 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
+          cat "$MIGRATION_DIR/database.dump" | docker compose exec -T db sh -lc \
+            'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges' || {
+              echo "pg_restore meldete Fehler; Datenbankstatus wird geprüft."
+              docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) from django_migrations;"'
+            }
+
+          docker compose build web push-worker
+          cat "$MIGRATION_DIR/media.tar.gz" | docker compose run --rm -T --no-deps --entrypoint sh web -lc \
+            'find /app/media -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xzf - -C /app/media'
+          docker compose up -d --build --remove-orphans
+
+          healthy=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" -eq 1 || { docker compose ps; docker compose logs --tail=250 web; exit 1; }
+
+          cat > "/etc/nginx/sites-available/$STAGE_DOMAIN" <<NGINX
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name $STAGE_DOMAIN;
+              client_max_body_size 12m;
+              location / {
+                  proxy_pass http://127.0.0.1:8010;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_read_timeout 60s;
+              }
+          }
+          NGINX
+          ln -sfn "/etc/nginx/sites-available/$STAGE_DOMAIN" "/etc/nginx/sites-enabled/$STAGE_DOMAIN"
+          rm -f /etc/nginx/sites-enabled/default
+          nginx -t
+          systemctl reload nginx
+
+          if [ ! -d "/etc/letsencrypt/live/$STAGE_DOMAIN" ]; then
+            certbot --nginx --domain "$STAGE_DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect
+          fi
+          nginx -t
+          systemctl reload nginx
+
+          docker compose exec -T web python manage.py migrate --noinput
+          docker compose exec -T web python manage.py check --deploy
+          curl --fail --silent --show-error "https://$STAGE_DOMAIN/health/" >/dev/null
+
+          docker compose exec -T web python - <<'PY'
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.contrib.auth import get_user_model
+          from cards.models import Wallet, LedgerEntry, PushDevice
+          print({
+              "users": get_user_model().objects.count(),
+              "wallets": Wallet.objects.count(),
+              "ledger_entries": LedgerEntry.objects.count(),
+              "push_devices": PushDevice.objects.count(),
+          })
+          PY
+          echo "STRATO staging is healthy at https://$STAGE_DOMAIN"
+          REMOTE
+
+      - name: Externen Stage-Endpunkt prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --max-time 30 "https://$STAGE_DOMAIN/health/" >/dev/null
+          curl --fail --silent --show-error --max-time 30 "https://$STAGE_DOMAIN/accounts/login/" >/dev/null
+          echo "STRATO stage deployment completed successfully. Push delivery remains disabled until final cutover."
