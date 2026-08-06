@@ -1,0 +1,87 @@
+name: Verify STRATO Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-strato-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-strato-production-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Verify STRATO production'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      FINAL_DOMAIN: app.samsclublounge.de
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$NEW_HOST" = "217.160.50.71"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H "$NEW_HOST" > ~/.ssh/known_hosts
+
+      - name: Verify STRATO runtime and origin TLS
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" \
+            "FINAL_DOMAIN='$FINAL_DOMAIN' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd /root/apluscard
+          grep -q '^APP_PUBLIC_BASE_URL=https://app.samsclublounge.de$' .env
+          grep -q '^APPLE_REDIRECT_URI=https://app.samsclublounge.de/accounts/apple/callback/$' .env
+          grep -q '^PUSH_NOTIFICATIONS_ENABLED=1$' .env
+          grep -q '^APNS_USE_SANDBOX=0$' .env
+          test -s /etc/letsencrypt/live/app.samsclublounge.de/fullchain.pem
+          test -s /etc/letsencrypt/live/app.samsclublounge.de/privkey.pem
+          nginx -t
+          docker compose up -d web push-worker
+          test "$(docker compose ps --status running -q web | wc -l)" -eq 1
+          test "$(docker compose ps --status running -q push-worker | wc -l)" -eq 1
+          curl --fail --silent --show-error \
+            --resolve "$FINAL_DOMAIN:443:127.0.0.1" \
+            "https://$FINAL_DOMAIN/health/" >/dev/null
+          docker compose exec -T web python manage.py check </dev/null
+          docker compose ps
+          REMOTE
+
+      - name: Verify public HTTPS route
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          success=0
+          for attempt in $(seq 1 40); do
+            headers="$RUNNER_TEMP/public-headers.txt"
+            if curl --fail --silent --show-error --max-time 20 \
+              -D "$headers" \
+              "https://$FINAL_DOMAIN/accounts/login/" \
+              -o /dev/null; then
+              if grep -qi '^X-SAMS-Origin: strato' "$headers"; then
+                success=1
+                break
+              fi
+            fi
+            sleep 5
+          done
+          test "$success" -eq 1 || {
+            cat "$RUNNER_TEMP/public-headers.txt" 2>/dev/null || true
+            exit 1
+          }
+          curl --fail --silent --show-error --max-time 20 "https://$FINAL_DOMAIN/health/" >/dev/null
+          echo "Public production is live on STRATO with HTTPS and push enabled."
