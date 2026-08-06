@@ -175,6 +175,7 @@ async function saveNativePushToken(token) {
   if (!response.ok) throw new Error(`Push device registration failed: ${response.status}`);
   localStorage.setItem('samsPushToken', token);
   localStorage.setItem('samsPushPlatform', platform);
+  localStorage.setItem('samsPushRegisteredAt', new Date().toISOString());
   return true;
 }
 
@@ -243,6 +244,7 @@ if (pushEnableButton && nativePushPlugin() && nativePlatform()) {
     if (pushStatus) pushStatus.textContent = 'Berechtigung wird geprüft …';
     try {
       const state = await enableNativePush({ requestPermission: true });
+      localStorage.setItem('samsPushPermissionPromptedV2', '1');
       if (state === 'denied') {
         if (pushStatus) pushStatus.textContent = 'Push wurde in den Geräteeinstellungen deaktiviert.';
       } else if (state === 'prompt') {
@@ -256,6 +258,37 @@ if (pushEnableButton && nativePushPlugin() && nativePlatform()) {
     } finally {
       pushEnableButton.disabled = false;
     }
+  });
+}
+
+async function bootstrapNativePush() {
+  const plugin = nativePushPlugin();
+  const platform = nativePlatform();
+  const endpoint = document.querySelector('meta[name="push-device-url"]')?.content;
+  if (!plugin || !platform || !endpoint) return;
+
+  try {
+    const permissions = await plugin.checkPermissions();
+    if (permissions.receive === 'granted') {
+      await enableNativePush();
+      return;
+    }
+    const alreadyPrompted = localStorage.getItem('samsPushPermissionPromptedV2') === '1';
+    if (permissions.receive === 'prompt' && !alreadyPrompted) {
+      localStorage.setItem('samsPushPermissionPromptedV2', '1');
+      await enableNativePush({ requestPermission: true });
+    }
+  } catch (error) {
+    console.error('Native push bootstrap failed', error);
+  }
+}
+
+if (nativePushPlugin() && nativePlatform()) {
+  window.addEventListener('load', () => {
+    window.setTimeout(bootstrapNativePush, 1200);
+  }, { once: true });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) bootstrapNativePush();
   });
 }
 
