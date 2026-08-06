@@ -161,7 +161,6 @@ def _pass_files(wallet, request):
         "format": "PKBarcodeFormatQR",
         "message": str(wallet.qr_token),
         "messageEncoding": "iso-8859-1",
-        "altText": f"Mitglied {wallet.member_number}",
     }
     pass_json = {
         "formatVersion": 1,
