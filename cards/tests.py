@@ -102,9 +102,11 @@ class PaymentConfirmationTests(PlatformMixin, TestCase):
         payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10", tip_amount="0")
         with self.assertRaises(PermissionDenied): finalize_payment_request(payment=payment, confirmed_by=self.owner, tip_amount="0")
 
-    def test_invalid_fixed_tip_option_is_rejected(self):
-        with self.assertRaises(ValidationError):
-            create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10", tip_amount="7")
+    def test_customer_entered_tip_is_accepted_with_cent_precision(self):
+        payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10", tip_amount="7.35")
+        payment.refresh_from_db(); self.wallet.refresh_from_db()
+        self.assertEqual(payment.tip_amount, Decimal("7.35"))
+        self.assertEqual(self.wallet.balance, Decimal("182.65"))
 
     def test_direct_payment_is_default_and_uses_euro_tip(self):
         payment = create_payment_request(wallet=self.wallet, location=self.location_1, actor=self.staff, amount="10", tip_amount="5")
@@ -181,15 +183,21 @@ class ManagerQrScanTests(PlatformMixin, TestCase):
         self.client.force_login(self.owner); response = self.client.get(reverse("manager_wallet_scan"), {"token": str(self.wallet.qr_token)}); self.assertRedirects(response, reverse("manager_wallet_detail", args=[self.wallet.pk]))
     def test_owner_cannot_open_wallet_from_another_business_by_scan(self):
         self.client.force_login(self.owner); response = self.client.get(reverse("manager_wallet_scan"), {"token": str(self.other_wallet.qr_token)}); self.assertRedirects(response, reverse("manager_dashboard"))
-    def test_staff_cannot_use_manager_scan(self):
-        self.client.force_login(self.staff); response = self.client.get(reverse("manager_wallet_scan"), {"token": str(self.wallet.qr_token)}); self.assertEqual(response.status_code, 403)
+    def test_staff_is_redirected_to_privacy_safe_checkout(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse("manager_wallet_scan"), {"token": str(self.wallet.qr_token)})
+        self.assertRedirects(response, reverse("staff_dashboard"))
 
 
 class BillAccessTests(PlatformMixin, TestCase):
     def setUp(self):
         self.create_platform(); self.entry = post_wallet_entry(wallet=self.wallet, location=self.location_1, entry_type=LedgerEntry.Type.TOPUP, amount="50.00", actor=self.owner, description="Cash top-up")
-    def test_customer_owner_and_staff_can_open_business_bill(self):
-        for user in (self.customer, self.owner, self.staff):
+    def test_customer_and_owner_can_open_business_bill(self):
+        for user in (self.customer, self.owner):
             self.client.force_login(user); response = self.client.get(reverse("bill_detail", args=[self.entry.pk])); self.assertEqual(response.status_code, 200); self.assertContains(response, self.entry.bill_number)
+    def test_staff_cannot_open_customer_bill(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse("bill_detail", args=[self.entry.pk]))
+        self.assertRedirects(response, reverse("staff_dashboard"))
     def test_unrelated_customer_cannot_open_bill(self):
         outsider = get_user_model().objects.create_user(username="outsider", password="test"); self.client.force_login(outsider); response = self.client.get(reverse("bill_detail", args=[self.entry.pk])); self.assertEqual(response.status_code, 403)
