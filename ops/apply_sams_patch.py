@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHUNKS = ROOT / "ops" / "patch_chunks"
+ORDER = ["part00", "part01", "part02", "part03", "part04", "part050", "part051", "part06", "part07"]
 
 
 def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
@@ -20,9 +21,10 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
 
 
 def main() -> None:
-    parts = sorted(CHUNKS.glob("part*"))
-    if not parts:
-        raise RuntimeError("Patch payload chunks are missing")
+    parts = [CHUNKS / name for name in ORDER]
+    missing = [part.name for part in parts if not part.exists()]
+    if missing:
+        raise RuntimeError(f"Patch payload chunks are missing: {', '.join(missing)}")
     encoded = "".join(part.read_text(encoding="ascii").strip() for part in parts)
     payload = base64.b64decode(encoded, validate=True)
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
