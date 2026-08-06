@@ -1,0 +1,85 @@
+name: Fix iOS Signing Scope
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fix-ios-signing-scope.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fix-and-rebuild:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Fix iOS signing scope'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+
+      - name: Limit manual provisioning to the app target
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/build-ios-testflight.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '''            -disableAutomaticPackageResolution \\
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \\
+            PRODUCT_BUNDLE_IDENTIFIER="$IOS_BUNDLE_ID" \\
+            CODE_SIGN_STYLE=Manual \\
+            CODE_SIGN_IDENTITY='Apple Distribution' \\
+            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROVISIONING_PROFILE_NAME" \\
+            MARKETING_VERSION="$IOS_VERSION_NAME" \\
+            CURRENT_PROJECT_VERSION="$IOS_BUILD_NUMBER" \\
+            archive
+'''
+          new = '''            -disableAutomaticPackageResolution \\
+            archive
+'''
+          if old not in text:
+              raise SystemExit('Expected global signing block was not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git diff --check
+          git diff -- .github/workflows/build-ios-testflight.yml
+
+      - name: Commit signing fix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/build-ios-testflight.yml
+          git commit -m "Scope iOS provisioning to app target"
+          git push origin HEAD:main
+
+      - name: Dispatch corrected TestFlight build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          sleep 3
+          payload='{"ref":"main","inputs":{"version_name":"1.0.2","build_number":"2026080602","upload_to_testflight":"true"}}'
+          response_code="$(curl --silent --show-error \
+            --output "$RUNNER_TEMP/dispatch-response.txt" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPOSITORY/actions/workflows/build-ios-testflight.yml/dispatches" \
+            --data "$payload")"
+          test "$response_code" = "204" || {
+            cat "$RUNNER_TEMP/dispatch-response.txt" || true
+            exit 1
+          }
+          echo "Corrected iOS 1.0.2 build 2026080602 dispatched."
