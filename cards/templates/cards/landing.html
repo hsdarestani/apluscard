@@ -1,98 +1,102 @@
 {% extends 'cards/base.html' %}
-{% block title %}SAMS Club Lounge · Deine Lounge in der Tasche{% endblock %}
+{% block title %}SAMS Club Lounge · Drei Standorte, eine App{% endblock %}
 {% block head %}
 <style>
-  .location-section{margin-top:34px}.location-section-head{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:18px}.public-location-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.public-location-card{position:relative;overflow:hidden;padding:24px;min-height:220px}.public-location-card:before{content:"";position:absolute;inset:-40% 28% 42% -18%;background:radial-gradient(circle,rgba(172,76,255,.22),transparent 66%);pointer-events:none}.public-location-card>*{position:relative}.public-location-card h3{margin:8px 0 18px;font-size:1.28rem}.public-location-card address{font-style:normal;color:var(--muted);line-height:1.75;white-space:normal}.public-location-card a{display:inline-flex;margin-top:18px;font-weight:750;text-decoration:none}.location-number{display:inline-flex;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:999px;color:var(--muted);font-size:.78rem}@media(max-width:840px){.public-location-grid{grid-template-columns:1fr}.location-section-head{align-items:flex-start;flex-direction:column}.public-location-card{min-height:auto}}
+  .landing-wrap{display:grid;gap:72px}.landing-hero{position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,1.08fr) minmax(340px,.92fr);align-items:center;gap:58px;min-height:670px;padding:58px;border:1px solid rgba(255,255,255,.085);border-radius:40px;overflow:hidden;background:linear-gradient(145deg,rgba(22,13,38,.96),rgba(8,5,15,.94));box-shadow:0 42px 130px rgba(0,0,0,.48)}.landing-hero:before{content:"";position:absolute;inset:-35% 42% 35% -20%;z-index:-1;background:radial-gradient(circle,rgba(139,48,255,.32),transparent 66%);filter:blur(8px)}.landing-hero:after{content:"";position:absolute;width:520px;height:520px;right:-240px;top:-220px;z-index:-1;border:1px solid rgba(255,183,84,.18);border-radius:50%;box-shadow:0 0 0 34px rgba(255,255,255,.018),0 0 0 76px rgba(239,48,167,.025)}.landing-kicker{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:22px}.landing-kicker span{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid rgba(255,255,255,.1);border-radius:999px;background:rgba(255,255,255,.035);color:#d8cde0;font-size:11px;font-weight:760;letter-spacing:.08em;text-transform:uppercase}.landing-kicker span:first-child{border-color:rgba(238,71,191,.28);color:#ff83ce}.landing-hero h1{max-width:760px;margin:0;font-family:Impact,Haettenschweiler,"Arial Narrow Bold",sans-serif;font-size:clamp(58px,7.3vw,108px);font-weight:500;line-height:.91;letter-spacing:.022em;text-transform:uppercase}.landing-hero h1 strong{display:block;background:linear-gradient(105deg,#8b43ff 0%,#ef32a7 48%,#ff8a48 100%);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:500}.landing-lead{max-width:690px;margin:25px 0 0;color:#c4b7ca;font-size:18px;line-height:1.75}.store-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}.store-button{min-width:194px;min-height:62px;display:flex;align-items:center;gap:12px;padding:9px 16px;border:1px solid rgba(255,255,255,.14);border-radius:16px;background:#050507;box-shadow:0 14px 34px rgba(0,0,0,.28);transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease}.store-button:hover{transform:translateY(-3px);border-color:rgba(237,71,191,.42);box-shadow:0 18px 42px rgba(0,0,0,.38),0 0 24px rgba(206,44,255,.1)}.store-button svg{width:29px;height:29px;flex:0 0 auto}.store-button span{display:grid;gap:2px;text-align:left}.store-button small{color:#aaa0af;font-size:9px;letter-spacing:.09em;text-transform:uppercase}.store-button strong{font-size:16px;line-height:1}.member-action{min-height:62px;padding-inline:22px}.hero-facts{display:flex;flex-wrap:wrap;gap:17px;margin-top:27px;color:#a99db0;font-size:12px}.hero-facts span{display:inline-flex;align-items:center;gap:7px}.hero-facts span:before{content:"";width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,#9d45ff,#f23ba6);box-shadow:0 0 12px rgba(237,59,170,.65)}.app-showcase{position:relative;display:grid;place-items:center;min-height:530px}.showcase-glow{position:absolute;width:440px;height:440px;border-radius:50%;background:radial-gradient(circle,rgba(162,52,255,.24),rgba(235,45,164,.08) 45%,transparent 70%);filter:blur(10px)}.showcase-phone{position:relative;width:min(100%,330px);min-height:565px;padding:10px;border-radius:46px;background:linear-gradient(145deg,#79717d,#111014 13%,#050507 72%,#554e58);box-shadow:0 48px 110px rgba(0,0,0,.68),0 0 80px rgba(173,41,255,.16);transform:rotate(3deg)}.showcase-phone:before{content:"";position:absolute;top:16px;left:50%;z-index:3;width:102px;height:24px;transform:translateX(-50%);border-radius:0 0 15px 15px;background:#030304}.showcase-screen{min-height:545px;padding:50px 20px 22px;border:1px solid rgba(255,255,255,.08);border-radius:37px;overflow:hidden;background:radial-gradient(circle at 75% 12%,rgba(208,41,255,.22),transparent 29%),linear-gradient(180deg,#0e0915,#07050c 72%)}.showcase-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.showcase-logo{display:flex;align-items:center;gap:10px}.showcase-logo img{width:43px;height:43px;border-radius:13px;box-shadow:0 0 26px rgba(224,52,185,.24)}.showcase-logo strong{font-size:12px;line-height:1.15;letter-spacing:.05em}.showcase-status{padding:6px 8px;border:1px solid rgba(75,230,173,.2);border-radius:999px;color:#72efbf;background:rgba(72,230,173,.07);font-size:8px;font-weight:800;text-transform:uppercase}.showcase-greeting{margin-top:30px;color:#a99daf;font-size:11px}.showcase-title{margin-top:5px;font-family:Impact,sans-serif;font-size:38px;line-height:.94;letter-spacing:.04em;text-transform:uppercase}.digital-card{position:relative;margin-top:25px;padding:21px;border:1px solid rgba(240,58,178,.26);border-radius:24px;overflow:hidden;background:linear-gradient(135deg,rgba(141,45,255,.2),rgba(235,46,168,.1));box-shadow:inset 0 1px rgba(255,255,255,.1),0 18px 42px rgba(0,0,0,.2)}.digital-card:after{content:"SCL";position:absolute;right:-8px;bottom:-20px;color:rgba(255,255,255,.055);font:78px/1 Impact,sans-serif;transform:rotate(-7deg)}.digital-label{color:#b4a7bb;font-size:10px;text-transform:uppercase;letter-spacing:.11em}.digital-balance{margin-top:7px;font-size:35px;font-weight:850;letter-spacing:-.05em}.digital-meta{display:flex;justify-content:space-between;gap:10px;margin-top:18px;color:#e6d9eb;font-size:10px}.showcase-qr{width:92px;height:92px;margin:22px auto 0;padding:8px;border-radius:18px;background:#fff;box-shadow:0 12px 32px rgba(0,0,0,.35)}.qr-grid{width:100%;height:100%;background:repeating-linear-gradient(0deg,#0a0710 0 5px,transparent 5px 9px),repeating-linear-gradient(90deg,#0a0710 0 5px,transparent 5px 9px);mix-blend-mode:multiply}.showcase-nav{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:19px}.showcase-nav span{padding:11px 5px;border:1px solid rgba(255,255,255,.07);border-radius:13px;background:rgba(255,255,255,.025);color:#bfb3c5;text-align:center;font-size:9px}.locations-first{display:grid;gap:22px}.section-intro{display:flex;align-items:end;justify-content:space-between;gap:28px}.section-intro h2{max-width:760px;margin:8px 0 0;font-family:Impact,Haettenschweiler,"Arial Narrow Bold",sans-serif;font-size:clamp(42px,6vw,72px);font-weight:500;line-height:.94;letter-spacing:.03em;text-transform:uppercase}.section-intro p{max-width:430px;margin:0;color:#aa9eaf;line-height:1.7}.location-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:17px}.location-card{position:relative;min-height:330px;padding:28px;border:1px solid rgba(255,255,255,.085);border-radius:28px;overflow:hidden;background:linear-gradient(150deg,rgba(24,15,39,.95),rgba(10,7,17,.94));box-shadow:0 24px 70px rgba(0,0,0,.3);transition:transform .24s ease,border-color .24s ease}.location-card:hover{transform:translateY(-6px);border-color:rgba(239,60,176,.32)}.location-card:before{content:"";position:absolute;width:230px;height:230px;right:-120px;top:-120px;border-radius:50%;background:rgba(150,46,255,.14);filter:blur(18px)}.location-card.city:before{background:rgba(235,46,166,.14)}.location-card.sports:before{background:rgba(255,132,67,.13)}.location-top{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px}.location-index{display:inline-flex;padding:7px 10px;border:1px solid rgba(255,255,255,.1);border-radius:999px;color:#b7aabd;font-size:10px;font-weight:800;letter-spacing:.12em}.location-type{color:#ef6ec0;font-size:9px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}.location-card h3{position:relative;max-width:270px;margin:35px 0 15px;font-size:clamp(25px,3vw,34px);line-height:1.02}.location-card address{position:relative;color:#b4a8ba;font-style:normal;line-height:1.75}.location-links{position:absolute;left:28px;right:28px;bottom:27px;display:flex;flex-wrap:wrap;gap:9px}.location-link{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(255,255,255,.035);font-size:11px;font-weight:760}.location-link.primary-map{border-color:rgba(234,57,178,.28);background:linear-gradient(135deg,rgba(130,44,255,.17),rgba(235,46,166,.12))}.location-link svg{width:14px;height:14px}.benefit-section{display:grid;grid-template-columns:.82fr 1.18fr;gap:20px}.benefit-lead{padding:34px;border:1px solid rgba(255,255,255,.08);border-radius:30px;background:linear-gradient(145deg,rgba(27,17,44,.95),rgba(10,7,17,.94))}.benefit-lead h2{margin:12px 0 18px;font-family:Impact,sans-serif;font-size:clamp(40px,5vw,66px);font-weight:500;line-height:.94;text-transform:uppercase}.benefit-lead p{margin:0;color:#aa9faf;line-height:1.75}.benefit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.benefit-card{min-height:190px;padding:25px;border:1px solid rgba(255,255,255,.08);border-radius:25px;background:rgba(255,255,255,.025)}.benefit-icon{width:45px;height:45px;display:grid;place-items:center;border:1px solid rgba(236,67,184,.24);border-radius:15px;background:linear-gradient(135deg,rgba(130,44,255,.18),rgba(235,46,166,.1))}.benefit-icon svg{width:21px;height:21px}.benefit-card h3{margin:19px 0 8px;font-size:18px}.benefit-card p{margin:0;color:#a99eae;font-size:13px;line-height:1.65}.final-cta{position:relative;display:grid;grid-template-columns:1fr auto;align-items:center;gap:30px;padding:42px;border:1px solid rgba(239,72,188,.19);border-radius:32px;overflow:hidden;background:linear-gradient(125deg,rgba(121,43,255,.18),rgba(237,45,166,.11),rgba(255,122,69,.07))}.final-cta:after{content:"";position:absolute;width:310px;height:310px;right:-130px;top:-180px;border-radius:50%;background:rgba(235,45,166,.13);filter:blur(20px)}.final-cta h2{position:relative;margin:0;font-family:Impact,sans-serif;font-size:clamp(38px,5vw,64px);font-weight:500;line-height:.95;text-transform:uppercase}.final-cta p{position:relative;max-width:670px;margin:13px 0 0;color:#b7abbc;line-height:1.7}.final-actions{position:relative;z-index:1;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px}@media(max-width:1020px){.landing-hero{grid-template-columns:1fr;padding:44px}.app-showcase{min-height:570px}.section-intro{align-items:flex-start;flex-direction:column}.location-grid{grid-template-columns:1fr}.location-card{min-height:275px}.benefit-section{grid-template-columns:1fr}.final-cta{grid-template-columns:1fr}.final-actions{justify-content:flex-start}}@media(max-width:680px){.landing-wrap{gap:52px}.landing-hero{min-height:auto;padding:28px 20px;border-radius:28px}.landing-hero h1{font-size:clamp(48px,16vw,72px)}.landing-lead{font-size:15px}.store-actions{display:grid}.store-button,.member-action{width:100%;min-width:0}.app-showcase{min-height:500px}.showcase-phone{width:285px;min-height:500px}.showcase-screen{min-height:480px}.showcase-title{font-size:32px}.digital-card{margin-top:18px}.showcase-qr{width:80px;height:80px;margin-top:17px}.section-intro h2{font-size:46px}.location-card{min-height:300px;padding:24px}.location-links{left:24px;right:24px;bottom:23px}.benefit-grid{grid-template-columns:1fr}.benefit-lead,.final-cta{padding:28px 22px}.final-actions{display:grid}.final-actions .button{width:100%}}
 </style>
 {% endblock %}
 {% block content %}
-<section class="hero">
-  <div class="hero-copy">
-    <span class="eyebrow">Exklusives Mitgliedererlebnis</span>
-    <h1>Deine Lounge.<br><span class="gradient-text">Dein Moment.</span></h1>
-    <p>Guthaben aufladen, Vorteile sichern und an allen SAMS-Standorten schneller genießen. Deine digitale Mitgliedskarte verbindet bargeldloses Bezahlen, exklusive Angebote und deine vollständige Aktivität.</p>
-    <div class="hero-badges">
-      <span class="hero-badge">200 € aufladen · 10 % Bonus</span>
-      <span class="hero-badge">Digitale QR-Mitgliedskarte</span>
-      <span class="hero-badge">Exklusive Angebote</span>
+<div class="landing-wrap">
+  <section class="landing-hero">
+    <div>
+      <div class="landing-kicker"><span>SAMS Club Lounge</span><span>Bad Vilbel</span><span>3 Standorte</span></div>
+      <h1>Dein Abend.<strong>Deine Lounge.</strong></h1>
+      <p class="landing-lead">Eine digitale Mitgliedskarte für alle SAMS-Standorte: Guthaben, QR-Code, Angebote, Mitteilungen und deine Aktivitäten jederzeit direkt auf dem Smartphone.</p>
+      <div class="store-actions" aria-label="App herunterladen">
+        <a class="store-button" href="https://apps.apple.com/app/sams-club-lounge/id6794268917" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.79 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.1M12.03 7.25C11.88 5.02 13.69 3.18 15.77 3c.29 2.58-2.34 4.5-3.74 4.25Z"/></svg>
+          <span><small>Laden im</small><strong>App Store</strong></span>
+        </a>
+        <a class="store-button" href="https://play.google.com/store/apps/details?id=de.aplussolution.samscard" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#00d6ff" d="M3.4 2.7a2 2 0 0 0-.4 1.2v16.2c0 .45.15.86.4 1.2l9-9.3-9-9.3Z"/><path fill="#ffdc3e" d="m15.4 9-3-3.1-8-4.6c-.33-.19-.67-.27-.98-.25L12.4 12l3-3Z"/><path fill="#ff4b55" d="m4.4 22.7 8-4.6 3-3.1-3-3-9 9.3c.3.27.67.52 1 .4Z"/><path fill="#67e777" d="m20.1 10.2-4.7-2.7-3 3.1 3 3 4.7-2.7c1.2-.7 1.2-1.9 0-2.7Z"/></svg>
+          <span><small>Jetzt bei</small><strong>Google Play</strong></span>
+        </a>
+        <a class="button primary member-action" href="{% url 'register' %}">Mitglied werden</a>
+      </div>
+      <div class="hero-facts"><span>Eine Karte für alle Standorte</span><span>Direkte Push-Mitteilungen</span><span>Guthaben in Echtzeit</span></div>
     </div>
-    <div class="hero-actions">
-      <a class="button primary" href="{% url 'register' %}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
-        Mitglied werden
-      </a>
-      <a class="button secondary" href="{% url 'login' %}">Bereits registriert</a>
-    </div>
-  </div>
 
-  <div class="phone-preview" aria-hidden="true">
-    <div class="preview-phone">
-      <div class="preview-screen">
-        <div class="preview-kicker">Willkommen zurück</div>
-        <div class="preview-club">SAMS<br>CLUB LOUNGE</div>
-        <div class="preview-powered">bereitgestellt von <span class="aplus-signature">A+</span></div>
-        <div class="preview-wallet">
-          <div class="preview-label">Verfügbares Guthaben</div>
-          <div class="preview-balance">220,00 €</div>
-          <div class="preview-bonus">einschließlich 20 € Mitgliederbonus</div>
-        </div>
-        <div class="preview-actions">
-          <div class="preview-action">Guthaben</div>
-          <div class="preview-action">Angebote</div>
-          <div class="preview-action">Aktivitäten</div>
+    <div class="app-showcase" aria-label="Vorschau der Sams Club Lounge App">
+      <div class="showcase-glow" aria-hidden="true"></div>
+      <div class="showcase-phone">
+        <div class="showcase-screen">
+          <div class="showcase-head">
+            <div class="showcase-logo"><img src="{% url 'app_icon' 192 %}?v=scl-20260806" alt=""><strong>SAMS CLUB<br>LOUNGE</strong></div>
+            <span class="showcase-status">Aktiv</span>
+          </div>
+          <div class="showcase-greeting">Willkommen zurück</div>
+          <div class="showcase-title">Deine Lounge<br>in der Tasche.</div>
+          <div class="digital-card">
+            <div class="digital-label">Verfügbares Guthaben</div>
+            <div class="digital-balance">220,00 €</div>
+            <div class="digital-meta"><span>VIP MEMBER</span><span>Alle Standorte</span></div>
+          </div>
+          <div class="showcase-qr"><div class="qr-grid"></div></div>
+          <div class="showcase-nav"><span>Guthaben</span><span>Angebote</span><span>Aktivitäten</span></div>
         </div>
       </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<section id="experience" class="feature-grid">
-  <article class="feature-card">
-    <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M16 12h5M7 9h5"/></svg></div>
-    <h2>Digitales Guthaben</h2>
-    <p>Einmal aufladen und jederzeit schnell sowie transparent an jedem Standort bezahlen.</p>
-  </article>
-  <article class="feature-card">
-    <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M15 14h2v2h-2zM18 17h2v3h-5v-2"/></svg></div>
-    <h2>Digitale Mitgliedskarte</h2>
-    <p>Dein persönlicher QR-Code für Zahlungen, Status und exklusive Vorteile.</p>
-  </article>
-  <article class="feature-card">
-    <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg></div>
-    <h2>Mitgliederbonus</h2>
-    <p>Bei ausgewählten Aufladungen erhältst du zusätzliches Lounge-Guthaben.</p>
-  </article>
-  <article class="feature-card">
-    <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5h16v14H4z"/><path d="M7 9h10M7 13h7"/></svg></div>
-    <h2>Angebote & Mitteilungen</h2>
-    <p>Erhalte standortbezogene Aktionen, Neuigkeiten und persönliche Vorteile direkt in der App.</p>
-  </article>
-</section>
+  <section class="locations-first" id="standorte" aria-labelledby="locations-title">
+    <div class="section-intro">
+      <div><span class="eyebrow">Direkt in Bad Vilbel</span><h2 id="locations-title">Drei Standorte.<br>Ein Erlebnis.</h2></div>
+      <p>Wähle deinen Standort, ruf direkt an oder öffne die Route. Deine digitale Mitgliedskarte und deine Vorteile begleiten dich standortübergreifend.</p>
+    </div>
+    <div class="location-grid">
+      <article class="location-card">
+        <div class="location-top"><span class="location-index">01</span><span class="location-type">SAMS Original</span></div>
+        <h3>Sams Club Lounge</h3>
+        <address>Frankfurter Straße 198<br>61118 Bad Vilbel</address>
+        <div class="location-links">
+          <a class="location-link primary-map" href="https://www.google.com/maps/search/?api=1&query=Frankfurter+Stra%C3%9Fe+198%2C+61118+Bad+Vilbel" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>Route</a>
+          <a class="location-link" href="tel:+4961015969952">06101 / 5969952</a>
+        </div>
+      </article>
+      <article class="location-card city">
+        <div class="location-top"><span class="location-index">02</span><span class="location-type">SAMS City</span></div>
+        <h3>Sams Club Lounge CITY</h3>
+        <address>Frankfurter Straße 38<br>61118 Bad Vilbel</address>
+        <div class="location-links">
+          <a class="location-link primary-map" href="https://www.google.com/maps/search/?api=1&query=Frankfurter+Stra%C3%9Fe+38%2C+61118+Bad+Vilbel" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>Route</a>
+          <a class="location-link" href="tel:+4961015969440">06101 / 5969440</a>
+        </div>
+      </article>
+      <article class="location-card sports">
+        <div class="location-top"><span class="location-index">03</span><span class="location-type">Sportsbar</span></div>
+        <h3>DIMA Sportsbar</h3>
+        <address>Frankfurter Straße 36<br>61118 Bad Vilbel</address>
+        <div class="location-links">
+          <a class="location-link primary-map" href="https://www.google.com/maps/search/?api=1&query=Frankfurter+Stra%C3%9Fe+36%2C+61118+Bad+Vilbel" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>Route</a>
+          <a class="location-link" href="tel:+4961015969440">06101 / 5969440</a>
+        </div>
+      </article>
+    </div>
+  </section>
 
-<section class="location-section" aria-labelledby="locations-title">
-  <div class="location-section-head">
-    <div><span class="eyebrow">Bad Vilbel</span><h2 id="locations-title">Unsere drei Standorte</h2></div>
-    <p class="muted">Dein Guthaben und deine Mitgliedsvorteile gelten standortübergreifend.</p>
-  </div>
-  <div class="public-location-grid">
-    <article class="panel public-location-card">
-      <span class="location-number">Standort 01</span>
-      <h3>Sams Club Lounge</h3>
-      <address>Frankfurter Straße 198<br>61118 Bad Vilbel</address>
-      <a href="tel:+4961015969952">06101 / 5969952 anrufen</a>
-    </article>
-    <article class="panel public-location-card">
-      <span class="location-number">Standort 02</span>
-      <h3>Sams Club Lounge CITY</h3>
-      <address>Frankfurter Straße 38<br>61118 Bad Vilbel</address>
-      <a href="tel:+4961015969440">06101 / 5969440 anrufen</a>
-    </article>
-    <article class="panel public-location-card">
-      <span class="location-number">Standort 03</span>
-      <h3>DIMA Sportsbar</h3>
-      <address>Frankfurter Straße 36<br>61118 Bad Vilbel</address>
-      <a href="tel:+4961015969440">06101 / 5969440 anrufen</a>
-    </article>
-  </div>
-</section>
+  <section class="benefit-section" aria-labelledby="app-benefits">
+    <article class="benefit-lead"><span class="eyebrow">Alles an einem Ort</span><h2 id="app-benefits">Mehr Lounge.<br>Weniger Aufwand.</h2><p>Die SAMS App verbindet deine Mitgliedschaft mit den Dingen, die du wirklich brauchst – schnell, übersichtlich und direkt auf deinem Smartphone.</p></article>
+    <div class="benefit-grid">
+      <article class="benefit-card"><div class="benefit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M16 12h5M7 9h5"/></svg></div><h3>Digitales Guthaben</h3><p>Kontostand und Aktivitäten jederzeit transparent einsehen.</p></article>
+      <article class="benefit-card"><div class="benefit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M15 14h2v2h-2zM18 17h2v3h-5v-2"/></svg></div><h3>QR-Mitgliedskarte</h3><p>Schnell identifizieren und bequem an jedem Standort nutzen.</p></article>
+      <article class="benefit-card"><div class="benefit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9.7 21h4.6"/></svg></div><h3>Mitteilungen</h3><p>Aktionen, Neuigkeiten und persönliche Hinweise direkt per Push erhalten.</p></article>
+      <article class="benefit-card"><div class="benefit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg></div><h3>Exklusive Vorteile</h3><p>Standortbezogene Angebote und Mitgliederaktionen auf einen Blick.</p></article>
+    </div>
+  </section>
+
+  <section class="final-cta">
+    <div><h2>Bereit für deinen<br>nächsten SAMS-Abend?</h2><p>Lade die App herunter oder registriere dich direkt und verwalte deine digitale Mitgliedskarte ab sofort selbst.</p></div>
+    <div class="final-actions"><a class="button primary" href="{% url 'register' %}">Jetzt registrieren</a><a class="button secondary" href="{% url 'login' %}">Bereits Mitglied</a></div>
+  </section>
+</div>
 {% endblock %}
