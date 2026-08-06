@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, apple_views, compliance_api, compliance_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, views
+from . import api, apple_views, compliance_api, compliance_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, security_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
@@ -8,6 +8,9 @@ urlpatterns = [
     path("accounts/profil-vervollstaendigen/", legal_views.complete_customer_profile, name="complete_customer_profile"),
     path("accounts/verify/<str:token>/", views.verify_email, name="verify_email"),
     path("accounts/resend-verification/", views.resend_verification, name="resend_verification"),
+    path("sicherheit/2fa/einrichten/", security_views.mfa_setup, name="mfa_setup"),
+    path("sicherheit/2fa/bestaetigen/", security_views.mfa_challenge, name="mfa_challenge"),
+    path("sicherheit/2fa/notfallcodes-neu/", security_views.mfa_regenerate_recovery_codes, name="mfa_regenerate_recovery_codes"),
     path("api/v1/auth/apple/native/", apple_views.native_apple_login, name="native_apple_login"),
     path("agb/", legal_views.terms, name="terms"),
     path("datenschutz/", legal_views.privacy_policy, name="privacy_policy"),
