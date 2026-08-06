@@ -1,6 +1,7 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db.models.deletion import ProtectedError
-from django.db.models.signals import pre_delete
+from django.db.models.signals import pre_delete, pre_save
 from django.dispatch import receiver
 
 from .experience_models import TransactionCase
@@ -22,6 +23,14 @@ def _protect_financial_record(instance):
         "Produktive Finanz- und Auditdaten sind unveränderlich. Bitte eine Gegenbuchung oder einen Prüffall verwenden.",
         [instance],
     )
+
+
+@receiver(pre_save, sender=AuditEvent, dispatch_uid="protect_audit_event_update")
+def protect_audit_event_update(sender, instance, **kwargs):
+    if instance.pk and AuditEvent.objects.filter(pk=instance.pk).exists():
+        raise ValidationError(
+            "Prüfprotokolle sind unveränderlich. Korrekturen müssen als neues Audit-Ereignis dokumentiert werden."
+        )
 
 
 @receiver(pre_delete, sender=LedgerEntry, dispatch_uid="protect_ledger_entry_delete")
