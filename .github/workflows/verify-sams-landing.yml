@@ -1,0 +1,31 @@
+name: Verify SAMS Landing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-sams-landing.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify public landing content
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          body="$RUNNER_TEMP/landing.html"
+          headers="$RUNNER_TEMP/landing.headers"
+          curl --fail --silent --show-error --location --max-time 30 \
+            -D "$headers" \
+            "https://samsclublounge.de/" \
+            -o "$body"
+          grep -q 'Drei Standorte' "$body"
+          grep -q 'App Store' "$body"
+          grep -q 'Google Play' "$body"
+          echo "PUBLIC_LANDING_ACTIVE"
+          sed -n '1,20p' "$headers"
