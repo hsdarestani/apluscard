@@ -133,13 +133,9 @@ class WalletCreateForm(forms.ModelForm):
 class BusinessSettingsForm(forms.ModelForm):
     class Meta:
         model = BusinessSettings
-        fields = ["require_customer_confirmation", "tip_option_1", "tip_option_2", "tip_option_3", "tip_option_4", "tip_allocation", "gold_threshold", "platinum_threshold", "birthday_bonus", "daily_summary_enabled", "weekly_summary_enabled", "offer_scheduling_enabled", "official_invoice_enabled", "legal_name", "legal_address", "tax_number", "vat_id"]
+        fields = ["require_customer_confirmation", "tip_allocation", "gold_threshold", "platinum_threshold", "birthday_bonus", "daily_summary_enabled", "weekly_summary_enabled", "offer_scheduling_enabled", "official_invoice_enabled", "legal_name", "legal_address", "tax_number", "vat_id"]
         labels = {
             "require_customer_confirmation": "Ausnahmsweise Bestätigung durch den Kunden verlangen",
-            "tip_option_1": "Trinkgeldoption 1 (€)",
-            "tip_option_2": "Trinkgeldoption 2 (€)",
-            "tip_option_3": "Trinkgeldoption 3 (€)",
-            "tip_option_4": "Trinkgeldoption 4 (€)",
             "tip_allocation": "Zuordnung des Trinkgelds",
             "gold_threshold": "Grenze für Gold",
             "platinum_threshold": "Grenze für Platin",
@@ -155,10 +151,6 @@ class BusinessSettingsForm(forms.ModelForm):
         }
         widgets = {
             "legal_address": forms.Textarea(attrs={"rows": 3}),
-            "tip_option_1": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.50"}),
-            "tip_option_2": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.50"}),
-            "tip_option_3": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.50"}),
-            "tip_option_4": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.50"}),
         }
 
     def clean(self):
@@ -167,15 +159,6 @@ class BusinessSettingsForm(forms.ModelForm):
         platinum = cleaned.get("platinum_threshold")
         if gold is not None and platinum is not None and platinum <= gold:
             self.add_error("platinum_threshold", "Die Platin-Grenze muss über der Gold-Grenze liegen.")
-        tip_values = []
-        for field in ("tip_option_1", "tip_option_2", "tip_option_3", "tip_option_4"):
-            value = cleaned.get(field)
-            if value is not None and (value < 0 or value > 100):
-                self.add_error(field, "Der Betrag muss zwischen 0 und 100 Euro liegen.")
-            if value is not None:
-                tip_values.append(value)
-        if len(tip_values) != len(set(tip_values)):
-            self.add_error("tip_option_4", "Jede Trinkgeldoption muss einen eigenen Betrag haben.")
         return cleaned
 
 
