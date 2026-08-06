@@ -1,0 +1,147 @@
+name: Activate SAMS Landing Domain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/activate-sams-landing-domain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-primary-landing-domain
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    name: Serve landing on samsclublounge.de
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      EXPECTED_HOST: 217.160.50.71
+      LANDING_DOMAIN: samsclublounge.de
+      WWW_DOMAIN: www.samsclublounge.de
+      APP_DOMAIN: app.samsclublounge.de
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$NEW_HOST" = "$EXPECTED_HOST" || { echo "Unexpected STRATO host: $NEW_HOST"; exit 1; }
+          test -n "$NEW_PRIVATE_KEY" || { echo "STRATO private key is missing"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H "$NEW_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy landing and prepare primary domain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" \
+            "APP_DIR='$APP_DIR' LANDING_DOMAIN='$LANDING_DOMAIN' WWW_DOMAIN='$WWW_DOMAIN' APP_DOMAIN='$APP_DOMAIN' EXPECTED_HOST='$EXPECTED_HOST' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test -s .env
+
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          export APP_DIR LANDING_DOMAIN WWW_DOMAIN APP_DOMAIN EXPECTED_HOST
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          env_path = Path(os.environ["APP_DIR"]) / ".env"
+          values = {}
+          order = []
+          for raw in env_path.read_text(encoding="utf-8").splitlines():
+              if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+                  continue
+              key, value = raw.split("=", 1)
+              key = key.strip()
+              if key not in values:
+                  order.append(key)
+              values[key] = value
+
+          def merge_csv(key, additions):
+              current = [part.strip() for part in values.get(key, "").split(",") if part.strip()]
+              for item in additions:
+                  if item and item not in current:
+                      current.append(item)
+              values[key] = ",".join(current)
+              if key not in order:
+                  order.append(key)
+
+          landing = os.environ["LANDING_DOMAIN"]
+          www = os.environ["WWW_DOMAIN"]
+          app = os.environ["APP_DOMAIN"]
+          host = os.environ["EXPECTED_HOST"]
+          merge_csv("DJANGO_ALLOWED_HOSTS", [landing, www, app, "cards.smarbiz.sbs", host, "localhost", "127.0.0.1"])
+          merge_csv("DJANGO_CSRF_TRUSTED_ORIGINS", [f"https://{landing}", f"https://{www}", f"https://{app}", "https://cards.smarbiz.sbs"])
+
+          env_path.write_text("".join(f"{key}={values[key]}\n" for key in order), encoding="utf-8")
+          os.chmod(env_path, 0o600)
+          PY
+
+          docker compose up -d --build --remove-orphans
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              break
+            fi
+            test "$attempt" -lt 60 || { docker compose logs --tail=250 web; exit 1; }
+            sleep 2
+          done
+
+          cp deploy/nginx/samsclublounge.de.conf "/etc/nginx/sites-available/$LANDING_DOMAIN"
+          ln -sfn "/etc/nginx/sites-available/$LANDING_DOMAIN" "/etc/nginx/sites-enabled/$LANDING_DOMAIN"
+          nginx -t
+          systemctl reload nginx
+
+          root_ip="$(getent ahostsv4 "$LANDING_DOMAIN" | awk 'NR==1 {print $1}')"
+          if [ -z "$root_ip" ] || [ "$root_ip" != "$EXPECTED_HOST" ]; then
+            echo "LANDING_DNS_PENDING: $LANDING_DOMAIN resolves to ${root_ip:-nothing}, expected $EXPECTED_HOST."
+            echo "The new landing is deployed and Nginx is prepared; the existing public site was not interrupted."
+            exit 0
+          fi
+
+          apt-get update >/dev/null
+          DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-nginx >/dev/null
+
+          cert_domains=(--domain "$LANDING_DOMAIN")
+          www_ip="$(getent ahostsv4 "$WWW_DOMAIN" | awk 'NR==1 {print $1}')"
+          if [ "$www_ip" = "$EXPECTED_HOST" ]; then
+            cert_domains+=(--domain "$WWW_DOMAIN")
+          fi
+
+          certbot --nginx \
+            --non-interactive \
+            --agree-tos \
+            --email aplus.solutiongmbh@icloud.com \
+            --redirect \
+            --keep-until-expiring \
+            "${cert_domains[@]}"
+
+          nginx -t
+          systemctl reload nginx
+          docker compose restart web
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 20 "https://$LANDING_DOMAIN/" >/dev/null; then
+              echo "LANDING_DOMAIN_ACTIVE: https://$LANDING_DOMAIN/"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Landing domain did not become healthy after TLS activation."
+          exit 1
+          REMOTE
