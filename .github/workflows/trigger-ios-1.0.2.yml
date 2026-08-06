@@ -36,7 +36,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -Eeuo pipefail
-          payload='{"ref":"main","inputs":{"version_name":"1.0.2","build_number":"2026080602","upload_to_testflight":"true"}}'
+          payload='{"ref":"main","inputs":{"version_name":"1.0.2","build_number":"2026080603","upload_to_testflight":"true"}}'
           response_code="$(curl --silent --show-error \
             --output "$RUNNER_TEMP/dispatch-response.txt" \
             --write-out '%{http_code}' \
@@ -51,4 +51,4 @@ jobs:
             echo "Workflow dispatch failed with HTTP $response_code"
             exit 1
           }
-          echo "iOS 1.0.2 build 2026080602 was dispatched to TestFlight."
+          echo "iOS 1.0.2 build 2026080603 was dispatched to TestFlight."
