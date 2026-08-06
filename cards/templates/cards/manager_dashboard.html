@@ -60,7 +60,7 @@
 <dialog id="new-wallet" class="app-dialog"><form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">{% csrf_token %}<div class="dialog-head"><div><span class="eyebrow">Neues Mitglied</span><h2>Mitgliedskarte anlegen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div><label>Name<input name="display_name" required></label><label>Telefon<input name="phone"></label><label>E-Mail-Adresse<input type="email" name="email"></label><button class="button primary full" type="submit">Mitgliedskarte erstellen</button></form></dialog>
 {% endblock %}
 {% block scripts %}
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="{% static 'cards/vendor/html5-qrcode.min.js' %}"></script>
 <script>
 (function(){
   const open=document.getElementById('open-manager-scanner'),dialog=document.getElementById('scan-member'),form=document.getElementById('manager-scan-form'),input=document.getElementById('manager-wallet-token'),status=document.getElementById('manager-scan-status');
