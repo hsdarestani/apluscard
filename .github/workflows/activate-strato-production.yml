@@ -1,0 +1,226 @@
+name: Activate STRATO Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/activate-strato-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-strato-production-activation
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Activate STRATO production'
+    name: Enable app domain, TLS and push on STRATO
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      FINAL_DOMAIN: app.samsclublounge.de
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$NEW_HOST" = "217.160.50.71" || { echo "Unexpected STRATO host: $NEW_HOST"; exit 1; }
+          test -n "$NEW_PRIVATE_KEY" || { echo "HETZNER_SSH_PRIVATE_KEY is missing"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H "$NEW_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Activate production configuration and TLS
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" \
+            "FINAL_DOMAIN='$FINAL_DOMAIN' APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test -s .env
+
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          export APP_DIR FINAL_DOMAIN
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          env_path = Path(os.environ["APP_DIR"]) / ".env"
+          values = {}
+          order = []
+          for raw in env_path.read_text(encoding="utf-8").splitlines():
+              if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+                  continue
+              key, value = raw.split("=", 1)
+              key = key.strip()
+              if key not in values:
+                  order.append(key)
+              values[key] = value
+
+          required = [
+              "APPLE_CLIENT_ID", "APPLE_KEY_ID", "APPLE_TEAM_ID", "APPLE_PRIVATE_KEY_BASE64",
+              "APNS_KEY_ID", "APNS_TEAM_ID", "APNS_PRIVATE_KEY_BASE64",
+              "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64",
+              "APPLE_WALLET_PASS_TYPE_ID", "APPLE_WALLET_TEAM_ID",
+              "APPLE_WALLET_P12_BASE64", "APPLE_WALLET_P12_PASSWORD",
+              "APPLE_WALLET_WWDR_CERT_BASE64",
+          ]
+          missing = [name for name in required if not values.get(name)]
+          if missing:
+              raise SystemExit("Missing production values: " + ", ".join(missing))
+
+          expected_team = "884MVA2MD5"
+          for name in ("APPLE_TEAM_ID", "APNS_TEAM_ID", "APPLE_WALLET_TEAM_ID"):
+              if values.get(name) != expected_team:
+                  raise SystemExit(f"{name} does not belong to A+ Solution GmbH")
+
+          try:
+              apple_key = base64.b64decode(values["APPLE_PRIVATE_KEY_BASE64"], validate=True).decode()
+              apns_key = base64.b64decode(values["APNS_PRIVATE_KEY_BASE64"], validate=True).decode()
+              firebase_raw = base64.b64decode(values["FIREBASE_SERVICE_ACCOUNT_JSON_BASE64"], validate=True)
+              firebase = json.loads(firebase_raw)
+              base64.b64decode(values["APPLE_WALLET_P12_BASE64"], validate=True)
+              base64.b64decode(values["APPLE_WALLET_WWDR_CERT_BASE64"], validate=True)
+          except Exception as exc:
+              raise SystemExit(f"Invalid encoded production credential: {exc}")
+
+          if "BEGIN PRIVATE KEY" not in apple_key:
+              raise SystemExit("Invalid Sign in with Apple private key")
+          if "BEGIN PRIVATE KEY" not in apns_key:
+              raise SystemExit("Invalid APNs private key")
+          if not firebase.get("client_email") or not firebase.get("private_key"):
+              raise SystemExit("Invalid Firebase service account")
+          if not values["APPLE_WALLET_PASS_TYPE_ID"].startswith("pass."):
+              raise SystemExit("Invalid Wallet Pass Type ID")
+
+          final = os.environ["FINAL_DOMAIN"]
+          overrides = {
+              "APP_NAME": "Sams Club Lounge",
+              "APP_SHORT_NAME": "Sams Lounge",
+              "APP_PUBLISHER": "A+ Solution GmbH",
+              "APP_PUBLIC_BASE_URL": f"https://{final}",
+              "ANDROID_PACKAGE_NAME": "de.aplussolution.samscard",
+              "IOS_BUNDLE_ID": "de.aplussolution.samscard",
+              "IOS_APP_TEAM_ID": expected_team,
+              "APPLE_BUNDLE_ID": "de.aplussolution.samscard",
+              "APPLE_REDIRECT_URI": f"https://{final}/accounts/apple/callback/",
+              "PUSH_NOTIFICATIONS_ENABLED": "1",
+              "PUSH_HTTP_TIMEOUT_SECONDS": "10",
+              "PUSH_NOTIFICATION_MAX_AGE_SECONDS": "21600",
+              "PUSH_MAX_ATTEMPTS": "5",
+              "APNS_USE_SANDBOX": "0",
+              "DJANGO_DEBUG": "0",
+              "DJANGO_SECURE_COOKIES": "1",
+              "DJANGO_HSTS_SECONDS": "31536000",
+          }
+          values.update(overrides)
+          for key in overrides:
+              if key not in order:
+                  order.append(key)
+          env_path.write_text("".join(f"{key}={values[key]}\n" for key in order), encoding="utf-8")
+          os.chmod(env_path, 0o600)
+          PY
+
+          docker compose up -d --build --remove-orphans
+          healthy=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" -eq 1 || { docker compose ps; docker compose logs --tail=250 web; exit 1; }
+
+          apt-get update >/dev/null
+          DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-nginx >/dev/null
+          certbot --nginx \
+            --non-interactive \
+            --agree-tos \
+            --email aplus.solutiongmbh@icloud.com \
+            --redirect \
+            --keep-until-expiring \
+            -d "$FINAL_DOMAIN"
+
+          nginx -t
+          systemctl reload nginx
+          docker compose up -d web push-worker
+          docker compose exec -T web python manage.py migrate --noinput </dev/null
+          docker compose exec -T web python manage.py check </dev/null
+
+          grep -q '^PUSH_NOTIFICATIONS_ENABLED=1$' .env
+          test "$(docker compose ps --status running -q web | wc -l)" -eq 1
+          test "$(docker compose ps --status running -q push-worker | wc -l)" -eq 1
+
+          docker compose exec -T web python - <<'PY' </dev/null
+          import base64
+          import json
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.conf import settings
+          from django.contrib.auth import get_user_model
+          from cards.models import Wallet, LedgerEntry, PushDevice
+
+          assert settings.PUSH_NOTIFICATIONS_ENABLED is True
+          assert settings.APNS_TEAM_ID == "884MVA2MD5"
+          assert settings.IOS_BUNDLE_ID == "de.aplussolution.samscard"
+          print({
+              "users": get_user_model().objects.count(),
+              "wallets": Wallet.objects.count(),
+              "ledger_entries": LedgerEntry.objects.count(),
+              "push_devices": PushDevice.objects.count(),
+              "push_enabled": settings.PUSH_NOTIFICATIONS_ENABLED,
+          })
+          PY
+
+          curl --fail --silent --show-error https://127.0.0.1/health/ \
+            --resolve "$FINAL_DOMAIN:443:127.0.0.1" \
+            -H "Host: $FINAL_DOMAIN" >/dev/null
+          docker compose ps
+          echo "STRATO production is active with TLS and push enabled."
+          REMOTE
+
+      - name: Verify public production route
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          success=0
+          for attempt in $(seq 1 40); do
+            headers="$RUNNER_TEMP/public-headers.txt"
+            body="$RUNNER_TEMP/public-body.txt"
+            if curl --fail --silent --show-error --max-time 20 \
+              -D "$headers" \
+              "https://$FINAL_DOMAIN/accounts/login/" \
+              -o "$body"; then
+              if grep -qi '^X-SAMS-Origin: strato' "$headers"; then
+                success=1
+                break
+              fi
+            fi
+            sleep 5
+          done
+          test "$success" -eq 1 || {
+            echo "Public route has not reached STRATO yet."
+            cat "$RUNNER_TEMP/public-headers.txt" 2>/dev/null || true
+            exit 1
+          }
+          curl --fail --silent --show-error --max-time 20 "https://$FINAL_DOMAIN/health/" >/dev/null
+          echo "Public production route is live on STRATO."
