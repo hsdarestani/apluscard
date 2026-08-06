@@ -276,6 +276,11 @@ def privacy_choices_safe(request):
     """Only customer accounts have privacy marketing preferences; management is redirected safely."""
     if not Wallet.objects.filter(owner=request.user).exists():
         messages.info(request, "Datenschutz-Einstellungen für Marketing sind nur für Mitgliedskonten verfügbar.")
+        membership = get_active_membership(request.user)
+        if membership and membership.role in MANAGER_ROLES:
+            return redirect("manager_dashboard")
+        if membership and membership.role in STAFF_ROLES:
+            return redirect("staff_dashboard")
         return redirect("dashboard")
     from .legal_views import privacy_choices
 
