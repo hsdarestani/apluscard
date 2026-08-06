@@ -1,0 +1,40 @@
+name: Trigger Google Play Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/trigger-google-play-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Android 1.0.2 production release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          payload='{"ref":"main","inputs":{"build_run_id":"31107996225","artifact_name":"SAMS-Card-Android-1.0.2-5","track":"production","release_status":"completed"}}'
+          response_code="$(curl --silent --show-error \
+            --output "$RUNNER_TEMP/dispatch-response.txt" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPOSITORY/actions/workflows/publish-android-google-play.yml/dispatches" \
+            --data "$payload")"
+          test "$response_code" = "204" || {
+            cat "$RUNNER_TEMP/dispatch-response.txt" || true
+            echo "Workflow dispatch failed with HTTP $response_code"
+            exit 1
+          }
+          echo "Android 1.0.2 production publish was dispatched."
