@@ -17,8 +17,18 @@ jobs:
   django:
     name: Django tests
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout current source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'main' }}
+          fetch-depth: 1
+      - name: Record tested revision
+        id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -48,11 +58,13 @@ jobs:
       SITE_DOMAIN: app.samsclublounge.de
       STAGE_DOMAIN: new-app.samsclublounge.de
       LEGACY_DOMAIN: cards.smarbiz.sbs
+      DEPLOY_SHA: ${{ needs.django.outputs.source_sha }}
 
     steps:
       - name: Checkout tested revision
         uses: actions/checkout@v4
         with:
+          ref: ${{ needs.django.outputs.source_sha }}
           fetch-depth: 1
 
       - name: Validate STRATO deployment secrets
@@ -67,6 +79,7 @@ jobs:
             echo "HETZNER_SSH_PRIVATE_KEY is missing"
             exit 1
           }
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
 
       - name: Configure SSH
         shell: bash
@@ -100,14 +113,14 @@ jobs:
           set -Eeuo pipefail
           scp -i ~/.ssh/strato_sams -P "$SSH_PORT" \
             "$RUNNER_TEMP/apluscard-release.tgz" \
-            "$SSH_USER@$SSH_HOST:/tmp/apluscard-release-$GITHUB_SHA.tgz"
+            "$SSH_USER@$SSH_HOST:/tmp/apluscard-release-$DEPLOY_SHA.tgz"
 
       - name: Deploy application to STRATO
         shell: bash
         run: |
           set -Eeuo pipefail
           ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "APP_DIR='$APP_DIR' SITE_DOMAIN='$SITE_DOMAIN' STAGE_DOMAIN='$STAGE_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' SSH_HOST='$SSH_HOST' DEPLOY_SHA='$GITHUB_SHA' bash -se" <<'REMOTE'
+            "APP_DIR='$APP_DIR' SITE_DOMAIN='$SITE_DOMAIN' STAGE_DOMAIN='$STAGE_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' SSH_HOST='$SSH_HOST' DEPLOY_SHA='$DEPLOY_SHA' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           release_archive="/tmp/apluscard-release-$DEPLOY_SHA.tgz"
           test -s "$release_archive"
