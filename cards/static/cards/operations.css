@@ -15,6 +15,37 @@
 .responsive-ledger-table tr[data-row-link] { cursor:pointer; }
 .responsive-ledger-table tr[data-row-link]:hover { background:rgba(255,255,255,.025); }
 
+.dashboard-head,
+.dashboard-head > div,
+.dashboard-head h1,
+.dashboard-head .gradient-text { min-width:0;max-width:100%; }
+.dashboard-head .gradient-text { display:inline-block;overflow-wrap:anywhere;word-break:break-word; }
+
+.staff-checkout-only { width:min(100%,720px);margin:0 auto; }
+.staff-private-panel { min-height:0; }
+.staff-private-head .dashboard-context { justify-content:flex-end; }
+.staff-charge-form { margin-top:20px; }
+.staff-amount-field input { min-height:64px;font-size:25px;font-weight:850;text-align:center; }
+.scan-confirmation { display:grid;gap:4px;padding:14px 16px;border:1px solid rgba(72,230,173,.24);border-radius:15px;background:rgba(72,230,173,.075); }
+.scan-confirmation strong { color:#a8f7dc;font-size:13px; }
+.scan-confirmation span { color:var(--muted);font-size:10px; }
+.manual-code-fallback { padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025); }
+.manual-code-fallback summary { cursor:pointer;color:var(--muted);font-size:10px;font-weight:750; }
+.manual-code-fallback label { margin-top:13px; }
+
+.custom-tip-fieldset { display:grid;gap:12px; }
+.tip-quick-actions { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px; }
+.tip-quick-actions button { min-height:46px;padding:8px;border:1px solid var(--line);border-radius:12px;color:#f8eefa;background:rgba(255,255,255,.04);font-weight:850;cursor:pointer; }
+.tip-quick-actions button:hover,
+.tip-quick-actions button:focus-visible { border-color:rgba(240,50,167,.48);background:var(--gradient-soft);outline:none; }
+.custom-tip-input { display:grid;gap:7px; }
+.custom-tip-input > span { color:var(--muted);font-size:10px;font-weight:700; }
+.custom-tip-input input { min-height:52px;font-size:18px;font-weight:800; }
+.tip-custom-form { display:grid;gap:13px; }
+
+.mobile-nav-management { grid-template-columns:none!important;grid-auto-flow:column;grid-auto-columns:1fr; }
+.mobile-nav-staff { grid-template-columns:1fr!important;left:50%!important;right:auto!important;width:min(420px,calc(100% - 20px));transform:translateX(-50%); }
+
 @media(max-width:700px){
   .destructive-grid { grid-template-columns:1fr; }
   .broadcast-form .broadcast-body { grid-column:auto; }
@@ -32,4 +63,30 @@
   .responsive-ledger-table td[data-label="Beleg"]::after { content:"Antippen, um Beleg zu öffnen";grid-column:2;color:#f18ac8;font-size:9px;margin-top:2px; }
   .compact-notification-panel .notification-list article { grid-template-columns:1fr; }
   .compact-notification-panel .notification-list form { justify-self:start; }
+
+  .manager-grid > .panel:first-child .wallet-table-wrap { overflow:visible!important; }
+  .manager-grid > .panel:first-child .data-table,
+  .manager-grid > .panel:first-child .data-table tbody,
+  .manager-grid > .panel:first-child .data-table tr,
+  .manager-grid > .panel:first-child .data-table td { display:block;width:100%;min-width:0!important; }
+  .manager-grid > .panel:first-child .data-table thead { display:none; }
+  .manager-grid > .panel:first-child .data-table tbody { display:grid;gap:12px; }
+  .manager-grid > .panel:first-child .data-table tr { padding:14px 15px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.025);box-shadow:0 12px 32px rgba(0,0,0,.18); }
+  .manager-grid > .panel:first-child .data-table td { display:grid;grid-template-columns:86px minmax(0,1fr);gap:10px;padding:7px 0!important;border:0!important;white-space:normal!important;overflow-wrap:anywhere; }
+  .manager-grid > .panel:first-child .data-table td::before { color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em; }
+  .manager-grid > .panel:first-child .data-table td:nth-child(1)::before { content:"Mitglied"; }
+  .manager-grid > .panel:first-child .data-table td:nth-child(2)::before { content:"Stufe"; }
+  .manager-grid > .panel:first-child .data-table td:nth-child(3)::before { content:"Status"; }
+  .manager-grid > .panel:first-child .data-table td:nth-child(4)::before { content:"Guthaben"; }
+  .manager-grid > .panel:first-child .data-table td:nth-child(5)::before { content:"Aktion"; }
+}
+
+@media(max-width:640px){
+  html,body,.page-shell { max-width:100%;overflow-x:hidden; }
+  .dashboard-head h1 { font-size:clamp(30px,10vw,43px)!important;overflow-wrap:anywhere;word-break:break-word; }
+  .dashboard-head .gradient-text { max-width:calc(100vw - 36px); }
+  .tip-quick-actions { grid-template-columns:1fr; }
+  .staff-private-head .dashboard-context { justify-content:flex-start; }
+  .staff-checkout-only .panel { padding:17px; }
+  .scanner-box { min-height:245px; }
 }
