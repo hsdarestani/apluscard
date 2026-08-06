@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: Sichtbare App-Version, z. B. 1.0.1
+        description: Sichtbare App-Version, z. B. 1.0.2
         required: true
-        default: "1.0.1"
+        default: "1.0.2"
         type: string
       build_number:
         description: Eindeutige, bei jedem Upload höhere Build-Nummer
@@ -33,7 +33,7 @@ jobs:
     environment: production
     env:
       IOS_BUNDLE_ID: de.aplussolution.samscard
-      IOS_TEAM_ID: VHB87QGU46
+      IOS_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       IOS_VERSION_NAME: ${{ inputs.version_name }}
       IOS_BUILD_NUMBER: ${{ inputs.build_number }}
       IOS_DISTRIBUTION_CERT_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_P12_BASE64 }}
@@ -72,6 +72,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          test -n "$IOS_TEAM_ID" || (echo "APPLE_TEAM_ID fehlt." && exit 1)
+          test "$IOS_TEAM_ID" = "884MVA2MD5" || (echo "Falsches Apple-Team: $IOS_TEAM_ID" && exit 1)
           test -n "$IOS_DISTRIBUTION_CERT_P12_BASE64" || (echo "IOS_DISTRIBUTION_CERT_P12_BASE64 fehlt." && exit 1)
           test -n "$IOS_DISTRIBUTION_CERT_PASSWORD" || (echo "IOS_DISTRIBUTION_CERT_PASSWORD fehlt." && exit 1)
           test -n "$IOS_PROVISIONING_PROFILE_BASE64" || (echo "IOS_PROVISIONING_PROFILE_BASE64 fehlt." && exit 1)
@@ -151,10 +153,7 @@ jobs:
           PROFILE_APP_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")"
           PROFILE_APNS_ENV="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$PROFILE_PLIST")"
 
-          case "$PROFILE_APP_IDENTIFIER" in
-            *."$IOS_BUNDLE_ID") ;;
-            *) echo "Provisioning Profile gehört nicht zu $IOS_BUNDLE_ID."; exit 1 ;;
-          esac
+          test "$PROFILE_APP_IDENTIFIER" = "$IOS_TEAM_ID.$IOS_BUNDLE_ID" || (echo "Provisioning Profile gehört nicht zu Team $IOS_TEAM_ID und Bundle $IOS_BUNDLE_ID: $PROFILE_APP_IDENTIFIER" && exit 1)
           test "$PROFILE_APNS_ENV" = "production" || (echo "Provisioning Profile enthält kein Production-APNs-Entitlement." && exit 1)
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
