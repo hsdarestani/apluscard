@@ -1,5 +1,7 @@
 import base64
 import io
+import time
+from types import SimpleNamespace
 
 import pyotp
 import qrcode
@@ -13,7 +15,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
-from .models import AuditEvent
+from .models import AuditEvent, Business
 from .security_models import PrivilegedMfaDevice
 from .security_services import (
     mark_mfa_verified,
@@ -53,12 +55,13 @@ def _audit(request, membership, action, details=None):
 
 def _privileged_or_403(request):
     membership = privileged_membership(request.user)
-    if membership is None and not request.user.is_superuser:
+    if membership is not None:
+        return membership
+    if not request.user.is_superuser:
         return None
-    if membership is None:
-        # Superusers need a business context for the auditable MFA setup.
-        membership = request.user.business_memberships.select_related("business").filter(is_active=True).first()
-    return membership
+
+    business = Business.objects.filter(is_active=True).order_by("pk").first()
+    return SimpleNamespace(business=business) if business is not None else None
 
 
 def _qr_data_uri(payload):
@@ -94,14 +97,16 @@ def mfa_setup(request):
         device.last_counter = -1
         device.save(update_fields=["secret_encrypted", "last_counter", "updated_at"])
 
-    provisioning_uri = pyotp.TOTP(secret).provisioning_uri(
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(
         name=request.user.email or request.user.username,
         issuer_name=getattr(settings, "APP_NAME", "Sams Club Lounge"),
     )
 
     if request.method == "POST":
-        candidate = request.POST.get("code", "")
-        if pyotp.TOTP(secret).verify(candidate.replace(" ", ""), valid_window=1):
+        candidate = request.POST.get("code", "").replace(" ", "")
+        if totp.verify(candidate, valid_window=1):
+            device.last_counter = int(time.time()) // totp.interval
             recovery_codes = PrivilegedMfaDevice.generate_recovery_codes()
             device.confirm(recovery_codes)
             mark_mfa_verified(request)
