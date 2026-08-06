@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, apple_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, views
+from . import api, apple_views, compliance_api, compliance_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
@@ -13,6 +13,7 @@ urlpatterns = [
     path("datenschutz/", legal_views.privacy_policy, name="privacy_policy"),
     path("impressum/", legal_views.imprint, name="imprint"),
     path("datenschutz/einstellungen/", operations_views.privacy_choices_safe, name="privacy_choices"),
+    path("datenschutz/datenexport/", compliance_views.customer_data_export, name="customer_data_export"),
     path("datenschutz/konto-loeschen/", legal_views.account_deletion, name="account_deletion"),
     path("rechtliches-bestaetigen/", legal_views.legal_acceptance, name="legal_acceptance"),
     path("apps/<slug:business_slug>/agb/", legal_views.terms, name="app_terms"),
@@ -29,6 +30,7 @@ urlpatterns = [
     path("location/select/", views.select_location, name="select_location"),
     path("customer/standort-waehlen/", experience_views.customer_location_select, name="customer_location_select"),
     path("customer/", views.customer_dashboard, name="customer_dashboard"),
+    path("customer/qr/refresh/", compliance_views.customer_qr_refresh, name="customer_qr_refresh"),
     path("customer/apple-wallet/", release_views.apple_wallet_pass, name="apple_wallet_pass"),
     path("customer/apple-wallet/link/", release_views.apple_wallet_link, name="apple_wallet_link"),
     path("wallet/download/<str:token>/", release_views.apple_wallet_pass_download, name="apple_wallet_pass_download"),
@@ -44,7 +46,7 @@ urlpatterns = [
     path("transaktionsfaelle/<uuid:case_id>/pruefen/", experience_views.transaction_case_review, name="transaction_case_review"),
     path("bills/<uuid:entry_id>/", views.bill_detail, name="bill_detail"),
     path("staff/", views.staff_dashboard, name="staff_dashboard"),
-    path("staff/charge/", operations_views.staff_charge_safe, name="staff_charge"),
+    path("staff/charge/", compliance_views.staff_charge_secure, name="staff_charge"),
     path("manager/", views.manager_dashboard, name="manager_dashboard"),
     path("manager/settings/", views.manager_settings, name="manager_settings"),
     path("manager/standortbild/", experience_views.location_visual_update, name="location_visual_update"),
@@ -53,18 +55,18 @@ urlpatterns = [
     path("manager/notifications/<uuid:wallet_id>/send/", operations_views.manager_direct_notification, name="manager_direct_notification"),
     path("manager/notifications/<int:notification_id>/read/", views.mark_notification_read, name="mark_notification_read"),
     path("manager/wallets/create/", views.manager_wallet_create, name="manager_wallet_create"),
-    path("manager/wallets/scan/", manager_views.manager_wallet_scan, name="manager_wallet_scan"),
+    path("manager/wallets/scan/", compliance_views.manager_wallet_scan_secure, name="manager_wallet_scan"),
     path("manager/wallets/<uuid:wallet_id>/", views.manager_wallet_detail, name="manager_wallet_detail"),
     path("manager/wallets/<uuid:wallet_id>/charge/", views.manager_charge, name="manager_charge"),
     path("manager/wallets/<uuid:wallet_id>/topup/", views.manager_topup, name="manager_topup"),
     path("manager/wallets/<uuid:wallet_id>/refund/", views.manager_refund, name="manager_refund"),
     path("manager/wallets/<uuid:wallet_id>/status/", views.manager_wallet_status, name="manager_wallet_status"),
-    path("manager/wallets/<uuid:wallet_id>/clear-history/", operations_views.manager_clear_wallet_history, name="manager_clear_wallet_history"),
-    path("manager/wallets/<uuid:wallet_id>/delete-test-account/", operations_views.manager_delete_test_account, name="manager_delete_test_account"),
+    path("manager/wallets/<uuid:wallet_id>/clear-history/", compliance_views.manager_clear_wallet_history_guarded, name="manager_clear_wallet_history"),
+    path("manager/wallets/<uuid:wallet_id>/delete-test-account/", compliance_views.manager_delete_test_account_guarded, name="manager_delete_test_account"),
     path("api/v1/me/", api.MeView.as_view(), name="api_me"),
     path("api/v1/locations/", api.LocationsView.as_view(), name="api_locations"),
     path("api/v1/offers/", api.OffersView.as_view(), name="api_offers"),
-    path("api/v1/wallet/", api.MyWalletView.as_view(), name="api_wallet"),
+    path("api/v1/wallet/", compliance_api.SecureMyWalletView.as_view(), name="api_wallet"),
     path("api/v1/wallet/transactions/", api.MyTransactionsView.as_view(), name="api_wallet_transactions"),
     path("api/v1/payments/pending/", api.PendingPaymentsView.as_view(), name="api_pending_payments"),
     path("api/v1/payments/<uuid:payment_id>/confirm/", api.ConfirmPaymentView.as_view(), name="api_confirm_payment"),
@@ -74,7 +76,7 @@ urlpatterns = [
     path("api/v1/transaction-cases/<uuid:case_id>/", api.TransactionCaseDetailView.as_view(), name="api_transaction_case_detail"),
     path("api/v1/transaction-cases/<uuid:case_id>/review/", api.TransactionCaseReviewView.as_view(), name="api_transaction_case_review"),
     path("api/v1/push-devices/", api.PushDeviceView.as_view(), name="api_push_devices"),
-    path("api/v1/staff/charge/", api.StaffChargeView.as_view(), name="api_staff_charge"),
-    path("api/v1/manager/topup/", api.ManagerTopupView.as_view(), name="api_manager_topup"),
-    path("api/v1/manager/refund/", api.ManagerRefundView.as_view(), name="api_manager_refund"),
+    path("api/v1/staff/charge/", compliance_api.SecureStaffChargeView.as_view(), name="api_staff_charge"),
+    path("api/v1/manager/topup/", compliance_api.SecureManagerTopupView.as_view(), name="api_manager_topup"),
+    path("api/v1/manager/refund/", compliance_api.SecureManagerRefundView.as_view(), name="api_manager_refund"),
 ]
