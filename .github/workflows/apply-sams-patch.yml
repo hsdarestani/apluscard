@@ -6,6 +6,7 @@ on:
     paths:
       - "ops/apply_sams_patch.py"
       - "ops/patch_chunks/**"
+      - ".github/workflows/apply-sams-patch.yml"
 
 permissions:
   contents: write
@@ -20,8 +21,8 @@ jobs:
           fetch-depth: 0
       - name: Apply prepared patch
         run: python ops/apply_sams_patch.py
-      - name: Remove one-time workflow
-        run: rm -f .github/workflows/apply-sams-patch.yml
+      - name: Keep workflow files for direct follow-up
+        run: git restore --source=HEAD -- .github/workflows
       - name: Commit implementation
         run: |
           set -Eeuo pipefail
