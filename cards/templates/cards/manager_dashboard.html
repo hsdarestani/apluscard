@@ -60,13 +60,39 @@
 <dialog id="new-wallet" class="app-dialog"><form method="post" action="{% url 'manager_wallet_create' %}" class="stack-form">{% csrf_token %}<div class="dialog-head"><div><span class="eyebrow">Neues Mitglied</span><h2>Mitgliedskarte anlegen</h2></div><button type="button" class="icon-button" data-dialog-close>×</button></div><label>Name<input name="display_name" required></label><label>Telefon<input name="phone"></label><label>E-Mail-Adresse<input type="email" name="email"></label><button class="button primary full" type="submit">Mitgliedskarte erstellen</button></form></dialog>
 {% endblock %}
 {% block scripts %}
+<script src="{% static 'cards/camera-permissions.js' %}"></script>
 <script src="{% static 'cards/vendor/html5-qrcode.min.js' %}"></script>
 <script>
 (function(){
   const open=document.getElementById('open-manager-scanner'),dialog=document.getElementById('scan-member'),form=document.getElementById('manager-scan-form'),input=document.getElementById('manager-wallet-token'),status=document.getElementById('manager-scan-status');
   let scanner=null,handled=false;
   const stop=async()=>{try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}scanner=null;handled=false;};
-  open?.addEventListener('click',async()=>{dialog.showModal();status.textContent='';if(!window.Html5Qrcode){status.textContent='Der Scanner konnte nicht geladen werden. Bitte den Kartencode manuell eingeben.';return;}try{scanner=new Html5Qrcode('manager-reader');await scanner.start({facingMode:'environment'},{fps:8,qrbox:230,aspectRatio:1},async text=>{if(handled)return;handled=true;const match=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);if(!match){handled=false;status.textContent='Kein gültiger Mitgliedscode.';return;}input.value=match[0];await stop();form.requestSubmit();});}catch(e){console.error('Manager scanner error',e);status.textContent='Kamera konnte nicht gestartet werden. Bitte Berechtigung prüfen oder den Code manuell eingeben.';await stop();}});
+  open?.addEventListener('click',async()=>{
+    dialog.showModal();
+    status.textContent='Kameraberechtigung wird geprüft …';
+    const permission=await window.SamsCameraPermissions?.prepareForScanner?.();
+    if(permission && !permission.allowed){
+      status.textContent=permission.state==='denied'
+        ? 'Der Kamerazugriff wurde bereits dauerhaft abgelehnt. Das System kann das Fenster nicht erneut anzeigen.'
+        : 'Die Kameraberechtigung wurde nicht erteilt.';
+      return;
+    }
+    status.textContent='';
+    if(!window.Html5Qrcode){status.textContent='Der Scanner konnte nicht geladen werden. Bitte den Kartencode manuell eingeben.';return;}
+    try{
+      scanner=new Html5Qrcode('manager-reader');
+      await scanner.start({facingMode:'environment'},{fps:8,qrbox:230,aspectRatio:1},async text=>{
+        if(handled)return;handled=true;
+        const match=String(text).match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+        if(!match){handled=false;status.textContent='Kein gültiger Mitgliedscode.';return;}
+        input.value=match[0];await stop();form.requestSubmit();
+      });
+    }catch(e){
+      console.error('Manager scanner error',e);
+      status.textContent='Kamera konnte nicht gestartet werden. Bitte App aktualisieren oder den Code manuell eingeben.';
+      await stop();
+    }
+  });
   dialog?.addEventListener('close',stop);document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});window.addEventListener('pagehide',stop);
 })();
 </script>
