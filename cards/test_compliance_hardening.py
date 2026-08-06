@@ -9,6 +9,7 @@ from django.urls import reverse
 
 from .compliance_models import TestWalletMarker
 from .compliance_qr import issue_wallet_qr, resolve_payment_qr
+from .legal_models import LegalAcceptance, LegalConfiguration
 from .models import AuditEvent, Business, LedgerEntry, Location, MemberProfile, Membership, Wallet
 from .services import post_wallet_entry
 
@@ -23,6 +24,13 @@ class ComplianceHardeningTests(TestCase):
     def setUp(self):
         User = get_user_model()
         self.business = Business.objects.create(name="Sams Club Lounge", slug="shisha-bar")
+        LegalConfiguration.objects.create(
+            business=self.business,
+            controller_name="A+ Solution GmbH",
+            controller_address="Teststraße 1, Frankfurt",
+            contact_email="app@example.com",
+            privacy_email="privacy@example.com",
+        )
         self.location = Location.objects.create(
             business=self.business,
             name="SAMS Test",
@@ -47,6 +55,18 @@ class ComplianceHardeningTests(TestCase):
             display_name="Test Member",
             email=self.customer.email,
         )
+        for document_type in (
+            LegalAcceptance.DocumentType.TERMS,
+            LegalAcceptance.DocumentType.PRIVACY,
+        ):
+            LegalAcceptance.objects.create(
+                user=self.customer,
+                business=self.business,
+                document_type=document_type,
+                version="1.0",
+                source=LegalAcceptance.Source.REGISTRATION,
+                member_number=self.wallet.member_number,
+            )
         self.owner = User.objects.create_user(
             username="owner-compliance",
             password="Owner-Test-2026!",
