@@ -1,0 +1,54 @@
+name: Trigger iOS 1.0.2 Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/trigger-ios-1.0.2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  trigger:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Trigger iOS 1.0.2 release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify production before release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          headers="$RUNNER_TEMP/headers.txt"
+          curl --fail --silent --show-error --max-time 30 \
+            -D "$headers" \
+            "https://app.samsclublounge.de/accounts/login/" \
+            -o /dev/null
+          grep -qi '^X-SAMS-Origin: strato' "$headers"
+          curl --fail --silent --show-error --max-time 30 \
+            "https://app.samsclublounge.de/health/" >/dev/null
+
+      - name: Dispatch signed TestFlight build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          payload='{"ref":"main","inputs":{"version_name":"1.0.2","build_number":"2026080601","upload_to_testflight":"true"}}'
+          response_code="$(curl --silent --show-error \
+            --output "$RUNNER_TEMP/dispatch-response.txt" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPOSITORY/actions/workflows/build-ios-testflight.yml/dispatches" \
+            --data "$payload")"
+          test "$response_code" = "204" || {
+            cat "$RUNNER_TEMP/dispatch-response.txt" || true
+            echo "Workflow dispatch failed with HTTP $response_code"
+            exit 1
+          }
+          echo "iOS 1.0.2 build 2026080601 was dispatched to TestFlight."
