@@ -145,3 +145,5 @@ jobs:
           echo "Landing domain did not become healthy after TLS activation."
           exit 1
           REMOTE
+
+# DNS activation retried after Cloudflare A-record cutover on 2026-08-06.
