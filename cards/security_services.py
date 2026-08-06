@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 from urllib.parse import urlencode
@@ -26,15 +27,19 @@ def privileged_membership(user):
 
 
 def privileged_mfa_required():
-    configured = getattr(settings, "PRIVILEGED_MFA_REQUIRED", None)
-    if configured is not None:
-        return bool(configured)
+    configured = os.getenv("PRIVILEGED_MFA_REQUIRED", "").strip().lower()
+    if configured:
+        return configured in {"1", "true", "yes", "on"}
     # Safe production default without disturbing the existing test suite.
     return not settings.DEBUG and "test" not in sys.argv
 
 
 def mfa_session_seconds():
-    return int(getattr(settings, "PRIVILEGED_MFA_SESSION_SECONDS", 12 * 60 * 60))
+    raw_value = os.getenv("PRIVILEGED_MFA_SESSION_SECONDS", "43200").strip()
+    try:
+        return max(300, min(int(raw_value), settings.SESSION_COOKIE_AGE))
+    except ValueError:
+        return 12 * 60 * 60
 
 
 def mfa_session_is_valid(request):
@@ -48,7 +53,7 @@ def mark_mfa_verified(request):
     request.session.cycle_key()
     request.session[MFA_SESSION_USER_KEY] = request.user.pk
     request.session[MFA_SESSION_VERIFIED_AT_KEY] = int(time.time())
-    request.session.set_expiry(min(mfa_session_seconds(), settings.SESSION_COOKIE_AGE))
+    request.session.set_expiry(mfa_session_seconds())
 
 
 def clear_mfa_session(request):
