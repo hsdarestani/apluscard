@@ -21,8 +21,10 @@ jobs:
           fetch-depth: 0
       - name: Apply prepared patch
         run: python ops/apply_sams_patch.py
-      - name: Keep workflow files for direct follow-up
-        run: git restore --source=HEAD -- .github/workflows
+      - name: Exclude workflow changes from runner commit
+        run: |
+          rm -f .github/workflows/domain-cutover.yml
+          git restore --source=HEAD -- .github/workflows/build-android-release.yml .github/workflows/apply-sams-patch.yml
       - name: Commit implementation
         run: |
           set -Eeuo pipefail
