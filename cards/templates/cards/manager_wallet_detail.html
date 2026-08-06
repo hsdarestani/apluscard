@@ -24,11 +24,20 @@
         <article><strong>Betrag zurückgeben</strong><span>Eine fehlerhafte oder stornierte Belastung wird wieder gutgeschrieben.</span></article>
       </div>
       <div class="tab-buttons three-tabs"><button class="tab-button active" data-tab="charge" type="button">Zahlung abbuchen</button><button class="tab-button" data-tab="topup" type="button">Aufladen</button><button class="tab-button" data-tab="refund" type="button">Zurückgeben</button></div>
-      <form method="post" action="{% url 'manager_charge' wallet.id %}" class="stack-form tab-content active" id="charge">{% csrf_token %}
+      <form method="post" action="{% url 'manager_charge' wallet.id %}" class="stack-form tab-content active" id="charge" data-tip-form>{% csrf_token %}
         <label>Standort<select name="location_id" required>{% for location in locations %}<option value="{{ location.id }}">{{ location.name }}</option>{% endfor %}</select></label>
         <div class="two-col"><label>Rechnungsbetrag (€)<input type="number" name="amount" min="0.01" step="0.01" required></label><label>Bestellnummer<input name="order_reference" placeholder="KASSE-12345"></label></div>
         <label>Beschreibung<input name="description" placeholder="Bestellung laut Kasse"></label>
-        <fieldset class="tip-fieldset"><legend>Trinkgeld als fester Betrag</legend><div class="tip-radio-grid">{% for tip in tip_choices %}<label><input type="radio" name="tip_amount" value="{{ tip.value }}" {% if forloop.first %}checked{% endif %}><span>{{ tip.label }}</span></label>{% endfor %}</div></fieldset>
+        <fieldset class="tip-fieldset custom-tip-fieldset">
+          <legend>Trinkgeld</legend>
+          <p class="form-note">10 Cent, 1 Euro oder einen eigenen Betrag eingeben.</p>
+          <div class="tip-quick-actions">
+            <button type="button" data-tip-value="0.10">0,10 €</button>
+            <button type="button" data-tip-value="1.00">1,00 €</button>
+            <button type="button" data-tip-value="0.00">Kein Trinkgeld</button>
+          </div>
+          <label class="custom-tip-input"><span>Eigener Betrag (€)</span><input type="number" name="tip_amount" min="0" max="100" step="0.01" inputmode="decimal" value="0.00"></label>
+        </fieldset>
         <div class="platform-alert"><strong>Sofortige Buchung</strong><span>Rechnung und Trinkgeld werden sofort abgezogen. Der Kunde und die Verwaltung erhalten eine Mitteilung.</span></div>
         <button class="button primary full">Zahlung jetzt abbuchen</button>
       </form>
@@ -65,4 +74,15 @@
   </div>
 </section>
 {% endif %}
+<script>
+document.querySelectorAll('[data-tip-form]').forEach(form => {
+  const input = form.querySelector('input[name="tip_amount"]');
+  form.querySelectorAll('[data-tip-value]').forEach(button => {
+    button.addEventListener('click', () => {
+      input.value = button.dataset.tipValue;
+      input.focus();
+    });
+  });
+});
+</script>
 {% endblock %}
