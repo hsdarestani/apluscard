@@ -107,7 +107,7 @@ def staff_charge_secure(request):
     except signing.BadSignature:
         messages.error(
             request,
-            "Dieser Zahlungs-QR-Code ist ungültig oder abgelaufen. Bitte den aktuellen QR-Code auf dem Kundengerät erneut scannen.",
+            "Dieser Zahlungs-QR-Code ist ungültig oder abgelaufen. Bitte den aktuellen QR-Code erneut scannen.",
         )
         return redirect("staff_dashboard")
 
@@ -135,7 +135,7 @@ def staff_charge_secure(request):
         messages.error(request, " ".join(exc.messages))
     else:
         if payment.status == PaymentRequest.Status.PENDING:
-            messages.success(request, f"Zahlungsfreigabe wurde an Mitglied {wallet.member_number} gesendet.")
+            messages.success(request, "Die Zahlungsfreigabe wurde an das Kundengerät gesendet.")
         else:
             messages.success(request, f"{payment.base_amount:.2f} € Zahlung + {payment.tip_amount:.2f} € Trinkgeld wurden abgebucht.")
     return redirect("staff_dashboard")
