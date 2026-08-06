@@ -1,0 +1,114 @@
+name: Prepare STRATO Final Origin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/prepare-strato-final-origin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-strato-final-origin
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Prepare STRATO final origin'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      FINAL_DOMAIN: app.samsclublounge.de
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$NEW_HOST" = "217.160.50.71"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H "$NEW_HOST" > ~/.ssh/known_hosts
+
+      - name: Repair final Nginx origin and verify application
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" \
+            "FINAL_DOMAIN='$FINAL_DOMAIN' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd /root/apluscard
+          docker compose up -d --build --remove-orphans
+
+          for attempt in $(seq 1 60); do
+            curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null && break
+            sleep 2
+          done
+          curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null
+
+          echo "Direct backend checks:"
+          for path in / /accounts/login/ /health/; do
+            status="$(curl --silent --output /dev/null --write-out '%{http_code}' -H "Host: $FINAL_DOMAIN" "http://127.0.0.1:8010$path")"
+            echo "$path -> $status"
+          done
+
+          cat > "/etc/nginx/sites-available/$FINAL_DOMAIN" <<NGINX
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name $FINAL_DOMAIN;
+              client_max_body_size 12m;
+              add_header X-SAMS-Origin strato always;
+
+              location / {
+                  proxy_pass http://127.0.0.1:8010;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_set_header X-Forwarded-Host \$host;
+                  proxy_read_timeout 60s;
+              }
+          }
+          NGINX
+          ln -sfn "/etc/nginx/sites-available/$FINAL_DOMAIN" "/etc/nginx/sites-enabled/$FINAL_DOMAIN"
+          rm -f /etc/nginx/sites-enabled/default
+          nginx -t
+          systemctl reload nginx
+
+          echo "Nginx checks:"
+          ok=0
+          for path in / /accounts/login/; do
+            status="$(curl --silent --output /dev/null --write-out '%{http_code}' -H "Host: $FINAL_DOMAIN" "http://127.0.0.1$path")"
+            echo "$path -> $status"
+            case "$status" in
+              200|301|302) ok=1 ;;
+            esac
+          done
+          test "$ok" -eq 1
+
+          grep -q '^PUSH_NOTIFICATIONS_ENABLED=0$' .env
+          docker compose exec -T web python manage.py migrate --noinput </dev/null
+          docker compose exec -T web python manage.py check </dev/null
+          docker compose ps
+          echo "STRATO final origin is ready; DNS can now be switched."
+          REMOTE
+
+      - name: Verify origin from runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          headers="$RUNNER_TEMP/headers.txt"
+          curl --silent --show-error --max-time 30 \
+            --resolve "$FINAL_DOMAIN:80:$NEW_HOST" \
+            -D "$headers" \
+            "http://$FINAL_DOMAIN/accounts/login/" >/dev/null
+          grep -qi '^X-SAMS-Origin: strato' "$headers"
+          echo "STRATO origin verified at 217.160.50.71."
