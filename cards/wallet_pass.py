@@ -170,7 +170,7 @@ def _pass_files(wallet, request):
         "teamIdentifier": settings.APPLE_WALLET_TEAM_ID,
         "organizationName": settings.APP_PUBLISHER,
         "description": "Digitale Sams Club Lounge Mitgliedskarte",
-        "logoText": "SAMS CLUB LOUNGE",
+        "logoText": "SCL",
         "foregroundColor": "rgb(255, 255, 255)",
         "backgroundColor": "rgb(6, 3, 11)",
         "labelColor": "rgb(255, 211, 128)",
