@@ -50,6 +50,11 @@ jobs:
       LEGACY_DOMAIN: cards.smarbiz.sbs
 
     steps:
+      - name: Checkout tested revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Validate STRATO deployment secrets
         shell: bash
         run: |
@@ -74,20 +79,51 @@ jobs:
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      - name: Package tested source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tar \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./.env' \
+            --exclude='./media' \
+            --exclude='./staticfiles' \
+            --exclude='*/__pycache__' \
+            --exclude='*.pyc' \
+            -czf "$RUNNER_TEMP/apluscard-release.tgz" .
+          test -s "$RUNNER_TEMP/apluscard-release.tgz"
+
+      - name: Upload tested source to STRATO
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" \
+            "$RUNNER_TEMP/apluscard-release.tgz" \
+            "$SSH_USER@$SSH_HOST:/tmp/apluscard-release-$GITHUB_SHA.tgz"
+
       - name: Deploy application to STRATO
         shell: bash
         run: |
           set -Eeuo pipefail
           ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "APP_DIR='$APP_DIR' SITE_DOMAIN='$SITE_DOMAIN' STAGE_DOMAIN='$STAGE_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' SSH_HOST='$SSH_HOST' bash -se" <<'REMOTE'
+            "APP_DIR='$APP_DIR' SITE_DOMAIN='$SITE_DOMAIN' STAGE_DOMAIN='$STAGE_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' SSH_HOST='$SSH_HOST' DEPLOY_SHA='$GITHUB_SHA' bash -se" <<'REMOTE'
           set -Eeuo pipefail
+          release_archive="/tmp/apluscard-release-$DEPLOY_SHA.tgz"
+          test -s "$release_archive"
+          mkdir -p "$APP_DIR"
           cd "$APP_DIR"
-          test -d .git
           test -s .env
 
-          git fetch --prune origin main
-          git checkout -B main origin/main
-          git reset --hard origin/main
+          find "$APP_DIR" -mindepth 1 -maxdepth 1 \
+            ! -name '.env' \
+            ! -name 'media' \
+            ! -name '.git' \
+            -exec rm -rf {} +
+          tar -xzf "$release_archive" -C "$APP_DIR"
+          rm -f "$release_archive"
+          printf '%s\n' "$DEPLOY_SHA" > "$APP_DIR/.deployed_sha"
+          chmod 600 "$APP_DIR/.deployed_sha"
 
           export APP_DIR SITE_DOMAIN STAGE_DOMAIN LEGACY_DOMAIN SSH_HOST
           python3 - <<'PY'
@@ -168,8 +204,9 @@ jobs:
             -H "Host: $SITE_DOMAIN" \
             http://127.0.0.1/health/ >/dev/null
 
+          test "$(cat "$APP_DIR/.deployed_sha")" = "$DEPLOY_SHA"
           docker compose ps
-          echo "STRATO deployment and health checks completed."
+          echo "STRATO deployment and health checks completed for $DEPLOY_SHA."
           REMOTE
 
       - name: Verify public production endpoint
