@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core import signing
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -100,12 +99,11 @@ class ComplianceHardeningTests(TestCase):
             "django.contrib.auth.hashers.Argon2PasswordHasher",
         )
 
-    def test_rotating_qr_resolves_but_static_uuid_is_rejected_for_payment(self):
+    def test_rotating_app_qr_and_static_apple_wallet_qr_resolve_for_payment(self):
         signed_token = issue_wallet_qr(self.wallet)
         self.assertTrue(signed_token.startswith("samsqr1."))
-        self.assertEqual(resolve_payment_qr(signed_token), self.wallet)
-        with self.assertRaises(signing.BadSignature):
-            resolve_payment_qr(str(self.wallet.qr_token))
+        self.assertEqual(resolve_payment_qr(signed_token, business=self.business), self.wallet)
+        self.assertEqual(resolve_payment_qr(str(self.wallet.qr_token), business=self.business), self.wallet)
 
     def test_wallet_api_never_exposes_the_static_database_qr_uuid(self):
         self.client.force_login(self.customer)
@@ -122,27 +120,26 @@ class ComplianceHardeningTests(TestCase):
         self.assertTrue(wallet_payload["qr_token"].startswith("samsqr1."))
         self.assertNotEqual(wallet_payload["qr_token"], str(self.wallet.qr_token))
 
-    def test_staff_payment_rejects_static_qr_but_accepts_current_signed_qr(self):
+    def test_staff_payment_accepts_static_apple_wallet_and_current_app_qr(self):
         self.client.force_login(self.staff)
         payload = {
             "wallet_token": str(self.wallet.qr_token),
             "location_id": str(self.location.pk),
             "amount": "5.00",
             "tip_amount": "0.00",
-            "description": "Static QR must fail",
         }
         response = self.client.post(reverse("staff_charge"), payload)
         self.assertEqual(response.status_code, 302)
-        self.assertFalse(
-            LedgerEntry.objects.filter(wallet=self.wallet, entry_type=LedgerEntry.Type.PURCHASE).exists()
-        )
 
         payload["wallet_token"] = issue_wallet_qr(self.wallet)
-        payload["description"] = "Signed QR succeeds"
         response = self.client.post(reverse("staff_charge"), payload)
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(
-            LedgerEntry.objects.filter(wallet=self.wallet, entry_type=LedgerEntry.Type.PURCHASE).exists()
+        self.assertEqual(
+            LedgerEntry.objects.filter(
+                wallet=self.wallet,
+                entry_type=LedgerEntry.Type.PURCHASE,
+            ).count(),
+            2,
         )
 
     def test_financial_hard_delete_is_denied_for_production_wallets(self):
