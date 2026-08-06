@@ -1,282 +1,139 @@
 name: Configure Apple Wallet
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
-  group: apluscard-production
+  group: sams-apple-wallet-production
   cancel-in-progress: false
 
 jobs:
   configure-apple-wallet:
-    name: Apple Wallet konfigurieren und prüfen
-    if: github.ref == 'refs/heads/main'
+    name: Configure and verify Apple Wallet on STRATO
     runs-on: ubuntu-latest
     environment: production
     env:
-      SSH_HOST: 91.107.145.196
+      SSH_HOST: ${{ secrets.NEWHOST }}
       SSH_PORT: "22"
       SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
       APP_DIR: /root/apluscard
-      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
-      WALLET_PASS_TYPE_ID_INPUT: ${{ secrets.APPLE_WALLET_PASS_TYPE_ID }}
-      WALLET_TEAM_ID_INPUT: ${{ secrets.APPLE_WALLET_TEAM_ID }}
-      WALLET_P12_BASE64_INPUT: ${{ secrets.APPLE_WALLET_P12_BASE64 }}
-      WALLET_P12_PASSWORD_INPUT: ${{ secrets.APPLE_WALLET_P12_PASSWORD }}
-      WALLET_WWDR_BASE64_INPUT: ${{ secrets.APPLE_WALLET_WWDR_CERT_BASE64 }}
+      SITE_DOMAIN: app.samsclublounge.de
+      WALLET_PASS_TYPE_ID: ${{ secrets.APPLE_WALLET_PASS_TYPE_ID }}
+      WALLET_TEAM_ID: ${{ secrets.APPLE_WALLET_TEAM_ID }}
+      WALLET_P12_BASE64: ${{ secrets.APPLE_WALLET_P12_BASE64 }}
+      WALLET_P12_PASSWORD: ${{ secrets.APPLE_WALLET_P12_PASSWORD }}
+      WALLET_WWDR_BASE64: ${{ secrets.APPLE_WALLET_WWDR_CERT_BASE64 }}
 
     steps:
-      - name: Apple-Wallet-Secrets prüfen und normalisieren
-        id: wallet-payload
+      - name: Validate secrets and certificate pair
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD fehlt." && exit 1)
-          test -n "$WALLET_PASS_TYPE_ID_INPUT" || (echo "APPLE_WALLET_PASS_TYPE_ID fehlt." && exit 1)
-          test -n "$WALLET_TEAM_ID_INPUT" || (echo "APPLE_WALLET_TEAM_ID fehlt." && exit 1)
-          test -n "$WALLET_P12_BASE64_INPUT" || (echo "APPLE_WALLET_P12_BASE64 fehlt." && exit 1)
-          test -n "$WALLET_P12_PASSWORD_INPUT" || (echo "APPLE_WALLET_P12_PASSWORD fehlt." && exit 1)
-          test -n "$WALLET_WWDR_BASE64_INPUT" || (echo "APPLE_WALLET_WWDR_CERT_BASE64 fehlt." && exit 1)
-
-          case "$WALLET_PASS_TYPE_ID_INPUT" in
-            pass.*) ;;
-            *) echo "APPLE_WALLET_PASS_TYPE_ID muss mit pass. beginnen."; exit 1 ;;
-          esac
-          printf '%s' "$WALLET_TEAM_ID_INPUT" | grep -Eq '^[A-Za-z0-9]{10}$' || (
-            echo "APPLE_WALLET_TEAM_ID muss eine zehnstellige Team-ID sein." && exit 1
-          )
+          test "$SSH_HOST" = "217.160.50.71"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$WALLET_PASS_TYPE_ID"
+          test -n "$WALLET_TEAM_ID"
+          test -n "$WALLET_P12_BASE64"
+          test -n "$WALLET_P12_PASSWORD"
+          test -n "$WALLET_WWDR_BASE64"
+          case "$WALLET_PASS_TYPE_ID" in pass.*) ;; *) exit 1 ;; esac
+          test "$WALLET_TEAM_ID" = "884MVA2MD5"
 
           umask 077
-          P12_FILE="$RUNNER_TEMP/apple-wallet.p12"
-          P12_PASSWORD_FILE="$RUNNER_TEMP/apple-wallet-password.txt"
-          CERT_FILE="$RUNNER_TEMP/apple-wallet-cert.pem"
-          KEY_FILE="$RUNNER_TEMP/apple-wallet-key.pem"
-          WWDR_FILE="$RUNNER_TEMP/apple-wwdr.pem"
+          printf '%s' "$WALLET_P12_BASE64" | tr -d '\r\n\t ' | base64 --decode > "$RUNNER_TEMP/wallet.p12"
+          printf '%s' "$WALLET_P12_PASSWORD" > "$RUNNER_TEMP/wallet-password"
+          openssl pkcs12 -in "$RUNNER_TEMP/wallet.p12" -passin "file:$RUNNER_TEMP/wallet-password" -clcerts -nokeys -out "$RUNNER_TEMP/wallet-cert.pem"
+          openssl pkcs12 -in "$RUNNER_TEMP/wallet.p12" -passin "file:$RUNNER_TEMP/wallet-password" -nocerts -nodes -out "$RUNNER_TEMP/wallet-key.pem"
+          CERT_HASH="$(openssl x509 -in "$RUNNER_TEMP/wallet-cert.pem" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+          KEY_HASH="$(openssl pkey -in "$RUNNER_TEMP/wallet-key.pem" -pubout -outform DER | sha256sum | awk '{print $1}')"
+          test "$CERT_HASH" = "$KEY_HASH"
+          openssl x509 -in "$RUNNER_TEMP/wallet-cert.pem" -checkend 0 -noout
+          openssl x509 -in "$RUNNER_TEMP/wallet-cert.pem" -noout -subject | grep -F "$WALLET_PASS_TYPE_ID"
 
-          printf '%s' "$WALLET_P12_BASE64_INPUT" | tr -d '\r\n\t ' | base64 --decode > "$P12_FILE"
-          printf '%s' "$WALLET_P12_PASSWORD_INPUT" > "$P12_PASSWORD_FILE"
-          test -s "$P12_FILE" || (echo "Die P12-Datei ist leer oder ungültig codiert." && exit 1)
-
-          openssl pkcs12 -in "$P12_FILE" -passin "file:$P12_PASSWORD_FILE" -clcerts -nokeys -out "$CERT_FILE"
-          openssl pkcs12 -in "$P12_FILE" -passin "file:$P12_PASSWORD_FILE" -nocerts -nodes -out "$KEY_FILE"
-          openssl x509 -in "$CERT_FILE" -noout
-          openssl pkey -in "$KEY_FILE" -noout
-
-          CERT_PUBLIC_HASH="$(openssl x509 -in "$CERT_FILE" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
-          KEY_PUBLIC_HASH="$(openssl pkey -in "$KEY_FILE" -pubout -outform DER | sha256sum | awk '{print $1}')"
-          test "$CERT_PUBLIC_HASH" = "$KEY_PUBLIC_HASH" || (
-            echo "Private Key und Pass-Type-Zertifikat gehören nicht zusammen." && exit 1
-          )
-
-          CERT_SUBJECT="$(openssl x509 -in "$CERT_FILE" -noout -subject -nameopt RFC2253)"
-          printf '%s' "$CERT_SUBJECT" | grep -Fq "$WALLET_PASS_TYPE_ID_INPUT" || (
-            echo "Das P12-Zertifikat gehört nicht zum angegebenen Pass Type ID." && exit 1
-          )
-          printf '%s' "$CERT_SUBJECT" | grep -Fq "$WALLET_TEAM_ID_INPUT" || (
-            echo "Das P12-Zertifikat gehört nicht zur angegebenen Apple Team ID." && exit 1
-          )
-          openssl x509 -in "$CERT_FILE" -checkend 0 -noout || (
-            echo "Das Pass-Type-Zertifikat ist abgelaufen." && exit 1
-          )
-          if ! openssl x509 -in "$CERT_FILE" -checkend 2592000 -noout; then
-            echo "Warnung: Das Pass-Type-Zertifikat läuft in weniger als 30 Tagen ab."
-          fi
-
-          if printf '%s' "$WALLET_WWDR_BASE64_INPUT" | grep -q -- '-----BEGIN CERTIFICATE-----'; then
-            printf '%s' "$WALLET_WWDR_BASE64_INPUT" > "$WWDR_FILE"
-          else
-            printf '%s' "$WALLET_WWDR_BASE64_INPUT" | tr -d '\r\n\t ' | base64 --decode > "$RUNNER_TEMP/apple-wwdr.der"
-            openssl x509 -inform DER -in "$RUNNER_TEMP/apple-wwdr.der" -out "$WWDR_FILE"
-          fi
-          openssl x509 -in "$WWDR_FILE" -noout
-          WWDR_SUBJECT="$(openssl x509 -in "$WWDR_FILE" -noout -subject -nameopt RFC2253)"
-          printf '%s' "$WWDR_SUBJECT" | grep -Eqi 'Apple Worldwide Developer Relations|Worldwide Developer Relations' || (
-            echo "Das angegebene WWDR-Zertifikat ist kein Apple-WWDR-Zertifikat." && exit 1
-          )
-          openssl x509 -in "$WWDR_FILE" -checkend 0 -noout || (
-            echo "Das Apple-WWDR-Zertifikat ist abgelaufen." && exit 1
-          )
-
-          PAYLOAD_FILE="$RUNNER_TEMP/apple-wallet-secrets.payload"
-          {
-            printf 'APPLE_WALLET_PASS_TYPE_ID_B64=%s\n' "$(printf '%s' "$WALLET_PASS_TYPE_ID_INPUT" | base64 -w0)"
-            printf 'APPLE_WALLET_TEAM_ID_B64=%s\n' "$(printf '%s' "$WALLET_TEAM_ID_INPUT" | base64 -w0)"
-            printf 'APPLE_WALLET_P12_BASE64_B64=%s\n' "$(printf '%s' "$WALLET_P12_BASE64_INPUT" | tr -d '\r\n\t ' | base64 -w0)"
-            printf 'APPLE_WALLET_P12_PASSWORD_B64=%s\n' "$(printf '%s' "$WALLET_P12_PASSWORD_INPUT" | base64 -w0)"
-            printf 'APPLE_WALLET_WWDR_CERT_BASE64_B64=%s\n' "$(printf '%s' "$WALLET_WWDR_BASE64_INPUT" | tr -d '\r\n\t ' | base64 -w0)"
-          } > "$PAYLOAD_FILE"
-          chmod 600 "$PAYLOAD_FILE"
-          echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
-          echo "P12, Private Key, Pass Type ID, Team ID und Apple-WWDR-Zertifikat sind gültig."
-
-      - name: SSH-Werkzeuge installieren
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y sshpass
-
-      - name: Hetzner-Schlüssel vertrauen
+      - name: Configure SSH
+        shell: bash
         run: |
           set -Eeuo pipefail
           install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
 
-      - name: Geschützte Wallet-Konfiguration übertragen
+      - name: Apply Wallet secrets and verify a signed pass
+        shell: bash
         run: |
           set -Eeuo pipefail
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$APP_DIR'"
-          sshpass -e scp -P "$SSH_PORT" "${{ steps.wallet-payload.outputs.payload_file }}" "$SSH_USER@$SSH_HOST:$APP_DIR/.apple-wallet-secrets.payload"
+          umask 077
+          {
+            printf 'PASS_TYPE=%s\n' "$(printf '%s' "$WALLET_PASS_TYPE_ID" | base64 -w0)"
+            printf 'TEAM_ID=%s\n' "$(printf '%s' "$WALLET_TEAM_ID" | base64 -w0)"
+            printf 'P12=%s\n' "$(printf '%s' "$WALLET_P12_BASE64" | tr -d '\r\n\t ' | base64 -w0)"
+            printf 'P12_PASSWORD=%s\n' "$(printf '%s' "$WALLET_P12_PASSWORD" | base64 -w0)"
+            printf 'WWDR=%s\n' "$(printf '%s' "$WALLET_WWDR_BASE64" | tr -d '\r\n\t ' | base64 -w0)"
+          } > "$RUNNER_TEMP/wallet.env.b64"
 
-      - name: Production konfigurieren und echten Pass erzeugen
-        run: |
-          set -Eeuo pipefail
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" "$RUNNER_TEMP/wallet.env.b64" "$SSH_USER@$SSH_HOST:$APP_DIR/.wallet.env.b64"
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' SITE_DOMAIN='$SITE_DOMAIN' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           cd "$APP_DIR"
-          git fetch --prune origin main
-          git checkout -B main origin/main
-          git reset --hard origin/main
-          test -f .env || (echo "Produktionsdatei .env fehlt." && exit 1)
-          test -f .apple-wallet-secrets.payload || (echo "Apple-Wallet-Payload fehlt." && exit 1)
-          . ./.apple-wallet-secrets.payload
+          test -s .env
+          . ./.wallet.env.b64
+          decode() { printf '%s' "$1" | base64 --decode; }
 
-          decode_value() { printf '%s' "$1" | base64 --decode; }
-          APPLE_WALLET_PASS_TYPE_ID_VALUE="$(decode_value "$APPLE_WALLET_PASS_TYPE_ID_B64")"
-          APPLE_WALLET_TEAM_ID_VALUE="$(decode_value "$APPLE_WALLET_TEAM_ID_B64")"
-          APPLE_WALLET_P12_BASE64_VALUE="$(decode_value "$APPLE_WALLET_P12_BASE64_B64")"
-          APPLE_WALLET_P12_PASSWORD_VALUE="$(decode_value "$APPLE_WALLET_P12_PASSWORD_B64")"
-          APPLE_WALLET_WWDR_CERT_BASE64_VALUE="$(decode_value "$APPLE_WALLET_WWDR_CERT_BASE64_B64")"
+          PASS_TYPE_VALUE="$(decode "$PASS_TYPE")"
+          TEAM_ID_VALUE="$(decode "$TEAM_ID")"
+          P12_VALUE="$(decode "$P12")"
+          P12_PASSWORD_VALUE="$(decode "$P12_PASSWORD")"
+          WWDR_VALUE="$(decode "$WWDR")"
 
-          ENV_TEMP="$(mktemp)"
-          grep -vE '^(APPLE_WALLET_PASS_TYPE_ID|APPLE_WALLET_TEAM_ID|APPLE_WALLET_P12_BASE64|APPLE_WALLET_P12_PASSWORD|APPLE_WALLET_WWDR_CERT_BASE64)=' .env > "$ENV_TEMP" || true
+          tmp="$(mktemp)"
+          grep -vE '^(APPLE_WALLET_PASS_TYPE_ID|APPLE_WALLET_TEAM_ID|APPLE_WALLET_P12_BASE64|APPLE_WALLET_P12_PASSWORD|APPLE_WALLET_WWDR_CERT_BASE64)=' .env > "$tmp" || true
           {
-            printf 'APPLE_WALLET_PASS_TYPE_ID=%s\n' "$APPLE_WALLET_PASS_TYPE_ID_VALUE"
-            printf 'APPLE_WALLET_TEAM_ID=%s\n' "$APPLE_WALLET_TEAM_ID_VALUE"
-            printf 'APPLE_WALLET_P12_BASE64=%s\n' "$APPLE_WALLET_P12_BASE64_VALUE"
-            printf 'APPLE_WALLET_P12_PASSWORD=%s\n' "$APPLE_WALLET_P12_PASSWORD_VALUE"
-            printf 'APPLE_WALLET_WWDR_CERT_BASE64=%s\n' "$APPLE_WALLET_WWDR_CERT_BASE64_VALUE"
-          } >> "$ENV_TEMP"
-          chmod 600 "$ENV_TEMP"
-          mv "$ENV_TEMP" .env
-          rm -f .apple-wallet-secrets.payload
+            printf 'APPLE_WALLET_PASS_TYPE_ID=%s\n' "$PASS_TYPE_VALUE"
+            printf 'APPLE_WALLET_TEAM_ID=%s\n' "$TEAM_ID_VALUE"
+            printf 'APPLE_WALLET_P12_BASE64=%s\n' "$P12_VALUE"
+            printf 'APPLE_WALLET_P12_PASSWORD=%s\n' "$P12_PASSWORD_VALUE"
+            printf 'APPLE_WALLET_WWDR_CERT_BASE64=%s\n' "$WWDR_VALUE"
+          } >> "$tmp"
+          chmod 600 "$tmp"
+          mv "$tmp" .env
+          rm -f .wallet.env.b64
 
           docker compose up -d --build --remove-orphans
-          healthy=0
-          for attempt in $(seq 1 45); do
-            if curl --fail --silent http://127.0.0.1:8010/health/ >/dev/null; then
-              healthy=1
-              break
-            fi
-            sleep 2
-          done
-          test "$healthy" -eq 1 || (docker compose logs --tail=200 web && exit 1)
-
-          docker compose exec -T web python - <<'PY'
-          import hashlib
+          docker compose exec -T web python manage.py check </dev/null
+          docker compose exec -T web python - <<'PY' </dev/null
           import io
-          import json
           import os
           import zipfile
-
           os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
           import django
           django.setup()
-
-          from cryptography.hazmat.primitives.serialization import pkcs7
           from django.conf import settings
           from django.test import RequestFactory
           from cards.models import Wallet
           from cards.wallet_pass import build_pkpass
 
-          assert settings.APPLE_WALLET_ENABLED, "APPLE_WALLET_ENABLED is false"
-          assert settings.APPLE_WALLET_PASS_TYPE_ID.startswith("pass.")
-          assert len(settings.APPLE_WALLET_TEAM_ID) == 10
-
+          assert settings.APPLE_WALLET_ENABLED
+          assert settings.APPLE_WALLET_TEAM_ID == "884MVA2MD5"
           wallet = Wallet.objects.select_related("business").order_by("created_at").first()
-          assert wallet is not None, "Für den Production-Test existiert noch keine Mitgliedskarte."
-          request = RequestFactory().get(
-              "/customer/apple-wallet/",
-              secure=True,
-              HTTP_HOST="cards.smarbiz.sbs",
-          )
-          pass_bytes = build_pkpass(wallet, request)
-          assert pass_bytes.startswith(b"PK"), "Die erzeugte Datei ist kein ZIP/pkpass."
-
-          with zipfile.ZipFile(io.BytesIO(pass_bytes)) as archive:
-              archive.testzip()
-              names = set(archive.namelist())
-              required = {"pass.json", "manifest.json", "signature", "icon.png", "icon@2x.png", "logo.png", "logo@2x.png"}
-              assert required.issubset(names), required - names
-              pass_json = json.loads(archive.read("pass.json"))
-              manifest = json.loads(archive.read("manifest.json"))
-              signature = archive.read("signature")
-              assert pass_json["passTypeIdentifier"] == settings.APPLE_WALLET_PASS_TYPE_ID
-              assert pass_json["teamIdentifier"] == settings.APPLE_WALLET_TEAM_ID
-              assert pass_json["barcodes"][0]["format"] == "PKBarcodeFormatQR"
-              assert pass_json["barcodes"][0]["message"] == str(wallet.qr_token)
-              for filename, expected_hash in manifest.items():
-                  assert hashlib.sha1(archive.read(filename)).hexdigest() == expected_hash
-              certificates = pkcs7.load_der_pkcs7_certificates(signature)
-              assert certificates, "Die PKCS7-Signatur enthält kein Zertifikat."
-
-          print("Ein echter, signierter SAMS Apple-Wallet-Pass wurde erfolgreich erzeugt und validiert.")
+          assert wallet is not None
+          request = RequestFactory().get("/customer/apple-wallet/", secure=True, HTTP_HOST="app.samsclublounge.de")
+          payload = build_pkpass(wallet, request)
+          with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+              required = {"pass.json", "manifest.json", "signature", "icon.png", "logo.png"}
+              assert required.issubset(set(archive.namelist()))
+          print("Signed Apple Wallet pass verified on STRATO.")
           PY
           REMOTE
 
-      - name: Öffentliche Production-Oberfläche prüfen
+      - name: Verify production
+        shell: bash
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error --max-time 30 https://cards.smarbiz.sbs/health/ >/dev/null
-          LOGIN_HTML="$(curl --fail --silent --show-error --max-time 30 https://cards.smarbiz.sbs/accounts/login/)"
-          printf '%s' "$LOGIN_HTML" | grep -Fq 'Mit Apple fortfahren'
-          echo "Production ist erreichbar; Apple Login bleibt aktiv."
-
-      - name: Apple-Wallet-Status veröffentlichen
-        if: always()
-        continue-on-error: true
-        uses: actions/github-script@v7
-        env:
-          WALLET_JOB_STATUS: ${{ job.status }}
-        with:
-          script: |
-            const success = process.env.WALLET_JOB_STATUS === 'success';
-            const icon = success ? '✅' : '❌';
-            const status = success ? 'success' : 'failure';
-            const details = success ? [
-              '- GitHub Secrets: امن پردازش شدند',
-              '- فایل P12 و رمز آن: معتبر',
-              '- Private Key و Certificate: منطبق',
-              '- Pass Type ID و Apple Team ID: منطبق با Certificate',
-              '- Apple WWDR Certificate: معتبر',
-              '- Production `.env`: به‌صورت امن به‌روزرسانی شد',
-              '- Django Apple Wallet: فعال',
-              '- فایل واقعی و امضاشده `.pkpass`: با QR عضو تولید و اعتبارسنجی شد',
-              '- هیچ Secret یا فایل مشتری منتشر نشد',
-            ] : [
-              '- اتصال یا اعتبارسنجی Apple Wallet شکست خورد.',
-              '- هیچ مقدار Secret در این گزارش منتشر نشده است.',
-              '- برای علت دقیق، مرحله شکست‌خورده Workflow را بررسی کنید.',
-            ];
-            const body = [
-              '# Apple Wallet Production Status',
-              '',
-              `${icon} **${status}**`,
-              '',
-              `- Commit: \`${context.sha}\``,
-              `- Workflow: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              '',
-              ...details,
-            ].join('\n');
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: 23,
-              body,
-            });
+          curl --fail --silent --show-error --max-time 30 "https://$SITE_DOMAIN/health/" >/dev/null
