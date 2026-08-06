@@ -23,6 +23,7 @@ apt-get install -y --no-install-recommends \
 
 # Persistent, size-bounded system logs for incident response.
 install -d -m 2755 /var/log/journal
+install -d -m 755 /etc/systemd/journald.conf.d
 cat > /etc/systemd/journald.conf.d/99-sams-security.conf <<'EOF'
 [Journal]
 Storage=persistent
@@ -102,14 +103,22 @@ systemctl enable --now unattended-upgrades.service
 
 # Audit changes to the highest-risk configuration locations. Secrets are never
 # logged; only metadata about access and modification is recorded.
-cat > /etc/audit/rules.d/sams.rules <<EOF
--w ${APP_DIR}/.env -p wa -k sams_production_env
--w ${APP_DIR}/.backup.env -p wa -k sams_backup_env
--w /etc/ssh/ -p wa -k ssh_configuration
--w /etc/nginx/ -p wa -k nginx_configuration
--w /etc/systemd/system/ -p wa -k systemd_configuration
--w /root/.ssh/authorized_keys -p wa -k privileged_ssh_keys
-EOF
+AUDIT_RULES=/etc/audit/rules.d/sams.rules
+: > "$AUDIT_RULES"
+add_watch() {
+  local path="$1"
+  local key="$2"
+  if [[ -e "$path" ]]; then
+    printf -- '-w %s -p wa -k %s\n' "$path" "$key" >> "$AUDIT_RULES"
+  fi
+}
+add_watch "$APP_DIR/.env" sams_production_env
+add_watch "$APP_DIR/.backup.env" sams_backup_env
+add_watch /etc/ssh/ ssh_configuration
+add_watch /etc/nginx/ nginx_configuration
+add_watch /etc/systemd/system/ systemd_configuration
+add_watch /root/.ssh/authorized_keys privileged_ssh_keys
+chmod 600 "$AUDIT_RULES"
 augenrules --load
 systemctl enable --now auditd
 
@@ -123,8 +132,12 @@ for path in \
     chmod 600 "$path"
   fi
 done
-chmod 700 /root/.ssh
-chmod 600 /root/.ssh/authorized_keys
+if [[ -d /root/.ssh ]]; then
+  chmod 700 /root/.ssh
+fi
+if [[ -f /root/.ssh/authorized_keys ]]; then
+  chmod 600 /root/.ssh/authorized_keys
+fi
 
 systemctl reload ssh
 
