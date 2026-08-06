@@ -63,7 +63,8 @@ class OfferAndMobileUiTests(PlatformMixin, TestCase):
     def test_mobile_navigation_uses_svg_icons(self):
         self.client.force_login(self.owner)
         response = self.client.get(reverse("manager_dashboard"))
-        self.assertContains(response, '<nav class="mobile-nav"', html=False)
+        self.assertContains(response, '<nav class="mobile-nav mobile-nav-management"', html=False)
+        self.assertContains(response, '<span>Inhalte</span>', html=False)
         self.assertContains(response, '<svg viewBox="0 0 24 24"', count=5, html=False)
         self.assertNotContains(response, "⌂")
 
