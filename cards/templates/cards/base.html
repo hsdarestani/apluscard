@@ -16,17 +16,17 @@
   {% endif %}
   <title>{% block title %}{{ app_name }} · {{ app_publisher }}{% endblock %}</title>
   <link rel="manifest" href="{% url 'manifest' %}">
-  <link rel="icon" href="{% url 'app_icon' 192 %}?v=scl-20260806" type="image/png">
-  <link rel="apple-touch-icon" href="{% url 'app_icon' 192 %}?v=scl-20260806">
-  <link rel="stylesheet" href="{% static 'cards/app.css' %}">
-  <link rel="stylesheet" href="{% static 'cards/registration.css' %}">
-  <link rel="stylesheet" href="{% static 'cards/ledger.css' %}">
-  <link rel="stylesheet" href="{% static 'cards/sams-platform.css' %}">
-  <link rel="stylesheet" href="{% static 'cards/legal.css' %}">
-  <link rel="stylesheet" href="{% static 'cards/experience.css' %}">
-  <link rel="stylesheet" href="{% static 'cards/ui-fixes.css' %}?v=20260806">
-  <link rel="stylesheet" href="{% static 'cards/push.css' %}">
-  <link rel="stylesheet" href="{% static 'cards/operations.css' %}?v=20260806">
+  <link rel="icon" href="{% url 'app_icon' 192 %}?v=scl-20260807" type="image/png">
+  <link rel="apple-touch-icon" href="{% url 'app_icon' 192 %}?v=scl-20260807">
+  <link rel="stylesheet" href="{% static 'cards/app.css' %}?v=20260807-1">
+  <link rel="stylesheet" href="{% static 'cards/registration.css' %}?v=20260807-1">
+  <link rel="stylesheet" href="{% static 'cards/ledger.css' %}?v=20260807-1">
+  <link rel="stylesheet" href="{% static 'cards/sams-platform.css' %}?v=20260807-1">
+  <link rel="stylesheet" href="{% static 'cards/legal.css' %}?v=20260807-1">
+  <link rel="stylesheet" href="{% static 'cards/experience.css' %}?v=20260807-1">
+  <link rel="stylesheet" href="{% static 'cards/ui-fixes.css' %}?v=20260807-1">
+  <link rel="stylesheet" href="{% static 'cards/push.css' %}?v=20260807-1">
+  <link rel="stylesheet" href="{% static 'cards/operations.css' %}?v=20260807-1">
   <style>
     html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;}
     .brand-emblem-logo{overflow:hidden;padding:0;background:#09050f;}
@@ -42,22 +42,24 @@
   </style>
   {% block head %}{% endblock %}
 </head>
-<body>
+<body data-membership-role="{{ current_membership_role|default:'CUSTOMER' }}">
   <div class="ambient ambient-one" aria-hidden="true"></div>
   <div class="ambient ambient-two" aria-hidden="true"></div>
   <div class="ambient ambient-three" aria-hidden="true"></div>
   <header class="topbar">
     <a href="{% url 'dashboard' %}" class="brand-lockup" aria-label="{{ app_name }} Übersicht">
-      <span class="brand-emblem brand-emblem-logo"><img src="{% url 'app_icon' 192 %}?v=scl-20260806" width="44" height="44" alt=""></span>
+      <span class="brand-emblem brand-emblem-logo"><img src="{% url 'app_icon' 192 %}?v=scl-20260807" width="44" height="44" alt=""></span>
       <span class="brand-copy"><strong>{{ app_name|upper }}</strong><small>Digitale Mitgliedskarte · {{ app_publisher }}</small></span>
     </a>
     <div class="topbar-actions">
       <button class="button secondary small install-button" id="install-app" type="button">App installieren</button>
       {% if user.is_authenticated %}
+        {% if current_membership_role != 'STAFF' %}
         <a class="notification-button" id="notification-button" data-count-url="{% url 'unread_notification_count' %}" href="{% url 'notification_center' %}" aria-label="Mitteilungen">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9.7 21h4.6"/></svg>
           <b>Mitteilungen</b><em id="notification-count" {% if not global_unread_notification_count %}hidden{% endif %}>{{ global_unread_notification_count|default:0 }}</em>
         </a>
+        {% endif %}
         <span class="user-chip">{{ user.get_full_name|default:user.username }}</span>
         <form method="post" action="{% url 'logout' %}" id="logout-form">{% csrf_token %}<button class="link-button" type="submit">Abmelden</button></form>
       {% else %}
@@ -82,30 +84,49 @@
   </main>
   {% if user.is_authenticated %}
   {% with current=request.resolver_match.url_name %}
-  <nav class="mobile-nav" aria-label="Navigation für Mobilgeräte">
-    <a href="{% url 'dashboard' %}" class="{% if current == 'dashboard' or current == 'customer_dashboard' or current == 'staff_dashboard' or current == 'manager_dashboard' or current == 'manager_wallet_detail' %}active{% endif %}">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Start</span>
-    </a>
-    <a href="{% url 'notification_center' %}" class="{% if current == 'notification_center' %}active{% endif %}">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9.7 21h4.6"/></svg><span>Mitteilungen</span>{% if global_unread_notification_count %}<em>{{ global_unread_notification_count }}</em>{% endif %}
-    </a>
-    <a href="{% url 'transaction_cases' %}" class="{% if current == 'transaction_cases' or current == 'transaction_case_detail' or current == 'transaction_case_create' %}active{% endif %}">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a2 2 0 0 1 2 2v16l-4-2-4 2-4-2-4 2V5a2 2 0 0 1 2-2m3 5h6m-6 4h6"/></svg><span>Transaktionen</span>
-    </a>
-    {% if has_customer_wallet %}
-    <a href="{% url 'privacy_choices' %}" class="{% if current == 'privacy_choices' %}active{% endif %}">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6zm-3 9 2 2 4-5"/></svg><span>Datenschutz</span>
-    </a>
+    {% if current_membership_role == 'STAFF' %}
+    <nav class="mobile-nav mobile-nav-staff" aria-label="Navigation für Mitarbeiter">
+      <a href="{% url 'staff_dashboard' %}" class="active">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4zM7 10h10m-10 4h6"/></svg><span>Zahlung</span>
+      </a>
+    </nav>
+    {% elif current_membership_role %}
+    <nav class="mobile-nav mobile-nav-management" aria-label="Navigation für Verwaltung">
+      <a href="{% url 'manager_dashboard' %}" class="{% if current == 'dashboard' or current == 'manager_dashboard' or current == 'manager_wallet_detail' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Start</span>
+      </a>
+      {% if can_manage_content %}
+      <a href="{% url 'manager_settings' %}" class="{% if current == 'manager_settings' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8m-8 4h5"/></svg><span>Inhalte</span>
+      </a>
+      {% endif %}
+      <a href="{% url 'notification_center' %}" class="{% if current == 'notification_center' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9.7 21h4.6"/></svg><span>Mitteilungen</span>{% if global_unread_notification_count %}<em>{{ global_unread_notification_count }}</em>{% endif %}
+      </a>
+      <a href="{% url 'transaction_cases' %}" class="{% if current == 'transaction_cases' or current == 'transaction_case_detail' or current == 'transaction_case_create' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a2 2 0 0 1 2 2v16l-4-2-4 2-4-2-4 2V5a2 2 0 0 1 2-2m3 5h6m-6 4h6"/></svg><span>Transaktionen</span>
+      </a>
+    </nav>
     {% else %}
-    <a href="{% url 'privacy_policy' %}">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6zm-3 9 2 2 4-5"/></svg><span>Datenschutz</span>
-    </a>
+    <nav class="mobile-nav" aria-label="Navigation für Mitglieder">
+      <a href="{% url 'dashboard' %}" class="{% if current == 'dashboard' or current == 'customer_dashboard' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Start</span>
+      </a>
+      <a href="{% url 'notification_center' %}" class="{% if current == 'notification_center' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9.7 21h4.6"/></svg><span>Mitteilungen</span>{% if global_unread_notification_count %}<em>{{ global_unread_notification_count }}</em>{% endif %}
+      </a>
+      <a href="{% url 'transaction_cases' %}" class="{% if current == 'transaction_cases' or current == 'transaction_case_detail' or current == 'transaction_case_create' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a2 2 0 0 1 2 2v16l-4-2-4 2-4-2-4 2V5a2 2 0 0 1 2-2m3 5h6m-6 4h6"/></svg><span>Transaktionen</span>
+      </a>
+      <a href="{% url 'privacy_choices' %}" class="{% if current == 'privacy_choices' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6zm-3 9 2 2 4-5"/></svg><span>Datenschutz</span>
+      </a>
+    </nav>
     {% endif %}
-  </nav>
   {% endwith %}
   {% endif %}
-  <script src="{% static 'cards/app.js' %}?v=push-20260806" defer></script>
-  <script src="{% static 'cards/runtime-fixes.js' %}?v=20260806" defer></script>
+  <script src="{% static 'cards/app.js' %}?v=push-20260807-1" defer></script>
+  <script src="{% static 'cards/runtime-fixes.js' %}?v=20260807-1" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
