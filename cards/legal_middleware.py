@@ -4,10 +4,11 @@ from django.shortcuts import redirect
 from django.urls import reverse
 
 from .legal_services import has_current_acceptances, wallet_for_customer
+from .models import Membership
 
 
 class LegalAcceptanceMiddleware:
-    """Require customers to confirm the current per-app legal document versions."""
+    """Require current legal acceptance and enforce a minimal staff workspace."""
 
     exempt_prefixes = (
         "/admin/",
@@ -27,10 +28,19 @@ class LegalAcceptanceMiddleware:
         "/staff/",
     )
 
-    # A newly authenticated Apple user does not have a Wallet until the final
-    # onboarding form is submitted. App Review may navigate away from that form
-    # before completion, so every protected destination must route back to the
-    # onboarding step instead of exposing Django's raw 403 response.
+    staff_allowed_prefixes = (
+        "/static/",
+        "/media/",
+        "/health/",
+        "/manifest.webmanifest",
+        "/sw.js",
+        "/app-icon-",
+        "/staff/",
+        "/location/select/",
+        "/api/v1/staff/charge/",
+        "/accounts/logout/",
+    )
+
     onboarding_exempt_prefixes = (
         "/admin/",
         "/static/",
@@ -57,9 +67,24 @@ class LegalAcceptanceMiddleware:
         if not user or not user.is_authenticated:
             return self.get_response(request)
 
-        has_business_membership = user.business_memberships.filter(is_active=True).exists()
-        wallet = None if has_business_membership else wallet_for_customer(user)
+        membership = (
+            user.business_memberships.select_related("business")
+            .filter(is_active=True, business__is_active=True)
+            .first()
+        )
+        has_business_membership = membership is not None
 
+        if membership and membership.role == Membership.Role.STAFF:
+            if request.path.startswith(self.staff_allowed_prefixes):
+                return self.get_response(request)
+            if request.path.startswith("/api/") or "application/json" in request.headers.get("Accept", ""):
+                return JsonResponse(
+                    {"detail": "Mitarbeiterkonten dürfen ausschließlich Zahlungen scannen und abbuchen."},
+                    status=403,
+                )
+            return redirect("staff_dashboard")
+
+        wallet = None if has_business_membership else wallet_for_customer(user)
         incomplete_apple_onboarding = (
             not has_business_membership
             and wallet is None
