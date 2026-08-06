@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import os
 import secrets
 import string
 
@@ -20,7 +21,7 @@ def _mfa_cipher():
     Falling back to SECRET_KEY keeps upgrades safe for existing installations.
     """
 
-    source = getattr(settings, "MFA_ENCRYPTION_KEY", "") or settings.SECRET_KEY
+    source = os.getenv("MFA_ENCRYPTION_KEY", "").strip() or settings.SECRET_KEY
     digest = hashlib.sha256(source.encode("utf-8")).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 
