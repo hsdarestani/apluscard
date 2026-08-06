@@ -24,8 +24,17 @@ jobs:
             -D "$headers" \
             "https://samsclublounge.de/" \
             -o "$body"
+
+          echo '--- RESPONSE HEADERS ---'
+          sed -n '1,30p' "$headers"
+          echo '--- PUBLIC PAGE TITLE ---'
+          grep -io '<title[^>]*>[^<]*</title>' "$body" | head -n 1 || true
+          echo '--- CONTENT MARKERS ---'
+          for marker in 'Drei Standorte' 'App Store' 'Google Play' 'Dein Abend'; do
+            if grep -q "$marker" "$body"; then echo "FOUND: $marker"; else echo "MISSING: $marker"; fi
+          done
+
           grep -q 'Drei Standorte' "$body"
           grep -q 'App Store' "$body"
           grep -q 'Google Play' "$body"
-          echo "PUBLIC_LANDING_ACTIVE"
-          sed -n '1,20p' "$headers"
+          echo 'PUBLIC_LANDING_ACTIVE'
