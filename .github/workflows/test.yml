@@ -59,6 +59,11 @@ jobs:
       STAGE_DOMAIN: new-app.samsclublounge.de
       LEGACY_DOMAIN: cards.smarbiz.sbs
       DEPLOY_SHA: ${{ needs.django.outputs.source_sha }}
+      FIREBASE_PROJECT_ID_INPUT: ${{ secrets.FIREBASE_PROJECT_ID }}
+      FIREBASE_SERVICE_ACCOUNT_INPUT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 }}
+      APNS_KEY_ID_INPUT: ${{ secrets.APNS_KEY_ID }}
+      APNS_TEAM_ID_INPUT: ${{ secrets.APNS_TEAM_ID }}
+      APNS_PRIVATE_KEY_INPUT: ${{ secrets.APNS_PRIVATE_KEY_BASE64 }}
 
     steps:
       - name: Checkout tested revision
@@ -67,7 +72,7 @@ jobs:
           ref: ${{ needs.django.outputs.source_sha }}
           fetch-depth: 1
 
-      - name: Validate STRATO deployment secrets
+      - name: Validate STRATO and push deployment secrets
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -75,10 +80,12 @@ jobs:
             echo "Unexpected production host: $SSH_HOST"
             exit 1
           }
-          test -n "$SSH_PRIVATE_KEY" || {
-            echo "HETZNER_SSH_PRIVATE_KEY is missing"
-            exit 1
-          }
+          test -n "$SSH_PRIVATE_KEY" || { echo "HETZNER_SSH_PRIVATE_KEY is missing"; exit 1; }
+          test -n "$FIREBASE_PROJECT_ID_INPUT" || { echo "FIREBASE_PROJECT_ID is missing"; exit 1; }
+          test -n "$FIREBASE_SERVICE_ACCOUNT_INPUT" || { echo "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 is missing"; exit 1; }
+          test -n "$APNS_KEY_ID_INPUT" || { echo "APNS_KEY_ID is missing"; exit 1; }
+          test -n "$APNS_TEAM_ID_INPUT" || { echo "APNS_TEAM_ID is missing"; exit 1; }
+          test -n "$APNS_PRIVATE_KEY_INPUT" || { echo "APNS_PRIVATE_KEY_BASE64 is missing"; exit 1; }
           test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
 
       - name: Configure SSH
@@ -92,7 +99,8 @@ jobs:
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Package tested source
+      - name: Package tested source and push credentials
+        id: package
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -107,15 +115,30 @@ jobs:
             -czf "$RUNNER_TEMP/apluscard-release.tgz" .
           test -s "$RUNNER_TEMP/apluscard-release.tgz"
 
-      - name: Upload tested source to STRATO
+          umask 077
+          PUSH_PAYLOAD="$RUNNER_TEMP/push-secrets.payload"
+          {
+            printf 'FIREBASE_PROJECT_ID_B64=%s\n' "$(printf '%s' "$FIREBASE_PROJECT_ID_INPUT" | base64 -w0)"
+            printf 'FIREBASE_SERVICE_ACCOUNT_B64=%s\n' "$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT_INPUT" | base64 -w0)"
+            printf 'APNS_KEY_ID_B64=%s\n' "$(printf '%s' "$APNS_KEY_ID_INPUT" | base64 -w0)"
+            printf 'APNS_TEAM_ID_B64=%s\n' "$(printf '%s' "$APNS_TEAM_ID_INPUT" | base64 -w0)"
+            printf 'APNS_PRIVATE_KEY_B64=%s\n' "$(printf '%s' "$APNS_PRIVATE_KEY_INPUT" | base64 -w0)"
+          } > "$PUSH_PAYLOAD"
+          chmod 600 "$PUSH_PAYLOAD"
+          echo "push_payload=$PUSH_PAYLOAD" >> "$GITHUB_OUTPUT"
+
+      - name: Upload tested source and push credentials to STRATO
         shell: bash
         run: |
           set -Eeuo pipefail
           scp -i ~/.ssh/strato_sams -P "$SSH_PORT" \
             "$RUNNER_TEMP/apluscard-release.tgz" \
             "$SSH_USER@$SSH_HOST:/tmp/apluscard-release-$DEPLOY_SHA.tgz"
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" \
+            "${{ steps.package.outputs.push_payload }}" \
+            "$SSH_USER@$SSH_HOST:/tmp/apluscard-push-$DEPLOY_SHA.payload"
 
-      - name: Deploy application to STRATO
+      - name: Deploy application and configure push on STRATO
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -123,7 +146,9 @@ jobs:
             "APP_DIR='$APP_DIR' SITE_DOMAIN='$SITE_DOMAIN' STAGE_DOMAIN='$STAGE_DOMAIN' LEGACY_DOMAIN='$LEGACY_DOMAIN' SSH_HOST='$SSH_HOST' DEPLOY_SHA='$DEPLOY_SHA' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           release_archive="/tmp/apluscard-release-$DEPLOY_SHA.tgz"
+          push_payload="/tmp/apluscard-push-$DEPLOY_SHA.payload"
           test -s "$release_archive"
+          test -s "$push_payload"
           mkdir -p "$APP_DIR"
           cd "$APP_DIR"
           test -s .env
@@ -137,6 +162,15 @@ jobs:
           rm -f "$release_archive"
           printf '%s\n' "$DEPLOY_SHA" > "$APP_DIR/.deployed_sha"
           chmod 600 "$APP_DIR/.deployed_sha"
+
+          . "$push_payload"
+          rm -f "$push_payload"
+          decode_value() { printf '%s' "$1" | base64 --decode; }
+          export FIREBASE_PROJECT_ID_VALUE="$(decode_value "$FIREBASE_PROJECT_ID_B64")"
+          export FIREBASE_SERVICE_ACCOUNT_VALUE="$(decode_value "$FIREBASE_SERVICE_ACCOUNT_B64")"
+          export APNS_KEY_ID_VALUE="$(decode_value "$APNS_KEY_ID_B64")"
+          export APNS_TEAM_ID_VALUE="$(decode_value "$APNS_TEAM_ID_B64")"
+          export APNS_PRIVATE_KEY_VALUE="$(decode_value "$APNS_PRIVATE_KEY_B64")"
 
           export APP_DIR SITE_DOMAIN STAGE_DOMAIN LEGACY_DOMAIN SSH_HOST
           python3 - <<'PY'
@@ -177,6 +211,15 @@ jobs:
               "IOS_APP_TEAM_ID": "884MVA2MD5",
               "APPLE_BUNDLE_ID": "de.aplussolution.samscard",
               "APPLE_REDIRECT_URI": f"https://{site}/accounts/apple/callback/",
+              "PUSH_NOTIFICATIONS_ENABLED": "1",
+              "PUSH_HTTP_TIMEOUT_SECONDS": "10",
+              "PUSH_NOTIFICATION_MAX_AGE_SECONDS": "21600",
+              "PUSH_MAX_ATTEMPTS": "5",
+              "FIREBASE_PROJECT_ID": os.environ["FIREBASE_PROJECT_ID_VALUE"],
+              "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64": os.environ["FIREBASE_SERVICE_ACCOUNT_VALUE"],
+              "APNS_KEY_ID": os.environ["APNS_KEY_ID_VALUE"],
+              "APNS_TEAM_ID": os.environ["APNS_TEAM_ID_VALUE"],
+              "APNS_PRIVATE_KEY_BASE64": os.environ["APNS_PRIVATE_KEY_VALUE"],
               "APNS_USE_SANDBOX": "0",
               "ALLOW_TEST_DATA_PURGE": "0",
               "WALLET_QR_MAX_AGE_SECONDS": "90",
@@ -194,10 +237,26 @@ jobs:
           env_path.write_text("\n".join(rendered).rstrip() + "\n", encoding="utf-8")
           os.chmod(env_path, 0o600)
           PY
+          unset FIREBASE_PROJECT_ID_VALUE FIREBASE_SERVICE_ACCOUNT_VALUE APNS_KEY_ID_VALUE APNS_TEAM_ID_VALUE APNS_PRIVATE_KEY_VALUE
 
           docker compose up -d --build --remove-orphans
           docker compose exec -T web python manage.py migrate --noinput </dev/null
           docker compose exec -T web python manage.py check </dev/null
+
+          docker compose exec -T web python manage.py shell -c '
+          from django.conf import settings
+          from cards.models import PushDevice
+          from cards.push_services import _firebase_app, _apns_auth_token
+          assert settings.PUSH_NOTIFICATIONS_ENABLED, "Push notifications disabled"
+          firebase_app = _firebase_app()
+          access_token = firebase_app.credential.get_access_token()
+          assert getattr(access_token, "access_token", None), "Firebase OAuth token missing"
+          apns_token = _apns_auth_token()
+          assert apns_token, "APNs provider token missing"
+          android = PushDevice.objects.filter(platform="ANDROID", is_active=True).count()
+          ios = PushDevice.objects.filter(platform="IOS", is_active=True).count()
+          print(f"Push providers OK · active devices Android={android} iOS={ios}")
+          ' </dev/null
 
           healthy=0
           for attempt in $(seq 1 60); do
@@ -213,37 +272,25 @@ jobs:
             exit 1
           fi
 
-          curl --fail --silent --show-error \
-            -H "Host: $SITE_DOMAIN" \
-            http://127.0.0.1/health/ >/dev/null
-
+          test "$(docker compose ps --status running -q push-worker | wc -l)" -eq 1
+          curl --fail --silent --show-error -H "Host: $SITE_DOMAIN" http://127.0.0.1/health/ >/dev/null
           test "$(cat "$APP_DIR/.deployed_sha")" = "$DEPLOY_SHA"
           docker compose ps
-          echo "STRATO deployment and health checks completed for $DEPLOY_SHA."
+          echo "STRATO deployment, push credentials and health checks completed for $DEPLOY_SHA."
           REMOTE
 
       - name: Verify public UI release on primary production domain
         shell: bash
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error --max-time 30 \
-            "https://$SITE_DOMAIN/health/" >/dev/null
-
+          curl --fail --silent --show-error --max-time 30 "https://$SITE_DOMAIN/health/" >/dev/null
           curl --fail --silent --show-error --max-time 30 \
             "https://$SITE_DOMAIN/accounts/login/?ui_check=20260807-2" \
             --output "$RUNNER_TEMP/site-login.html"
           grep -F 'name="sams-ui-release" content="20260807-2"' "$RUNNER_TEMP/site-login.html"
           grep -F '?v=20260807-2' "$RUNNER_TEMP/site-login.html"
 
-          # The old smarbiz hostname is diagnostic only. Android/iOS and the web app
-          # now load the primary app.samsclublounge.de origin.
           legacy_code="$(curl --silent --location --max-time 30 --output "$RUNNER_TEMP/legacy-login.html" --write-out '%{http_code}' \
             "https://$LEGACY_DOMAIN/accounts/login/?ui_check=20260807-2" || true)"
           echo "Legacy-domain HTTP status: $legacy_code"
-          if grep -Fq 'name="sams-ui-release" content="20260807-2"' "$RUNNER_TEMP/legacy-login.html" 2>/dev/null; then
-            echo "Legacy domain also serves the current UI release."
-          else
-            echo "Legacy domain is not authoritative for the current app UI."
-          fi
-
           echo "UI release 20260807-2 is live on the primary production domain."
