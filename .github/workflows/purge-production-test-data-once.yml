@@ -40,10 +40,8 @@ jobs:
             echo "SITE_DOMAIN=$SITE_DOMAIN"
             echo "SITE_DNS=$(getent ahostsv4 "$SITE_DOMAIN" | awk '{print $1}' | sort -u | paste -sd, -)"
             echo "LEGACY_DNS=$(getent ahostsv4 "$LEGACY_DOMAIN" | awk '{print $1}' | sort -u | paste -sd, -)"
-            curl --silent --show-error --max-time 20 -o /dev/null \
-              -w 'SITE_HTTP=%{http_code} SITE_REMOTE_IP=%{remote_ip}\n' "https://$SITE_DOMAIN/health/" || true
-            curl --silent --show-error --max-time 20 -o /dev/null \
-              -w 'LEGACY_HTTP=%{http_code} LEGACY_REMOTE_IP=%{remote_ip} REDIRECT=%{redirect_url}\n' "https://$LEGACY_DOMAIN/health/" || true
+            curl --silent --show-error --max-time 20 -o /dev/null -w 'SITE_HTTP=%{http_code} SITE_REMOTE_IP=%{remote_ip}\n' "https://$SITE_DOMAIN/health/" || true
+            curl --silent --show-error --max-time 20 -o /dev/null -w 'LEGACY_HTTP=%{http_code} LEGACY_REMOTE_IP=%{remote_ip} REDIRECT=%{redirect_url}\n' "https://$LEGACY_DOMAIN/health/" || true
           } > runner-routing-report.txt
           cat runner-routing-report.txt
 
@@ -73,12 +71,10 @@ jobs:
           exit 1
 
       - name: Back up, inspect, purge, and verify exact members
-        id: purge
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "APP_DIR='$APP_DIR' EXPECTED_SHA='$EXPECTED_SHA' bash -se" <<'REMOTE'
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' EXPECTED_SHA='$EXPECTED_SHA' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           cd "$APP_DIR"
           test "$(cat .deployed_sha)" = "$EXPECTED_SHA"
@@ -114,157 +110,8 @@ jobs:
           echo "BACKUP=$backup"
           sha256sum "$backup"
 
-          cat > "$script" <<'PY'
-import json
-from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.db import transaction
-from django.db.models import Q
-from rest_framework.authtoken.models import Token
-
-from cards.compliance_models import TestWalletMarker
-from cards.experience_models import TransactionCase
-from cards.legal_models import AccountDeletionRequest, LegalAcceptance, PrivacyPreference
-from cards.models import AppNotification, LedgerEntry, Membership, Offer, PaymentRequest, PushDevice, ReviewStatus, Wallet
-
-TARGETS = {
-    "102": {"name": "Hossein Farahani", "contact": "+989383773850"},
-    "103": {"name": "Ashkan Dian", "contact": "01727779721"},
-    "104": {"name": "test test", "contact": "09383773850"},
-    "105": {"name": "google review", "contact": "0172000000"},
-    "113": {"name": "Ashkan Asadian", "contact": "+491727779721"},
-    "137": {"name": "TEST TEST", "contact": "01729907936"},
-    "157": {"name": "SAMS Push Smoke Test", "contact": "owner@cards.smarbiz.sbs"},
-}
-
-def norm(value):
-    return " ".join((value or "").split()).casefold()
-
-def wallet_row(w):
-    owner = w.owner
-    return {
-        "id": str(w.pk),
-        "member_number": w.member_number,
-        "display_name": w.display_name,
-        "phone": w.phone,
-        "wallet_email": w.email,
-        "business": w.business.slug,
-        "owner_id": getattr(owner, "pk", None),
-        "owner_username": getattr(owner, "username", None),
-        "owner_email": getattr(owner, "email", None),
-        "owner_is_staff": bool(getattr(owner, "is_staff", False)),
-        "owner_is_superuser": bool(getattr(owner, "is_superuser", False)),
-    }
-
-def dump(label, value):
-    print(label + "=" + json.dumps(value, ensure_ascii=False, sort_keys=True, default=str), flush=True)
-
-safe_db = dict(settings.DATABASES["default"])
-for key in ("PASSWORD", "USER"):
-    if key in safe_db and safe_db[key]:
-        safe_db[key] = "***"
-dump("DATABASE", safe_db)
-print("WALLET_COUNT_BEFORE=" + str(Wallet.objects.count()), flush=True)
-
-wallets = list(
-    Wallet.objects.filter(member_number__in=TARGETS)
-    .select_related("owner", "business")
-    .order_by("member_number")
-)
-found = {w.member_number: w for w in wallets}
-missing = sorted(set(TARGETS) - set(found))
-mismatched = {
-    number: {"expected": TARGETS[number]["name"], "actual": found[number].display_name}
-    for number in found
-    if norm(found[number].display_name) != norm(TARGETS[number]["name"])
-}
-dump("TARGET_BEFORE", [wallet_row(w) for w in wallets])
-dump("MISSING_BEFORE", missing)
-dump("MISMATCHED_BEFORE", mismatched)
-
-# Extra diagnostic only: find rows resembling the supplied test identities even if their member number differs.
-name_values = [item["name"] for item in TARGETS.values()]
-contact_values = [item["contact"] for item in TARGETS.values()]
-suspects = Wallet.objects.filter(
-    Q(display_name__in=name_values) | Q(phone__in=contact_values) | Q(email__in=contact_values)
-).select_related("owner", "business").order_by("member_number")
-dump("SUSPECT_ROWS", [wallet_row(w) for w in suspects])
-
-if mismatched:
-    raise SystemExit("Safety stop: member number/name mismatch")
-
-owner_ids = sorted({w.owner_id for w in wallets if w.owner_id})
-target_wallet_ids = [w.pk for w in wallets]
-target_payment_ids = [str(pk) for pk in PaymentRequest.objects.filter(wallet_id__in=target_wallet_ids).values_list("pk", flat=True)]
-user_results = []
-
-with transaction.atomic():
-    TransactionCase.objects.filter(wallet_id__in=target_wallet_ids).delete()
-    AccountDeletionRequest.objects.filter(wallet_id__in=target_wallet_ids).delete()
-    ReviewStatus.objects.filter(wallet_id__in=target_wallet_ids).delete()
-    PaymentRequest.objects.filter(wallet_id__in=target_wallet_ids).delete()
-    LedgerEntry.objects.filter(wallet_id__in=target_wallet_ids).delete()
-    TestWalletMarker.objects.filter(wallet_id__in=target_wallet_ids).delete()
-
-    notif_q = Q(data__production_smoke_test=True)
-    if target_payment_ids:
-        notif_q |= Q(data__payment_request_id__in=target_payment_ids)
-    AppNotification.objects.filter(notif_q).delete()
-
-    Wallet.objects.filter(pk__in=target_wallet_ids).delete()
-
-    User = get_user_model()
-    for user in User.objects.filter(pk__in=owner_ids).order_by("pk"):
-        reasons = []
-        if user.is_superuser:
-            reasons.append("superuser")
-        if user.is_staff:
-            reasons.append("django_staff")
-        if Membership.objects.filter(user=user).exclude(business__slug="demo-lounge").exists():
-            reasons.append("business_membership")
-        if Wallet.objects.filter(owner=user).exists():
-            reasons.append("other_wallet")
-        if PaymentRequest.objects.filter(created_by=user).exists():
-            reasons.append("created_payment_request")
-        if LedgerEntry.objects.filter(performed_by=user).exists():
-            reasons.append("performed_ledger_entry")
-        if Offer.objects.filter(created_by=user).exists():
-            reasons.append("created_offer")
-        if TransactionCase.objects.filter(opened_by=user).exists():
-            reasons.append("opened_transaction_case")
-
-        row = {
-            "id": user.pk,
-            "username": user.username,
-            "email": user.email,
-            "deleted": False,
-            "preserved_reasons": reasons,
-        }
-        if not reasons:
-            AppNotification.objects.filter(recipient=user).delete()
-            AccountDeletionRequest.objects.filter(user=user).delete()
-            Token.objects.filter(user=user).delete()
-            PushDevice.objects.filter(user=user).delete()
-            PrivacyPreference.objects.filter(user=user).delete()
-            LegalAcceptance.objects.filter(user=user).delete()
-            Membership.objects.filter(user=user).delete()
-            user.delete()
-            row["deleted"] = True
-        user_results.append(row)
-
-dump("USER_RESULTS", user_results)
-remaining = list(
-    Wallet.objects.filter(member_number__in=TARGETS)
-    .select_related("owner", "business")
-    .order_by("member_number")
-)
-dump("TARGET_AFTER", [wallet_row(w) for w in remaining])
-print("WALLET_COUNT_AFTER=" + str(Wallet.objects.count()), flush=True)
-if remaining:
-    raise SystemExit("Verification failed: target wallet still exists")
-print("PURGE_OK=1", flush=True)
-PY
-
+          printf '%s' 'aW1wb3J0IGpzb24KZnJvbSBkamFuZ28uY29uZiBpbXBvcnQgc2V0dGluZ3MKZnJvbSBkamFuZ28uY29udHJpYi5hdXRoIGltcG9ydCBnZXRfdXNlcl9tb2RlbApmcm9tIGRqYW5nby5kYiBpbXBvcnQgdHJhbnNhY3Rpb24KZnJvbSBkamFuZ28uZGIubW9kZWxzIGltcG9ydCBRCmZyb20gcmVzdF9mcmFtZXdvcmsuYXV0aHRva2VuLm1vZGVscyBpbXBvcnQgVG9rZW4KCmZyb20gY2FyZHMuY29tcGxpYW5jZV9tb2RlbHMgaW1wb3J0IFRlc3RXYWxsZXRNYXJrZXIKZnJvbSBjYXJkcy5leHBlcmllbmNlX21vZGVscyBpbXBvcnQgVHJhbnNhY3Rpb25DYXNlCmZyb20gY2FyZHMubGVnYWxfbW9kZWxzIGltcG9ydCBBY2NvdW50RGVsZXRpb25SZXF1ZXN0LCBMZWdhbEFjY2VwdGFuY2UsIFByaXZhY3lQcmVmZXJlbmNlCmZyb20gY2FyZHMubW9kZWxzIGltcG9ydCBBcHBOb3RpZmljYXRpb24sIExlZGdlckVudHJ5LCBNZW1iZXJzaGlwLCBPZmZlciwgUGF5bWVudFJlcXVlc3QsIFB1c2hEZXZpY2UsIFJldmlld1N0YXR1cywgV2FsbGV0CgpUQVJHRVRTID0gewogICAgIjEwMiI6IHsibmFtZSI6ICJIb3NzZWluIEZhcmFoYW5pIiwgImNvbnRhY3QiOiAiKzk4OTM4Mzc3Mzg1MCJ9LAogICAgIjEwMyI6IHsibmFtZSI6ICJBc2hrYW4gRGlhbiIsICJjb250YWN0IjogIjAxNzI3Nzc5NzIxIn0sCiAgICAiMTA0IjogeyJuYW1lIjogInRlc3QgdGVzdCIsICJjb250YWN0IjogIjA5MzgzNzczODUwIn0sCiAgICAiMTA1IjogeyJuYW1lIjogImdvb2dsZSByZXZpZXciLCAiY29udGFjdCI6ICIwMTcyMDAwMDAwIn0sCiAgICAiMTEzIjogeyJuYW1lIjogIkFzaGthbiBBc2FkaWFuIiwgImNvbnRhY3QiOiAiKzQ5MTcyNzc3OTcyMSJ9LAogICAgIjEzNyI6IHsibmFtZSI6ICJURVNUIFRFU1QiLCAiY29udGFjdCI6ICIwMTcyOTkwNzkzNiJ9LAogICAgIjE1NyI6IHsibmFtZSI6ICJTQU1TIFB1c2ggU21va2UgVGVzdCIsICJjb250YWN0IjogIm93bmVyQGNhcmRzLnNtYXJiaXouc2JzIn0sCn0KCmRlZiBub3JtKHZhbHVlKToKICAgIHJldHVybiAiICIuam9pbigodmFsdWUgb3IgIiIpLnNwbGl0KCkpLmNhc2Vmb2xkKCkKCmRlZiB3YWxsZXRfcm93KHcpOgogICAgb3duZXIgPSB3Lm93bmVyCiAgICByZXR1cm4gewogICAgICAgICJpZCI6IHN0cih3LnBrKSwKICAgICAgICAibWVtYmVyX251bWJlciI6IHcubWVtYmVyX251bWJlciwKICAgICAgICAiZGlzcGxheV9uYW1lIjogdy5kaXNwbGF5X25hbWUsCiAgICAgICAgInBob25lIjogdy5waG9uZSwKICAgICAgICAid2FsbGV0X2VtYWlsIjogdy5lbWFpbCwKICAgICAgICAiYnVzaW5lc3MiOiB3LmJ1c2luZXNzLnNsdWcsCiAgICAgICAgIm93bmVyX2lkIjogZ2V0YXR0cihvd25lciwgInBrIiwgTm9uZSksCiAgICAgICAgIm93bmVyX3VzZXJuYW1lIjogZ2V0YXR0cihvd25lciwgInVzZXJuYW1lIiwgTm9uZSksCiAgICAgICAgIm93bmVyX2VtYWlsIjogZ2V0YXR0cihvd25lciwgImVtYWlsIiwgTm9uZSksCiAgICAgICAgIm93bmVyX2lzX3N0YWZmIjogYm9vbChnZXRhdHRyKG93bmVyLCAiaXNfc3RhZmYiLCBGYWxzZSkpLAogICAgICAgICJvd25lcl9pc19zdXBlcnVzZXIiOiBib29sKGdldGF0dHIob3duZXIsICJpc19zdXBlcnVzZXIiLCBGYWxzZSkpLAogICAgfQoKZGVmIGR1bXAobGFiZWwsIHZhbHVlKToKICAgIHByaW50KGxhYmVsICsgIj0iICsganNvbi5kdW1wcyh2YWx1ZSwgZW5zdXJlX2FzY2lpPUZhbHNlLCBzb3J0X2tleXM9VHJ1ZSwgZGVmYXVsdD1zdHIpLCBmbHVzaD1UcnVlKQoKc2FmZV9kYiA9IGRpY3Qoc2V0dGluZ3MuREFUQUJBU0VTWyJkZWZhdWx0Il0pCmZvciBrZXkgaW4gKCJQQVNTV09SRCIsICJVU0VSIik6CiAgICBpZiBrZXkgaW4gc2FmZV9kYiBhbmQgc2FmZV9kYltrZXldOgogICAgICAgIHNhZmVfZGJba2V5XSA9ICIqKioiCmR1bXAoIkRBVEFCQVNFIiwgc2FmZV9kYikKcHJpbnQoIldBTExFVF9DT1VOVF9CRUZPUkU9IiArIHN0cihXYWxsZXQub2JqZWN0cy5jb3VudCgpKSwgZmx1c2g9VHJ1ZSkKCndhbGxldHMgPSBsaXN0KAogICAgV2FsbGV0Lm9iamVjdHMuZmlsdGVyKG1lbWJlcl9udW1iZXJfX2luPVRBUkdFVFMpCiAgICAuc2VsZWN0X3JlbGF0ZWQoIm93bmVyIiwgImJ1c2luZXNzIikKICAgIC5vcmRlcl9ieSgibWVtYmVyX251bWJlciIpCikKZm91bmQgPSB7dy5tZW1iZXJfbnVtYmVyOiB3IGZvciB3IGluIHdhbGxldHN9Cm1pc3NpbmcgPSBzb3J0ZWQoc2V0KFRBUkdFVFMpIC0gc2V0KGZvdW5kKSkKbWlzbWF0Y2hlZCA9IHsKICAgIG51bWJlcjogeyJleHBlY3RlZCI6IFRBUkdFVFNbbnVtYmVyXVsibmFtZSJdLCAiYWN0dWFsIjogZm91bmRbbnVtYmVyXS5kaXNwbGF5X25hbWV9CiAgICBmb3IgbnVtYmVyIGluIGZvdW5kCiAgICBpZiBub3JtKGZvdW5kW251bWJlcl0uZGlzcGxheV9uYW1lKSAhPSBub3JtKFRBUkdFVFNbbnVtYmVyXVsibmFtZSJdKQp9CmR1bXAoIlRBUkdFVF9CRUZPUkUiLCBbd2FsbGV0X3Jvdyh3KSBmb3IgdyBpbiB3YWxsZXRzXSkKZHVtcCgiTUlTU0lOR19CRUZPUkUiLCBtaXNzaW5nKQpkdW1wKCJNSVNNQVRDSEVEX0JFRk9SRSIsIG1pc21hdGNoZWQpCgpuYW1lX3ZhbHVlcyA9IFtpdGVtWyJuYW1lIl0gZm9yIGl0ZW0gaW4gVEFSR0VUUy52YWx1ZXMoKV0KY29udGFjdF92YWx1ZXMgPSBbaXRlbVsiY29udGFjdCJdIGZvciBpdGVtIGluIFRBUkdFVFMudmFsdWVzKCldCnN1c3BlY3RzID0gV2FsbGV0Lm9iamVjdHMuZmlsdGVyKAogICAgUShkaXNwbGF5X25hbWVfX2luPW5hbWVfdmFsdWVzKSB8IFEocGhvbmVfX2luPWNvbnRhY3RfdmFsdWVzKSB8IFEoZW1haWxfX2luPWNvbnRhY3RfdmFsdWVzKQopLnNlbGVjdF9yZWxhdGVkKCJvd25lciIsICJidXNpbmVzcyIpLm9yZGVyX2J5KCJtZW1iZXJfbnVtYmVyIikKZHVtcCgiU1VTUEVDVF9ST1dTIiwgW3dhbGxldF9yb3codykgZm9yIHcgaW4gc3VzcGVjdHNdKQoKaWYgbWlzbWF0Y2hlZDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoIlNhZmV0eSBzdG9wOiBtZW1iZXIgbnVtYmVyL25hbWUgbWlzbWF0Y2giKQoKb3duZXJfaWRzID0gc29ydGVkKHt3Lm93bmVyX2lkIGZvciB3IGluIHdhbGxldHMgaWYgdy5vd25lcl9pZH0pCnRhcmdldF93YWxsZXRfaWRzID0gW3cucGsgZm9yIHcgaW4gd2FsbGV0c10KdGFyZ2V0X3BheW1lbnRfaWRzID0gW3N0cihwaykgZm9yIHBrIGluIFBheW1lbnRSZXF1ZXN0Lm9iamVjdHMuZmlsdGVyKHdhbGxldF9pZF9faW49dGFyZ2V0X3dhbGxldF9pZHMpLnZhbHVlc19saXN0KCJwayIsIGZsYXQ9VHJ1ZSldCnVzZXJfcmVzdWx0cyA9IFtdCgp3aXRoIHRyYW5zYWN0aW9uLmF0b21pYygpOgogICAgVHJhbnNhY3Rpb25DYXNlLm9iamVjdHMuZmlsdGVyKHdhbGxldF9pZF9faW49dGFyZ2V0X3dhbGxldF9pZHMpLmRlbGV0ZSgpCiAgICBBY2NvdW50RGVsZXRpb25SZXF1ZXN0Lm9iamVjdHMuZmlsdGVyKHdhbGxldF9pZF9faW49dGFyZ2V0X3dhbGxldF9pZHMpLmRlbGV0ZSgpCiAgICBSZXZpZXdTdGF0dXMub2JqZWN0cy5maWx0ZXIod2FsbGV0X2lkX19pbj10YXJnZXRfd2FsbGV0X2lkcykuZGVsZXRlKCkKICAgIFBheW1lbnRSZXF1ZXN0Lm9iamVjdHMuZmlsdGVyKHdhbGxldF9pZF9faW49dGFyZ2V0X3dhbGxldF9pZHMpLmRlbGV0ZSgpCiAgICBMZWRnZXJFbnRyeS5vYmplY3RzLmZpbHRlcih3YWxsZXRfaWRfX2luPXRhcmdldF93YWxsZXRfaWRzKS5kZWxldGUoKQogICAgVGVzdFdhbGxldE1hcmtlci5vYmplY3RzLmZpbHRlcih3YWxsZXRfaWRfX2luPXRhcmdldF93YWxsZXRfaWRzKS5kZWxldGUoKQoKICAgIG5vdGlmX3EgPSBRKGRhdGFfX3Byb2R1Y3Rpb25fc21va2VfdGVzdD1UcnVlKQogICAgaWYgdGFyZ2V0X3BheW1lbnRfaWRzOgogICAgICAgIG5vdGlmX3EgfD0gUShkYXRhX19wYXltZW50X3JlcXVlc3RfaWRfX2luPXRhcmdldF9wYXltZW50X2lkcykKICAgIEFwcE5vdGlmaWNhdGlvbi5vYmplY3RzLmZpbHRlcihub3RpZl9xKS5kZWxldGUoKQoKICAgIFdhbGxldC5vYmplY3RzLmZpbHRlcihwa19faW49dGFyZ2V0X3dhbGxldF9pZHMpLmRlbGV0ZSgpCgogICAgVXNlciA9IGdldF91c2VyX21vZGVsKCkKICAgIGZvciB1c2VyIGluIFVzZXIub2JqZWN0cy5maWx0ZXIocGtfX2luPW93bmVyX2lkcykub3JkZXJfYnkoInBrIik6CiAgICAgICAgcmVhc29ucyA9IFtdCiAgICAgICAgaWYgdXNlci5pc19zdXBlcnVzZXI6CiAgICAgICAgICAgIHJlYXNvbnMuYXBwZW5kKCJzdXBlcnVzZXIiKQogICAgICAgIGlmIHVzZXIuaXNfc3RhZmY6CiAgICAgICAgICAgIHJlYXNvbnMuYXBwZW5kKCJkamFuZ29fc3RhZmYiKQogICAgICAgIGlmIE1lbWJlcnNoaXAub2JqZWN0cy5maWx0ZXIodXNlcj11c2VyKS5leGNsdWRlKGJ1c2luZXNzX19zbHVnPSJkZW1vLWxvdW5nZSIpLmV4aXN0cygpOgogICAgICAgICAgICByZWFzb25zLmFwcGVuZCgiYnVzaW5lc3NfbWVtYmVyc2hpcCIpCiAgICAgICAgaWYgV2FsbGV0Lm9iamVjdHMuZmlsdGVyKG93bmVyPXVzZXIpLmV4aXN0cygpOgogICAgICAgICAgICByZWFzb25zLmFwcGVuZCgib3RoZXJfd2FsbGV0IikKICAgICAgICBpZiBQYXltZW50UmVxdWVzdC5vYmplY3RzLmZpbHRlcihjcmVhdGVkX2J5PXVzZXIpLmV4aXN0cygpOgogICAgICAgICAgICByZWFzb25zLmFwcGVuZCgiY3JlYXRlZF9wYXltZW50X3JlcXVlc3QiKQogICAgICAgIGlmIExlZGdlckVudHJ5Lm9iamVjdHMuZmlsdGVyKHBlcmZvcm1lZF9ieT11c2VyKS5leGlzdHMoKToKICAgICAgICAgICAgcmVhc29ucy5hcHBlbmQoInBlcmZvcm1lZF9sZWRnZXJfZW50cnkiKQogICAgICAgIGlmIE9mZmVyLm9iamVjdHMuZmlsdGVyKGNyZWF0ZWRfYnk9dXNlcikuZXhpc3RzKCk6CiAgICAgICAgICAgIHJlYXNvbnMuYXBwZW5kKCJjcmVhdGVkX29mZmVyIikKICAgICAgICBpZiBUcmFuc2FjdGlvbkNhc2Uub2JqZWN0cy5maWx0ZXIob3BlbmVkX2J5PXVzZXIpLmV4aXN0cygpOgogICAgICAgICAgICByZWFzb25zLmFwcGVuZCgib3BlbmVkX3RyYW5zYWN0aW9uX2Nhc2UiKQoKICAgICAgICByb3cgPSB7CiAgICAgICAgICAgICJpZCI6IHVzZXIucGssCiAgICAgICAgICAgICJ1c2VybmFtZSI6IHVzZXIudXNlcm5hbWUsCiAgICAgICAgICAgICJlbWFpbCI6IHVzZXIuZW1haWwsCiAgICAgICAgICAgICJkZWxldGVkIjogRmFsc2UsCiAgICAgICAgICAgICJwcmVzZXJ2ZWRfcmVhc29ucyI6IHJlYXNvbnMsCiAgICAgICAgfQogICAgICAgIGlmIG5vdCByZWFzb25zOgogICAgICAgICAgICBBcHBOb3RpZmljYXRpb24ub2JqZWN0cy5maWx0ZXIocmVjaXBpZW50PXVzZXIpLmRlbGV0ZSgpCiAgICAgICAgICAgIEFjY291bnREZWxldGlvblJlcXVlc3Qub2JqZWN0cy5maWx0ZXIodXNlcj11c2VyKS5kZWxldGUoKQogICAgICAgICAgICBUb2tlbi5vYmplY3RzLmZpbHRlcih1c2VyPXVzZXIpLmRlbGV0ZSgpCiAgICAgICAgICAgIFB1c2hEZXZpY2Uub2JqZWN0cy5maWx0ZXIodXNlcj11c2VyKS5kZWxldGUoKQogICAgICAgICAgICBQcml2YWN5UHJlZmVyZW5jZS5vYmplY3RzLmZpbHRlcih1c2VyPXVzZXIpLmRlbGV0ZSgpCiAgICAgICAgICAgIExlZ2FsQWNjZXB0YW5jZS5vYmplY3RzLmZpbHRlcih1c2VyPXVzZXIpLmRlbGV0ZSgpCiAgICAgICAgICAgIE1lbWJlcnNoaXAub2JqZWN0cy5maWx0ZXIodXNlcj11c2VyKS5kZWxldGUoKQogICAgICAgICAgICB1c2VyLmRlbGV0ZSgpCiAgICAgICAgICAgIHJvd1siZGVsZXRlZCJdID0gVHJ1ZQogICAgICAgIHVzZXJfcmVzdWx0cy5hcHBlbmQocm93KQoKZHVtcCgiVVNFUl9SRVNVTFRTIiwgdXNlcl9yZXN1bHRzKQpyZW1haW5pbmcgPSBsaXN0KAogICAgV2FsbGV0Lm9iamVjdHMuZmlsdGVyKG1lbWJlcl9udW1iZXJfX2luPVRBUkdFVFMpCiAgICAuc2VsZWN0X3JlbGF0ZWQoIm93bmVyIiwgImJ1c2luZXNzIikKICAgIC5vcmRlcl9ieSgibWVtYmVyX251bWJlciIpCikKZHVtcCgiVEFSR0VUX0FGVEVSIiwgW3dhbGxldF9yb3codykgZm9yIHcgaW4gcmVtYWluaW5nXSkKcHJpbnQoIldBTExFVF9DT1VOVF9BRlRFUj0iICsgc3RyKFdhbGxldC5vYmplY3RzLmNvdW50KCkpLCBmbHVzaD1UcnVlKQppZiByZW1haW5pbmc6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJWZXJpZmljYXRpb24gZmFpbGVkOiB0YXJnZXQgd2FsbGV0IHN0aWxsIGV4aXN0cyIpCnByaW50KCJQVVJHRV9PSz0xIiwgZmx1c2g9VHJ1ZSkK' | base64 --decode > "$script"
+          chmod 600 "$script"
           docker compose exec -T web python manage.py shell < "$script"
           rm -f "$script"
           docker compose exec -T web python manage.py check </dev/null
@@ -277,9 +124,7 @@ PY
         shell: bash
         run: |
           set +e
-          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" \
-            "$SSH_USER@$SSH_HOST:/tmp/exact-member-live-report-$EXPECTED_SHA.txt" \
-            server-purge-report.txt
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" "$SSH_USER@$SSH_HOST:/tmp/exact-member-live-report-$EXPECTED_SHA.txt" server-purge-report.txt
           if [ -f server-purge-report.txt ]; then
             cat server-purge-report.txt
           fi
