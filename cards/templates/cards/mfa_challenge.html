@@ -2,22 +2,204 @@
 {% block title %}Sicherheitsbestätigung · {{ app_name }}{% endblock %}
 {% block head %}
 <style>
-  .mfa-shell{max-width:560px;margin:40px auto 90px}.mfa-card{padding:30px}.mfa-code-input{font-size:30px;letter-spacing:.25em;text-align:center}.mfa-hint{padding:14px;border:1px solid rgba(255,255,255,.12);border-radius:14px;margin-top:18px}
+  .mfa-shell{max-width:560px;margin:28px auto 90px;scroll-margin-top:20px}.mfa-card{padding:30px}.mfa-code-input{font-size:30px;letter-spacing:.25em;text-align:center}.mfa-hint{padding:14px;border:1px solid rgba(255,255,255,.12);border-radius:14px;margin-top:18px}.mfa-biometric{display:grid;gap:10px;padding:16px;margin:0 0 18px;border:1px solid rgba(217,182,111,.25);border-radius:16px;background:rgba(217,182,111,.05)}.mfa-biometric[hidden]{display:none}.mfa-biometric strong{font-size:16px}.mfa-biometric-status{font-size:13px;line-height:1.45}.mfa-separator{display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--muted,#aaa);font-size:12px}.mfa-separator::before,.mfa-separator::after{content:"";height:1px;flex:1;background:rgba(255,255,255,.1)}
+  @media(max-width:640px){.mfa-shell{margin:calc(env(safe-area-inset-top,0px) + 10px) 10px calc(100px + env(safe-area-inset-bottom,0px))}.mfa-card{padding:20px 16px}.mfa-card h1{font-size:28px;line-height:1.08}.mfa-code-input{font-size:25px;letter-spacing:.18em}}
 </style>
 {% endblock %}
 {% block content %}
-<section class="mfa-shell">
+<section class="mfa-shell" id="mfa-shell">
   <article class="panel mfa-card">
     <span class="eyebrow">Geschützter Verwaltungszugriff</span>
     <h1>Sicherheitscode bestätigen</h1>
-    <p class="muted">Gib den aktuellen sechsstelligen Code deiner Authenticator-App ein. Alternativ kannst du einen noch nicht verwendeten Wiederherstellungscode im Format <strong>XXXX-XXXX</strong> nutzen.</p>
-    <form method="post" class="stack-form">{% csrf_token %}
+    <p class="muted">Auf einem registrierten Smartphone kannst du dich bequem mit Face ID oder der Gerätebiometrie bestätigen. Der App-Code bleibt als sichere Alternative verfügbar.</p>
+
+    <div class="mfa-biometric" id="mfa-biometric" hidden>
+      <strong>Face ID / Biometrie</strong>
+      <span class="muted mfa-biometric-status" id="mfa-biometric-status">Biometrische Anmeldung wird vorbereitet …</span>
+      <button class="button primary full" id="mfa-biometric-button" type="button">Mit Face ID / Biometrie bestätigen</button>
+    </div>
+
+    <div class="mfa-separator" id="mfa-separator" hidden>oder</div>
+
+    <form method="post" class="stack-form" id="mfa-code-form">{% csrf_token %}
       <input type="hidden" name="next" value="{{ next }}">
-      <label>Authenticator- oder Wiederherstellungscode<input class="mfa-code-input" name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" required autofocus></label>
-      <button class="button primary full" type="submit">Sicher anmelden</button>
+      <label>Authenticator- oder Wiederherstellungscode<input class="mfa-code-input" id="mfa-code-input" name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" required></label>
+      <button class="button primary full" id="mfa-code-submit" type="submit">Sicher anmelden</button>
+      <span class="muted mfa-biometric-status" id="mfa-code-status" aria-live="polite"></span>
     </form>
     <div class="mfa-hint"><strong>Keinen Zugriff mehr?</strong><br><span class="muted">Ein technischer Administrator kann 2FA nur über den dokumentierten Notfallprozess zurücksetzen. Das Zurücksetzen wird im Audit-Protokoll festgehalten.</span></div>
     <form method="post" action="{% url 'logout' %}" style="margin-top:18px">{% csrf_token %}<button class="link-button" type="submit">Abmelden</button></form>
   </article>
 </section>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  // Do not autofocus the code field on mobile. Opening the keyboard while the
+  // page is restored was the reason the MFA screen reopened at a bad scroll
+  // position. Keep the page at the top until the user explicitly taps a field.
+  window.addEventListener('pageshow', () => {
+    document.activeElement?.blur?.();
+    window.requestAnimationFrame(() => window.scrollTo(0, 0));
+  });
+
+  const platform = String(window.Capacitor?.getPlatform?.() || window.Capacitor?.platform || '').toLowerCase();
+  const biometric = window.Capacitor?.Plugins?.NativeBiometric || null;
+  if (!biometric || !['ios', 'android'].includes(platform)) return;
+
+  const box = document.getElementById('mfa-biometric');
+  const separator = document.getElementById('mfa-separator');
+  const biometricButton = document.getElementById('mfa-biometric-button');
+  const biometricStatus = document.getElementById('mfa-biometric-status');
+  const codeForm = document.getElementById('mfa-code-form');
+  const codeSubmit = document.getElementById('mfa-code-submit');
+  const codeStatus = document.getElementById('mfa-code-status');
+  const codeInput = document.getElementById('mfa-code-input');
+  const credentialServer = window.location.host;
+  const verifyUrl = '{{ biometric_verify_url|escapejs }}';
+  const nextUrl = '{{ next|escapejs }}';
+  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || codeForm?.querySelector('[name="csrfmiddlewaretoken"]')?.value || '';
+  let biometricAvailable = false;
+  let biometricBusy = false;
+
+  function setStatus(message) {
+    if (biometricStatus) biometricStatus.textContent = message;
+  }
+
+  async function credentialsAreSaved() {
+    try {
+      const result = await biometric.isCredentialsSaved({ server: credentialServer });
+      return Boolean(result?.isSaved);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function verifyWithBiometrics() {
+    if (!biometricAvailable || biometricBusy) return;
+    biometricBusy = true;
+    biometricButton.disabled = true;
+    setStatus(platform === 'ios' ? 'Face ID wird geöffnet …' : 'Biometrische Bestätigung wird geöffnet …');
+
+    try {
+      await biometric.verifyIdentity({
+        reason: 'Sicherheitsbestätigung für Sams Club Lounge',
+        title: 'Sams Club Lounge',
+        subtitle: 'Geschützten Verwaltungszugriff bestätigen',
+        description: 'Bestätige deine Identität auf diesem Gerät.',
+        useFallback: true,
+      });
+
+      const credentials = await biometric.getCredentials({ server: credentialServer });
+      if (!credentials?.password) throw new Error('biometric credential missing');
+
+      const response = await fetch(verifyUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrf,
+        },
+        body: JSON.stringify({ token: credentials.password, next: nextUrl }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) {
+        if (payload.reenroll) {
+          await biometric.deleteCredentials({ server: credentialServer }).catch(() => {});
+          setStatus('Face ID muss einmal neu verknüpft werden. Bitte unten einmal den App-Code eingeben.');
+          return;
+        }
+        throw new Error(payload.detail || `Biometric verification failed: ${response.status}`);
+      }
+
+      setStatus('Bestätigt. Du wirst weitergeleitet …');
+      window.location.replace(payload.next || nextUrl || '/manager/');
+    } catch (error) {
+      console.info('Native biometric verification was not completed', error);
+      setStatus('Du kannst Face ID erneut versuchen oder unten den App-Code eingeben.');
+    } finally {
+      biometricBusy = false;
+      biometricButton.disabled = false;
+    }
+  }
+
+  async function prepareBiometrics() {
+    try {
+      const availability = await biometric.isAvailable({ useFallback: true });
+      if (!availability?.isAvailable) return;
+      biometricAvailable = true;
+      box.hidden = false;
+      separator.hidden = false;
+
+      if (await credentialsAreSaved()) {
+        setStatus(platform === 'ios' ? 'Face ID ist für dieses Gerät aktiviert.' : 'Biometrische Anmeldung ist für dieses Gerät aktiviert.');
+        // Automatic prompt means an owner normally never has to touch the code field.
+        window.setTimeout(verifyWithBiometrics, 180);
+      } else {
+        setStatus('Einmal den aktuellen App-Code eingeben. Danach wird dieses Gerät automatisch für Face ID / Biometrie gespeichert.');
+      }
+    } catch (error) {
+      console.info('Native biometrics unavailable', error);
+    }
+  }
+
+  biometricButton.addEventListener('click', verifyWithBiometrics);
+
+  codeForm.addEventListener('submit', async event => {
+    if (!biometricAvailable) return;
+    event.preventDefault();
+    if (codeSubmit.disabled) return;
+    codeSubmit.disabled = true;
+    codeStatus.textContent = 'Code wird geprüft …';
+
+    try {
+      const response = await fetch(window.location.href, {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          'X-SAMS-Biometric-Enroll': '1',
+          'X-CSRFToken': csrf,
+        },
+        body: new FormData(codeForm),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) {
+        codeStatus.textContent = payload.detail || 'Der Code konnte nicht bestätigt werden.';
+        return;
+      }
+
+      if (payload.biometric_token) {
+        try {
+          await biometric.setCredentials({
+            username: String(payload.user_id || ''),
+            password: payload.biometric_token,
+            server: credentialServer,
+          });
+          setStatus(platform === 'ios' ? 'Face ID ist jetzt für dieses Gerät aktiviert.' : 'Biometrische Anmeldung ist jetzt für dieses Gerät aktiviert.');
+        } catch (storageError) {
+          console.error('Could not store native biometric credential', storageError);
+          // The TOTP itself was valid, so do not trap the user on this page.
+        }
+      }
+
+      codeStatus.textContent = 'Bestätigt. Du wirst weitergeleitet …';
+      window.location.replace(payload.next || nextUrl || '/manager/');
+    } catch (error) {
+      console.error('MFA enrollment request failed', error);
+      codeStatus.textContent = 'Verbindung fehlgeschlagen. Bitte erneut versuchen.';
+    } finally {
+      codeSubmit.disabled = false;
+    }
+  });
+
+  // Keep the first paint stable and keyboard-free, then open Face ID if a
+  // native device credential is already present.
+  window.addEventListener('load', () => window.setTimeout(prepareBiometrics, 120), { once: true });
+  codeInput?.addEventListener('focus', () => setStatus('App-Code als Alternative verwenden.'));
+})();
+</script>
 {% endblock %}

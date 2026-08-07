@@ -56,6 +56,7 @@ info_plist['CFBundleLocalizations'] = ['de']
 info_plist['NSCameraUsageDescription'] = 'Die Kamera wird ausschließlich zum Scannen der QR-Mitgliedskarte verwendet.'
 info_plist['NSPhotoLibraryUsageDescription'] = 'Die Fotomediathek wird nur geöffnet, wenn du ausdrücklich ein Bild zur Verwendung in der App auswählst.'
 info_plist['NSPhotoLibraryAddUsageDescription'] = 'Ein Bild wird nur auf deinen ausdrücklichen Wunsch in deiner Fotomediathek gespeichert.'
+info_plist['NSFaceIDUsageDescription'] = 'Face ID wird verwendet, um den geschützten Verwaltungszugriff bequem und sicher zu bestätigen.'
 # The app only relies on exempt encryption provided by Apple frameworks,
 # such as HTTPS/TLS connections. This prevents repeated export-compliance
 # prompts for future App Store Connect uploads.
@@ -105,15 +106,17 @@ review_phase.shell_script = <<~'SH'
   test -f "$APP_INFO" || { echo "Finales Info.plist fehlt: $APP_INFO"; exit 1; }
   CAMERA_REASON="$(/usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$APP_INFO" 2>/dev/null || true)"
   PHOTO_REASON="$(/usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryUsageDescription' "$APP_INFO" 2>/dev/null || true)"
+  FACE_ID_REASON="$(/usr/libexec/PlistBuddy -c 'Print :NSFaceIDUsageDescription' "$APP_INFO" 2>/dev/null || true)"
   test -n "$CAMERA_REASON" || { echo "NSCameraUsageDescription fehlt im finalen App-Bundle."; exit 1; }
   test -n "$PHOTO_REASON" || { echo "NSPhotoLibraryUsageDescription fehlt im finalen App-Bundle."; exit 1; }
+  test -n "$FACE_ID_REASON" || { echo "NSFaceIDUsageDescription fehlt im finalen App-Bundle."; exit 1; }
 
   test -f "$PRIVACY_MANIFEST" || { echo "PrivacyInfo.xcprivacy fehlt im finalen App-Bundle."; exit 1; }
   /usr/bin/plutil -lint "$PRIVACY_MANIFEST"
   TRACKING="$(/usr/libexec/PlistBuddy -c 'Print :NSPrivacyTracking' "$PRIVACY_MANIFEST" 2>/dev/null || true)"
   test "$TRACKING" = "false" || { echo "NSPrivacyTracking muss false sein."; exit 1; }
 
-  echo "App Review gate bestanden: Kamera- und Fotomediathek-Hinweise sowie Privacy Manifest sind im Bundle."
+  echo "App Review gate bestanden: Kamera-, Foto- und Face-ID-Hinweise sowie Privacy Manifest sind im Bundle."
 SH
 
 target.build_configurations.each do |configuration|

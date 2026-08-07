@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import time
 from types import SimpleNamespace
 
@@ -8,7 +9,7 @@ import qrcode
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponseForbidden
+from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -18,6 +19,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 from .models import AuditEvent, Business
 from .security_models import PrivilegedMfaDevice
 from .security_services import (
+    biometric_device_token_is_valid,
+    build_biometric_device_token,
     mark_mfa_verified,
     mfa_session_is_valid,
     privileged_membership,
@@ -30,8 +33,7 @@ def _client_ip(request):
     return forwarded.split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR")
 
 
-def _safe_next(request, default="dashboard"):
-    candidate = request.POST.get("next") or request.GET.get("next") or ""
+def _safe_target(request, candidate, default="dashboard"):
     if candidate and url_has_allowed_host_and_scheme(
         candidate,
         allowed_hosts={request.get_host()},
@@ -39,6 +41,11 @@ def _safe_next(request, default="dashboard"):
     ):
         return candidate
     return reverse(default)
+
+
+def _safe_next(request, default="dashboard"):
+    candidate = request.POST.get("next") or request.GET.get("next") or ""
+    return _safe_target(request, candidate, default=default)
 
 
 def _audit(request, membership, action, details=None):
@@ -70,6 +77,13 @@ def _qr_data_uri(payload):
     image.save(output, format="PNG")
     encoded = base64.b64encode(output.getvalue()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+def _biometric_enrollment_requested(request):
+    return (
+        request.headers.get("X-SAMS-Biometric-Enroll", "") == "1"
+        and "application/json" in request.headers.get("Accept", "")
+    )
 
 
 @login_required
@@ -165,12 +179,72 @@ def mfa_challenge(request):
         if valid:
             mark_mfa_verified(request)
             _audit(request, membership, "mfa_verified", {"method": method})
-            return redirect(_safe_next(request))
+            target = _safe_next(request)
+            if _biometric_enrollment_requested(request):
+                token = build_biometric_device_token(request.user)
+                return JsonResponse(
+                    {
+                        "ok": True,
+                        "next": target,
+                        "user_id": request.user.pk,
+                        "biometric_token": token,
+                    }
+                )
+            return redirect(target)
 
         _audit(request, membership, "mfa_verification_failed")
-        messages.error(request, "Der Code ist ungültig, bereits verwendet oder abgelaufen.")
+        detail = "Der Code ist ungültig, bereits verwendet oder abgelaufen."
+        if _biometric_enrollment_requested(request):
+            return JsonResponse({"ok": False, "detail": detail}, status=400)
+        messages.error(request, detail)
 
-    return render(request, "cards/mfa_challenge.html", {"next": _safe_next(request)})
+    return render(
+        request,
+        "cards/mfa_challenge.html",
+        {
+            "next": _safe_next(request),
+            "biometric_verify_url": reverse("mfa_biometric_verify"),
+        },
+    )
+
+
+@login_required
+@never_cache
+@require_POST
+def mfa_biometric_verify(request):
+    """Renew privileged MFA after native Face ID/biometric verification.
+
+    The native app stores an opaque server-signed credential in Keychain or
+    Android Keystore. The JavaScript bridge only submits it after the operating
+    system biometric prompt succeeds; the backend then validates account and
+    MFA-device binding before renewing the privileged session.
+    """
+
+    membership = _privileged_or_403(request)
+    if membership is None:
+        return JsonResponse({"ok": False, "detail": "Nicht berechtigt."}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"ok": False, "detail": "Ungültige Anfrage."}, status=400)
+
+    token = str(payload.get("token") or "").strip()
+    if not biometric_device_token_is_valid(request.user, token):
+        _audit(request, membership, "mfa_biometric_failed")
+        return JsonResponse(
+            {
+                "ok": False,
+                "detail": "Dieses Gerät ist nicht mehr für die biometrische Bestätigung registriert.",
+                "reenroll": True,
+            },
+            status=403,
+        )
+
+    mark_mfa_verified(request)
+    _audit(request, membership, "mfa_verified", {"method": "biometric"})
+    target = _safe_target(request, str(payload.get("next") or ""))
+    return JsonResponse({"ok": True, "next": target})
 
 
 @login_required

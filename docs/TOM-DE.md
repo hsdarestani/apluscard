@@ -1,7 +1,7 @@
 # Technische und organisatorische Maßnahmen (TOM) – SAMS Club Lounge
 
 **Arbeitsentwurf nach Art. 32 DSGVO**  
-**Stand:** 06.08.2026  
+**Stand:** 07.08.2026  
 Die Wirksamkeit ist regelmäßig zu prüfen und organisatorische Verantwortliche müssen ergänzt werden.
 
 ## 1. Zutritts- und Infrastrukturschutz
@@ -20,7 +20,11 @@ Die Wirksamkeit ist regelmäßig zu prüfen und organisatorische Verantwortliche
 - TOTP-Secrets werden verschlüsselt gespeichert.
 - Wiederherstellungscodes werden nur einmal angezeigt und ausschließlich gehasht gespeichert.
 - Einmalcodes besitzen Replay-Schutz.
-- Privilegierte 2FA-Sitzung läuft spätestens nach zwölf Stunden ab.
+- Privilegierte 2FA-Sitzung wird spätestens nach zwölf Stunden erneut bestätigt; die normale Login-Sitzung wird dadurch nicht künstlich auf zwölf Stunden verkürzt.
+- In der nativen iOS-/Android-App kann diese erneute Bestätigung nach einmaliger TOTP-Verknüpfung über Face ID bzw. die Gerätebiometrie erfolgen.
+- Der native Geräte-Nachweis wird verschlüsselt in iOS Keychain bzw. Android Keystore gespeichert und zusätzlich serverseitig gegen Benutzer, Passwortzustand und das aktuelle MFA-Gerät validiert.
+- Der registrierte native Geräte-Nachweis besitzt keine feste zeitliche Ablaufgrenze; Passwortänderung, MFA-Reset/-Rotation, Entzug der privilegierten Rolle oder Entfernen der lokalen App-Zugangsdaten machen ihn unwirksam.
+- TOTP und Wiederherstellungscode bleiben als Rückfallweg verfügbar, falls Biometrie nicht verfügbar ist oder abgebrochen wird.
 - Notfall-Reset ist nur per dokumentiertem Management-Befehl mit Begründung möglich und wird auditiert.
 - Login-, Registrierungs-, Apple-Login-, MFA- und QR-Endpunkte besitzen Rate Limits.
 - Sitzungs-ID wird nach MFA-Verifikation rotiert.
