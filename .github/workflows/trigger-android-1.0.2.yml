@@ -1,4 +1,4 @@
-name: Trigger Android 1.0.2 Release
+name: Trigger Android 1.0.3 Release
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   trigger:
-    name: Dispatch signed Android 1.0.2 build
+    name: Dispatch signed Android 1.0.3 build
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch Android App Bundle build
@@ -23,7 +23,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -Eeuo pipefail
-          payload='{"ref":"main","inputs":{"version_name":"1.0.2","version_code":"5"}}'
+          payload='{"ref":"main","inputs":{"version_name":"1.0.3","version_code":"6"}}'
           response_code="$(curl --silent --show-error \
             --output "$RUNNER_TEMP/dispatch-response.txt" \
             --write-out '%{http_code}' \
@@ -38,4 +38,4 @@ jobs:
             echo "Android workflow dispatch failed with HTTP $response_code"
             exit 1
           }
-          echo "Android 1.0.2 build with version code 5 was dispatched."
+          echo "Android 1.0.3 build with version code 6 was dispatched."
