@@ -367,7 +367,7 @@ document.addEventListener('click', event => {
       button.classList.toggle('active', button === tabButton);
     });
     wrapper?.querySelectorAll('.tab-content').forEach(panel => {
-      panel.classList.toggle('active', panel.id === tabButton.dataset.tab;
+      panel.classList.toggle('active', panel.id === tabButton.dataset.tab);
     });
   }
 });
