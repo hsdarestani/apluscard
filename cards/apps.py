@@ -17,7 +17,7 @@ class CardsConfig(AppConfig):
 
         register_heif_opener(thumbnails=False)
 
-        from . import compliance_admin, compliance_signals, experience_signals, security_admin, security_signals  # noqa: F401
+        from . import compliance_admin, compliance_signals, experience_signals, registration_signals, security_admin, security_signals  # noqa: F401
         from .notification_bootstrap import install_notification_queueing
         from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
         from .models import (
