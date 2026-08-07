@@ -57,8 +57,8 @@ def claim_delivery():
     )
     with transaction.atomic():
         delivery = (
-            PushDelivery.objects.select_for_update(skip_locked=True)
-            .select_related("notification", "notification__recipient", "notification__business", "notification__location")
+            PushDelivery.objects.select_for_update(skip_locked=True, of=("self",))
+            .select_related("notification", "notification__recipient", "notification__business")
             .filter(
                 status__in=[PushDelivery.Status.PENDING, PushDelivery.Status.RETRY],
                 next_attempt_at__lte=now,
