@@ -1,0 +1,107 @@
+name: Purge Production Test Data Once
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    if: github.event.head_commit.message == 'Run one-time production test data purge'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+      EXPECTED_SHA: ${{ github.sha }}
+
+    steps:
+      - name: Validate production target
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71"
+          test -n "$SSH_PRIVATE_KEY"
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Wait for this revision to be deployed
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 120); do
+            deployed="$(ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cat '$APP_DIR/.deployed_sha' 2>/dev/null || true")"
+            if [ "$deployed" = "$EXPECTED_SHA" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Production never reached expected revision $EXPECTED_SHA"
+          exit 1
+
+      - name: Preview, back up, purge and verify test data
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' EXPECTED_SHA='$EXPECTED_SHA' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test "$(cat .deployed_sha)" = "$EXPECTED_SHA"
+          curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null
+
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup_dir="$APP_DIR/backups/test-data-purge"
+          mkdir -p "$backup_dir"
+          backup="$backup_dir/pre-test-data-purge-$stamp.dump"
+          docker compose exec -T db sh -lc 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$backup"
+          test -s "$backup"
+          chmod 600 "$backup"
+          sha256sum "$backup"
+
+          echo '=== SUPERUSERS ==='
+          docker compose exec -T web python manage.py shell -c '
+          from django.contrib.auth import get_user_model
+          U=get_user_model()
+          rows=list(U.objects.filter(is_superuser=True).values("id","username","email","is_active","is_staff"))
+          print(rows)
+          ' </dev/null
+
+          echo '=== TEST DATA PREVIEW BEFORE ==='
+          docker compose exec -T web python manage.py shell -c '
+          from cards.test_data_cleanup import build_test_data_preview
+          p=build_test_data_preview()
+          print(dict(p["counts"]))
+          print({k:p[k] for k in ("candidate_user_count","blocked_user_count","deletable_user_count","total_records")})
+          ' </dev/null
+
+          echo '=== PURGE ==='
+          docker compose exec -T web python manage.py shell -c '
+          from cards.test_data_cleanup import build_test_data_preview, purge_test_data
+          before=build_test_data_preview()
+          purge_test_data()
+          after=build_test_data_preview()
+          print("before", dict(before["counts"]))
+          print("before_summary", {k:before[k] for k in ("candidate_user_count","blocked_user_count","deletable_user_count","total_records")})
+          print("after", dict(after["counts"]))
+          print("after_summary", {k:after[k] for k in ("candidate_user_count","blocked_user_count","deletable_user_count","total_records")})
+          ' </dev/null
+
+          docker compose exec -T web python manage.py check </dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null
+          echo "Production test-data purge completed; backup=$backup"
+          REMOTE
