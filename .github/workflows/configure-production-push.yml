@@ -7,20 +7,20 @@ permissions:
   contents: read
 
 concurrency:
-  group: sams-card-production
+  group: sams-card-production-push
   cancel-in-progress: false
 
 jobs:
   configure-push:
-    name: FCM und APNs sicher konfigurieren
+    name: Configure FCM and APNs on STRATO
     runs-on: ubuntu-latest
     environment: production
     env:
-      SSH_HOST: 91.107.145.196
+      SSH_HOST: ${{ secrets.NEWHOST }}
       SSH_PORT: "22"
       SSH_USER: root
       APP_DIR: /root/apluscard
-      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
       FIREBASE_PROJECT_ID_INPUT: ${{ secrets.FIREBASE_PROJECT_ID }}
       FIREBASE_SERVICE_ACCOUNT_INPUT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 }}
       APNS_KEY_ID_INPUT: ${{ secrets.APNS_KEY_ID }}
@@ -28,16 +28,25 @@ jobs:
       APNS_PRIVATE_KEY_INPUT: ${{ secrets.APNS_PRIVATE_KEY_BASE64 }}
 
     steps:
-      - name: Push-Secrets prüfen
+      - name: Validate production and push secrets
         id: push-payload
         shell: bash
         run: |
           set -Eeuo pipefail
-          test -n "$SSHPASS" || (echo "HETZNER_PASSWORD fehlt." && exit 1)
+          test "$SSH_HOST" = "217.160.50.71"
+          test -n "$SSH_PRIVATE_KEY" || (echo "HETZNER_SSH_PRIVATE_KEY fehlt." && exit 1)
+          test -n "$FIREBASE_PROJECT_ID_INPUT" || (echo "FIREBASE_PROJECT_ID fehlt." && exit 1)
           test -n "$FIREBASE_SERVICE_ACCOUNT_INPUT" || (echo "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 fehlt." && exit 1)
           test -n "$APNS_KEY_ID_INPUT" || (echo "APNS_KEY_ID fehlt." && exit 1)
           test -n "$APNS_TEAM_ID_INPUT" || (echo "APNS_TEAM_ID fehlt." && exit 1)
           test -n "$APNS_PRIVATE_KEY_INPUT" || (echo "APNS_PRIVATE_KEY_BASE64 fehlt." && exit 1)
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
           umask 077
           PAYLOAD_FILE="$RUNNER_TEMP/push-secrets.payload"
@@ -51,71 +60,88 @@ jobs:
           chmod 600 "$PAYLOAD_FILE"
           echo "payload_file=$PAYLOAD_FILE" >> "$GITHUB_OUTPUT"
 
-      - name: SSH-Werkzeuge installieren
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y sshpass
-
-      - name: Server-Schlüssel vertrauen
+      - name: Upload protected push configuration
+        shell: bash
         run: |
           set -Eeuo pipefail
-          install -m 700 -d ~/.ssh
-          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" \
+            "${{ steps.push-payload.outputs.payload_file }}" \
+            "$SSH_USER@$SSH_HOST:/tmp/apluscard-push-config.payload"
 
-      - name: Geschützte Push-Konfiguration übertragen
+      - name: Configure production and validate providers
+        shell: bash
         run: |
           set -Eeuo pipefail
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$APP_DIR'"
-          sshpass -e scp -P "$SSH_PORT" "${{ steps.push-payload.outputs.payload_file }}" "$SSH_USER@$SSH_HOST:$APP_DIR/.push-secrets.payload"
-
-      - name: Production konfigurieren und Worker starten
-        run: |
-          set -Eeuo pipefail
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           cd "$APP_DIR"
-          git fetch --prune origin main
-          git checkout -B main origin/main
-          git reset --hard origin/main
-          test -f .env || (echo "Produktionsdatei .env fehlt." && exit 1)
-          . ./.push-secrets.payload
+          test -s .env
+          test -s /tmp/apluscard-push-config.payload
+          . /tmp/apluscard-push-config.payload
+          rm -f /tmp/apluscard-push-config.payload
           decode_value() { printf '%s' "$1" | base64 --decode; }
+          export FIREBASE_PROJECT_ID_VALUE="$(decode_value "$FIREBASE_PROJECT_ID_B64")"
+          export FIREBASE_SERVICE_ACCOUNT_VALUE="$(decode_value "$FIREBASE_SERVICE_ACCOUNT_B64")"
+          export APNS_KEY_ID_VALUE="$(decode_value "$APNS_KEY_ID_B64")"
+          export APNS_TEAM_ID_VALUE="$(decode_value "$APNS_TEAM_ID_B64")"
+          export APNS_PRIVATE_KEY_VALUE="$(decode_value "$APNS_PRIVATE_KEY_B64")"
 
-          FIREBASE_PROJECT_ID_VALUE="$(decode_value "$FIREBASE_PROJECT_ID_B64")"
-          FIREBASE_SERVICE_ACCOUNT_VALUE="$(decode_value "$FIREBASE_SERVICE_ACCOUNT_B64")"
-          APNS_KEY_ID_VALUE="$(decode_value "$APNS_KEY_ID_B64")"
-          APNS_TEAM_ID_VALUE="$(decode_value "$APNS_TEAM_ID_B64")"
-          APNS_PRIVATE_KEY_VALUE="$(decode_value "$APNS_PRIVATE_KEY_B64")"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
 
-          ENV_TEMP="$(mktemp)"
-          grep -vE '^(APP_NAME|APP_SHORT_NAME|APP_PUBLISHER|ANDROID_PACKAGE_NAME|IOS_BUNDLE_ID|PUSH_NOTIFICATIONS_ENABLED|PUSH_HTTP_TIMEOUT_SECONDS|PUSH_NOTIFICATION_MAX_AGE_SECONDS|PUSH_MAX_ATTEMPTS|FIREBASE_PROJECT_ID|FIREBASE_SERVICE_ACCOUNT_JSON_BASE64|APNS_KEY_ID|APNS_TEAM_ID|APNS_PRIVATE_KEY_BASE64|APNS_USE_SANDBOX)=' .env > "$ENV_TEMP" || true
-          {
-            printf 'APP_NAME=SAMS Card\n'
-            printf 'APP_SHORT_NAME=SAMS\n'
-            printf 'APP_PUBLISHER=A+ Solution GmbH\n'
-            printf 'ANDROID_PACKAGE_NAME=de.aplussolution.samscard\n'
-            printf 'IOS_BUNDLE_ID=de.aplussolution.samscard\n'
-            printf 'PUSH_NOTIFICATIONS_ENABLED=1\n'
-            printf 'PUSH_HTTP_TIMEOUT_SECONDS=10\n'
-            printf 'PUSH_NOTIFICATION_MAX_AGE_SECONDS=21600\n'
-            printf 'PUSH_MAX_ATTEMPTS=5\n'
-            printf 'FIREBASE_PROJECT_ID=%s\n' "$FIREBASE_PROJECT_ID_VALUE"
-            printf 'FIREBASE_SERVICE_ACCOUNT_JSON_BASE64=%s\n' "$FIREBASE_SERVICE_ACCOUNT_VALUE"
-            printf 'APNS_KEY_ID=%s\n' "$APNS_KEY_ID_VALUE"
-            printf 'APNS_TEAM_ID=%s\n' "$APNS_TEAM_ID_VALUE"
-            printf 'APNS_PRIVATE_KEY_BASE64=%s\n' "$APNS_PRIVATE_KEY_VALUE"
-            printf 'APNS_USE_SANDBOX=0\n'
-          } >> "$ENV_TEMP"
-          chmod 600 "$ENV_TEMP"
-          mv "$ENV_TEMP" .env
-          rm -f .push-secrets.payload
+          env_path = Path(os.environ["APP_DIR"]) / ".env"
+          values = {}
+          order = []
+          extra = []
+          for raw in env_path.read_text(encoding="utf-8").splitlines():
+              if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+                  extra.append(raw)
+                  continue
+              key, value = raw.split("=", 1)
+              key = key.strip()
+              if key not in values:
+                  order.append(key)
+              values[key] = value
+          overrides = {
+              "PUSH_NOTIFICATIONS_ENABLED": "1",
+              "PUSH_HTTP_TIMEOUT_SECONDS": "10",
+              "PUSH_NOTIFICATION_MAX_AGE_SECONDS": "21600",
+              "PUSH_MAX_ATTEMPTS": "5",
+              "FIREBASE_PROJECT_ID": os.environ["FIREBASE_PROJECT_ID_VALUE"],
+              "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64": os.environ["FIREBASE_SERVICE_ACCOUNT_VALUE"],
+              "APNS_KEY_ID": os.environ["APNS_KEY_ID_VALUE"],
+              "APNS_TEAM_ID": os.environ["APNS_TEAM_ID_VALUE"],
+              "APNS_PRIVATE_KEY_BASE64": os.environ["APNS_PRIVATE_KEY_VALUE"],
+              "APNS_USE_SANDBOX": "0",
+          }
+          values.update(overrides)
+          for key in overrides:
+              if key not in order:
+                  order.append(key)
+          rendered = extra + [f"{key}={values[key]}" for key in order]
+          env_path.write_text("\n".join(rendered).rstrip() + "\n", encoding="utf-8")
+          os.chmod(env_path, 0o600)
+          PY
+          unset FIREBASE_PROJECT_ID_VALUE FIREBASE_SERVICE_ACCOUNT_VALUE APNS_KEY_ID_VALUE APNS_TEAM_ID_VALUE APNS_PRIVATE_KEY_VALUE
 
-          docker compose up -d --build --remove-orphans
-          docker compose exec -T web python manage.py migrate --noinput
-          docker compose exec -T web python manage.py check
-          docker compose ps push-worker
+          docker compose up -d web push-worker
+          docker compose exec -T web python manage.py check </dev/null
+          docker compose exec -T web python manage.py shell -c '
+          from django.conf import settings
+          from cards.models import PushDevice
+          from cards.push_services import _firebase_app, _apns_auth_token
+          assert settings.PUSH_NOTIFICATIONS_ENABLED
+          app = _firebase_app()
+          token = app.credential.get_access_token()
+          assert getattr(token, "access_token", None)
+          assert _apns_auth_token()
+          print("FCM/APNs credentials valid")
+          print("Android devices:", PushDevice.objects.filter(platform="ANDROID", is_active=True).count())
+          print("iOS devices:", PushDevice.objects.filter(platform="IOS", is_active=True).count())
+          ' </dev/null
+          test "$(docker compose ps --status running -q push-worker | wc -l)" -eq 1
           REMOTE
 
-      - name: Öffentliche Oberfläche prüfen
-        run: curl --fail --silent --show-error --max-time 30 https://cards.smarbiz.sbs/health/ >/dev/null
+      - name: Verify production endpoint
+        run: curl --fail --silent --show-error --max-time 30 https://app.samsclublounge.de/health/ >/dev/null
