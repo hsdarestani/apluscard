@@ -12,7 +12,6 @@ IS_TESTING = "test" in sys.argv
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,cards.smarbiz.sbs").split(",") if host.strip()]
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "https://cards.smarbiz.sbs").split(",") if origin.strip()]
 DEFAULT_BUSINESS_SLUG = os.getenv("DEFAULT_BUSINESS_SLUG", "shisha-bar")
-APP_RELEASE_SHA = os.getenv("APP_RELEASE_SHA", "dev").strip() or "dev"
 
 # Zentrale öffentliche Identität für Web-App, Store-Einträge und Systemmails.
 # Alte Production-Werte werden automatisch auf die neue Store-Identität migriert.
