@@ -77,8 +77,10 @@ jobs:
             > "$ARCHIVE"
           test -s "$ARCHIVE"
           chmod 600 "$ARCHIVE"
-          sha256sum "$ARCHIVE" | tee "$ARCHIVE.sha256"
+          ARCHIVE_HASH="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+          echo "$ARCHIVE_HASH  $(basename "$ARCHIVE")"
           echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          echo "archive_hash=$ARCHIVE_HASH" >> "$GITHUB_OUTPUT"
 
       - name: Store legacy archive on canonical server
         shell: bash
@@ -88,10 +90,12 @@ jobs:
           base="$(basename "${{ steps.archive.outputs.archive }}")"
           scp -i ~/.ssh/strato_sams \
             "${{ steps.archive.outputs.archive }}" \
-            "${{ steps.archive.outputs.archive }}.sha256" \
-            root@"$NEW_HOST:/root/sams-legacy-archive/"
-          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" \
-            "cd /root/sams-legacy-archive && chmod 600 '$base' '$base.sha256' && sha256sum -c '$base.sha256'"
+            root@"$NEW_HOST:/root/sams-legacy-archive/$base"
+          server_hash="$(ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" \
+            "chmod 600 '/root/sams-legacy-archive/$base' && sha256sum '/root/sams-legacy-archive/$base' | awk '{print \$1}'")"
+          echo "Runner SHA256=${{ steps.archive.outputs.archive_hash }}"
+          echo "Stored SHA256=$server_hash"
+          test "$server_hash" = "${{ steps.archive.outputs.archive_hash }}"
           echo "LEGACY_FINAL_ARCHIVE_STORED_ON_CANONICAL=YES"
 
       - name: Stop final legacy database service
