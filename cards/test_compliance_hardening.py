@@ -9,7 +9,7 @@ from django.urls import reverse
 from .compliance_models import TestWalletMarker
 from .compliance_qr import issue_wallet_qr, resolve_payment_qr
 from .legal_models import LegalAcceptance, LegalConfiguration
-from .models import AuditEvent, Business, LedgerEntry, Location, MemberProfile, Membership, Wallet
+from .models import AuditEvent, Business, LedgerEntry, Location, MemberProfile, Membership, PaymentRequest, Wallet
 from .services import post_wallet_entry
 
 
@@ -120,13 +120,13 @@ class ComplianceHardeningTests(TestCase):
         self.assertTrue(wallet_payload["qr_token"].startswith("samsqr1."))
         self.assertNotEqual(wallet_payload["qr_token"], str(self.wallet.qr_token))
 
-    def test_staff_payment_accepts_static_apple_wallet_and_current_app_qr(self):
+    def test_staff_payment_accepts_both_qr_types_but_customer_chooses_tip(self):
         self.client.force_login(self.staff)
         payload = {
             "wallet_token": str(self.wallet.qr_token),
             "location_id": str(self.location.pk),
             "amount": "5.00",
-            "tip_amount": "0.00",
+            "tip_amount": "99.00",
         }
         response = self.client.post(reverse("staff_charge"), payload)
         self.assertEqual(response.status_code, 302)
@@ -134,12 +134,33 @@ class ComplianceHardeningTests(TestCase):
         payload["wallet_token"] = issue_wallet_qr(self.wallet)
         response = self.client.post(reverse("staff_charge"), payload)
         self.assertEqual(response.status_code, 302)
+
+        payments = PaymentRequest.objects.filter(wallet=self.wallet).order_by("created_at")
+        self.assertEqual(payments.count(), 2)
+        self.assertTrue(all(payment.status == PaymentRequest.Status.PENDING for payment in payments))
+        self.assertTrue(all(payment.customer_confirmation_required for payment in payments))
+        self.assertTrue(all(payment.tip_selected_amount == Decimal("0.00") for payment in payments))
         self.assertEqual(
-            LedgerEntry.objects.filter(
-                wallet=self.wallet,
-                entry_type=LedgerEntry.Type.PURCHASE,
-            ).count(),
-            2,
+            LedgerEntry.objects.filter(wallet=self.wallet, entry_type=LedgerEntry.Type.PURCHASE).count(),
+            0,
+        )
+
+        self.client.force_login(self.customer)
+        response = self.client.post(
+            reverse("customer_confirm_payment", args=[payments.first().pk]),
+            {"tip_amount": "1.00"},
+        )
+        self.assertEqual(response.status_code, 302)
+        payments.first().refresh_from_db()
+        self.assertEqual(payments.first().status, PaymentRequest.Status.CONFIRMED)
+        self.assertEqual(payments.first().tip_amount, Decimal("1.00"))
+        self.assertEqual(
+            LedgerEntry.objects.filter(wallet=self.wallet, entry_type=LedgerEntry.Type.PURCHASE).count(),
+            1,
+        )
+        self.assertEqual(
+            LedgerEntry.objects.filter(wallet=self.wallet, entry_type=LedgerEntry.Type.TIP).count(),
+            1,
         )
 
     def test_financial_hard_delete_is_denied_for_production_wallets(self):
