@@ -51,13 +51,40 @@ jobs:
           cd "$APP_DIR"
 
           test "$(docker compose ps --status running -q push-worker | wc -l)" -eq 1
+          worker_cmd="$(docker compose exec -T push-worker python -c 'from pathlib import Path; print(Path("/proc/1/cmdline").read_bytes().replace(b"\0", b" ").decode())')"
+          echo "Push worker PID 1: $worker_cmd"
+          case "$worker_cmd" in
+            *"manage.py run_push_worker"*) ;;
+            *)
+              echo "push-worker container is running the wrong process." >&2
+              docker compose logs --tail=200 push-worker
+              exit 1
+              ;;
+          esac
+
           docker compose exec -T web python manage.py shell -c '
           from django.db import connection
           assert connection.vendor == "postgresql", f"Production DB must be PostgreSQL, got {connection.vendor}"
           print(f"Canonical production DB OK · vendor={connection.vendor} · name={connection.settings_dict.get(chr(78)+chr(65)+chr(77)+chr(69))}")
           ' </dev/null
 
+          set +e
           docker compose exec -T web python manage.py smoke_transaction_push </dev/null
+          smoke_status=$?
+          set -e
+          if [ "$smoke_status" -ne 0 ]; then
+            echo "Transaction push smoke failed; collecting queue and worker diagnostics." >&2
+            docker compose ps
+            docker compose logs --tail=250 push-worker
+            docker compose exec -T web python manage.py shell -c '
+          from django.db.models import Count
+          from cards.push_models import PushDelivery
+          print("Push queue:", list(PushDelivery.objects.values("status").annotate(count=Count("id")).order_by("status")))
+          print("Newest deliveries:", list(PushDelivery.objects.order_by("-created_at").values("id", "status", "attempts", "sent_count", "last_error")[:10]))
+          ' </dev/null || true
+            exit "$smoke_status"
+          fi
+
           touch "$MARKER"
           chmod 600 "$MARKER"
           echo "One-time real transaction push smoke completed."
