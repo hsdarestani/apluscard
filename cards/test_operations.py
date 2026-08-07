@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .compliance_qr import issue_wallet_qr
-from .models import AppNotification, Business, BusinessSettings, Location, MemberProfile, Membership, PushDevice, Wallet
+from .models import AppNotification, Business, BusinessSettings, Location, MemberProfile, Membership, PaymentRequest, PushDevice, Wallet
 from .push_models import PushDelivery
 
 
@@ -47,7 +47,6 @@ class OperationsFlowTests(TestCase):
                 "wallet_token": "not-a-card",
                 "location_id": self.location.pk,
                 "amount": "10.00",
-                "tip_amount": "0.00",
             },
         )
         self.assertRedirects(response, reverse("staff_dashboard"))
@@ -63,10 +62,24 @@ class OperationsFlowTests(TestCase):
                     "wallet_token": issue_wallet_qr(self.wallet),
                     "location_id": self.location.pk,
                     "amount": "20.00",
-                    "tip_amount": "0.00",
                 },
             )
         self.assertRedirects(response, reverse("staff_dashboard"))
+        payment = PaymentRequest.objects.get(wallet=self.wallet)
+        self.assertEqual(payment.status, PaymentRequest.Status.PENDING)
+        self.assertTrue(payment.customer_confirmation_required)
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, Decimal("100.00"))
+
+        self.client.force_login(self.customer)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                reverse("customer_confirm_payment", args=[payment.pk]),
+                {"tip_amount": "0.00"},
+            )
+        self.assertRedirects(response, reverse("customer_dashboard"), fetch_redirect_response=False)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, PaymentRequest.Status.CONFIRMED)
         self.wallet.refresh_from_db()
         self.assertEqual(self.wallet.balance, Decimal("80.00"))
         for user in (self.customer, self.staff, self.owner, self.manager):
