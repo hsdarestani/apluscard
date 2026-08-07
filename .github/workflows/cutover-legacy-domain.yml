@@ -1,4 +1,4 @@
-name: Cut Over Legacy Domain to Canonical Production
+name: Legacy App Compatibility Proxy
 
 on:
   push:
@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  cutover:
-    name: Redirect legacy origin and retire old writers
+  compatibility:
+    name: Keep installed legacy mobile builds inside the app
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -43,7 +43,7 @@ jobs:
           ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Replace old reverse proxy with safe permanent redirect
+      - name: Replace legacy redirect with compatibility reverse proxy
         shell: bash
         env:
           SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
@@ -56,17 +56,18 @@ jobs:
           test -e "$SITE_LINK"
           SITE_FILE="$(readlink -f "$SITE_LINK")"
           test -f "$SITE_FILE"
-          BACKUP="${SITE_FILE}.pre-canonical-$(date -u +%Y%m%dT%H%M%SZ)"
+          BACKUP="${SITE_FILE}.pre-compat-$(date -u +%Y%m%dT%H%M%SZ)"
           cp -a "$SITE_FILE" "$BACKUP"
           chmod --reference="$SITE_FILE" "$BACKUP"
 
           rollback() {
             status="${1:-1}"
-            echo "LEGACY_CUTOVER_ROLLBACK=YES status=$status" >&2
+            echo "LEGACY_COMPAT_ROLLBACK=YES status=$status" >&2
             set +e
             cp -a "$BACKUP" "$SITE_FILE"
             nginx -t >/dev/null 2>&1 && systemctl reload nginx
-            cd "$APP_DIR" && docker compose up -d web push-worker </dev/null >/dev/null 2>&1
+            cd "$APP_DIR"
+            docker compose stop web push-worker >/dev/null 2>&1 || true
             exit 1
           }
           trap 'rollback $?' ERR
@@ -82,65 +83,75 @@ jobs:
               include /etc/letsencrypt/options-ssl-nginx.conf;
               ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-              return 308 https://$CANONICAL_DOMAIN\$request_uri;
+              location / {
+                  proxy_pass https://$CANONICAL_DOMAIN;
+                  proxy_http_version 1.1;
+                  proxy_ssl_server_name on;
+                  proxy_ssl_name $CANONICAL_DOMAIN;
+
+                  proxy_set_header Host $LEGACY_DOMAIN;
+                  proxy_set_header X-Forwarded-Host $LEGACY_DOMAIN;
+                  proxy_set_header X-Forwarded-Proto https;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header Upgrade \$http_upgrade;
+                  proxy_set_header Connection "upgrade";
+
+                  proxy_redirect https://$CANONICAL_DOMAIN/ https://$LEGACY_DOMAIN/;
+                  proxy_cookie_domain $CANONICAL_DOMAIN $LEGACY_DOMAIN;
+                  proxy_read_timeout 90s;
+              }
           }
 
           server {
               listen 80;
               listen [::]:80;
               server_name $LEGACY_DOMAIN;
-              return 308 https://$CANONICAL_DOMAIN\$request_uri;
+              return 308 https://$LEGACY_DOMAIN\$request_uri;
           }
           NGINX
 
           nginx -t
           systemctl reload nginx
-          echo "LEGACY_NGINX_REDIRECT_INSTALLED=YES"
-          echo "LEGACY_NGINX_BACKUP=$BACKUP"
 
+          # The legacy application and worker stay stopped. Only nginx proxies to
+          # the canonical STRATO production, so there is still one writer/database.
           cd "$APP_DIR"
-          docker compose stop web push-worker </dev/null
+          docker compose stop web push-worker >/dev/null 2>&1 || true
           test -z "$(docker compose ps --status running -q web)"
           test -z "$(docker compose ps --status running -q push-worker)"
-          test "$(docker compose ps --status running -q db | wc -l)" -eq 1
-          echo "LEGACY_WRITERS_STOPPED=YES"
 
           trap - ERR
-          echo "$BACKUP" > /root/.sams-legacy-nginx-pre-canonical-backup
+          echo "$BACKUP" > /root/.sams-legacy-nginx-pre-compat-backup
+          echo "LEGACY_COMPAT_PROXY_INSTALLED=YES"
           REMOTE
 
-      - name: Verify public redirect and canonical health
+      - name: Verify legacy URL stays on legacy host and serves canonical production
         shell: bash
         run: |
           set -Eeuo pipefail
           stamp="$(date +%s)"
           headers="$RUNNER_TEMP/legacy-headers.txt"
-          code="$(curl --silent --show-error --max-time 20 \
+          body="$RUNNER_TEMP/legacy-body.json"
+          code="$(curl --silent --show-error --max-time 25 \
             -H 'Cache-Control: no-cache' \
-            -D "$headers" -o /dev/null --write-out '%{http_code}' \
-            "https://$LEGACY_DOMAIN/health/?public_cutover=$stamp")"
-          location="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$headers")"
-          echo "Legacy redirect HTTP=$code"
-          echo "Legacy redirect destination=$location"
-          case "$code" in 301|302|307|308) ;; *) echo "Unexpected legacy HTTP=$code" >&2; exit 1 ;; esac
-          case "$location" in
-            "https://$CANONICAL_DOMAIN/health/"*) ;;
-            *) echo "Legacy URL does not redirect to canonical production." >&2; exit 1 ;;
-          esac
+            -D "$headers" -o "$body" --write-out '%{http_code}' \
+            "https://$LEGACY_DOMAIN/health/?compat=$stamp")"
+          echo "Legacy compatibility health HTTP=$code"
+          test "$code" = "200"
+          grep -q '"status"' "$body"
+          if awk 'BEGIN{IGNORECASE=1} /^location:[[:space:]]*https:\/\/app\.samsclublounge\.de/ {found=1} END{exit !found}' "$headers"; then
+            echo "Legacy host still redirects to canonical domain." >&2
+            exit 1
+          fi
 
-          final_code="$(curl --silent --show-error --location --max-time 25 \
-            -H 'Cache-Control: no-cache' -o /dev/null --write-out '%{http_code}' \
-            "https://$LEGACY_DOMAIN/health/?public_follow=$stamp")"
           canonical_code="$(curl --silent --show-error --max-time 20 \
             -H 'Cache-Control: no-cache' -o /dev/null --write-out '%{http_code}' \
             "https://$CANONICAL_DOMAIN/health/?canonical_check=$stamp")"
-          echo "Legacy-followed health HTTP=$final_code"
-          echo "Canonical health HTTP=$canonical_code"
-          test "$final_code" = "200"
           test "$canonical_code" = "200"
-          echo "LEGACY_PUBLIC_REDIRECT_TO_CANONICAL_VERIFIED=YES"
+          echo "LEGACY_APP_COMPATIBILITY_VERIFIED=YES"
 
-      - name: Roll back old origin if public verification failed
+      - name: Roll back proxy if public verification failed
         if: failure()
         shell: bash
         env:
@@ -151,7 +162,7 @@ jobs:
             "APP_DIR='$APP_DIR' LEGACY_DOMAIN='$LEGACY_DOMAIN' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           SITE_FILE="$(readlink -f "/etc/nginx/sites-enabled/$LEGACY_DOMAIN")"
-          MARKER=/root/.sams-legacy-nginx-pre-canonical-backup
+          MARKER=/root/.sams-legacy-nginx-pre-compat-backup
           if [ -s "$MARKER" ]; then
             BACKUP="$(cat "$MARKER")"
             if [ -f "$BACKUP" ]; then
@@ -161,7 +172,7 @@ jobs:
             fi
           fi
           cd "$APP_DIR"
-          docker compose up -d web push-worker </dev/null
-          echo "LEGACY_ORIGIN_RESTORED_AFTER_PUBLIC_VERIFY_FAILURE=YES"
+          docker compose stop web push-worker >/dev/null 2>&1 || true
+          echo "LEGACY_COMPAT_PROXY_ROLLED_BACK=YES"
           REMOTE
           exit 1
