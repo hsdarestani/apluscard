@@ -1,4 +1,3 @@
-from decimal import Decimal
 from uuid import UUID
 
 from django.core import signing
@@ -11,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .compliance_qr import issue_wallet_qr, resolve_payment_qr
-from .models import LedgerEntry, Location, Membership, PaymentRequest, Wallet
+from .models import LedgerEntry, Location, Membership, Wallet
 from .serializers import LedgerEntrySerializer, MoneyActionSerializer, PaymentRequestSerializer, WalletSerializer
 from .services import OWNER_ROLES, STAFF_ROLES, create_payment_request, get_active_membership, post_wallet_entry, require_role
 
@@ -116,15 +115,15 @@ class SecureStaffChargeView(APIView):
                 location=location,
                 actor=request.user,
                 amount=data["amount"],
-                tip_amount=data.get("tip_amount", Decimal("0.00")),
+                tip_amount="0.00",
+                customer_tip_required=True,
                 description=data.get("description", ""),
                 order_reference=data.get("order_reference", ""),
                 ip_address=_client_ip(request),
             )
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
-        code = status.HTTP_202_ACCEPTED if payment.status == PaymentRequest.Status.PENDING else status.HTTP_201_CREATED
-        return Response(PaymentRequestSerializer(payment).data, status=code)
+        return Response(PaymentRequestSerializer(payment).data, status=status.HTTP_202_ACCEPTED)
 
 
 class SecureOwnerMoneyActionView(APIView):
