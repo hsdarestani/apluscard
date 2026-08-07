@@ -12,6 +12,7 @@ IS_TESTING = "test" in sys.argv
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,cards.smarbiz.sbs").split(",") if host.strip()]
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "https://cards.smarbiz.sbs").split(",") if origin.strip()]
 DEFAULT_BUSINESS_SLUG = os.getenv("DEFAULT_BUSINESS_SLUG", "shisha-bar")
+APP_RELEASE_SHA = os.getenv("APP_RELEASE_SHA", "dev").strip() or "dev"
 
 # Zentrale öffentliche Identität für Web-App, Store-Einträge und Systemmails.
 # Alte Production-Werte werden automatisch auf die neue Store-Identität migriert.
@@ -79,22 +80,30 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
-TEMPLATES = [{
-    "BACKEND": "django.template.backends.django.DjangoTemplates",
-    "DIRS": [BASE_DIR / "templates"],
-    "APP_DIRS": True,
-    "OPTIONS": {
-        "context_processors": [
-            "django.template.context_processors.request",
-            "django.contrib.auth.context_processors.auth",
-            "django.contrib.messages.context_processors.messages",
-            "cards.context_processors.apple_login",
-        ]
-    },
-}]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+                "cards.context_processors.apple_login",
+            ]
+        },
+    }
+]
 WSGI_APPLICATION = "config.wsgi.application"
-ASGI_APPLICATION = "config.asgi.application"
-DATABASES = {"default": dj_database_url.config(default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}", conn_max_age=600, conn_health_checks=True)}
+
+DATABASES = {
+    "default": dj_database_url.config(
+        default=os.getenv("DATABASE_URL", "sqlite:///db.sqlite3"),
+        conn_max_age=60,
+    )
+}
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -105,16 +114,11 @@ PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.Argon2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
-    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
     "django.contrib.auth.hashers.ScryptPasswordHasher",
 ]
-AUTHENTICATION_BACKENDS = [
-    "django.contrib.auth.backends.ModelBackend",
-    "allauth.account.auth_backends.AuthenticationBackend",
-]
 
-LANGUAGE_CODE = "de"
-TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "Europe/Berlin")
+LANGUAGE_CODE = "de-de"
+TIME_ZONE = "Europe/Berlin"
 USE_I18N = True
 USE_TZ = True
 
@@ -124,137 +128,83 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
-        if DEBUG or IS_TESTING
-        else "whitenoise.storage.CompressedManifestStaticFilesStorage"
-    },
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
-
-EMAIL_HOST = os.getenv("EMAIL_HOST", "").strip()
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", "465"))
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", APP_SUPPORT_EMAIL).strip()
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "1") == "1"
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "0" if EMAIL_USE_SSL else "1") == "1"
-EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "20"))
-EMAIL_BACKEND = os.getenv(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.smtp.EmailBackend" if EMAIL_HOST else "django.core.mail.backends.console.EmailBackend",
-)
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", f"{APP_NAME} <{APP_SUPPORT_EMAIL}>")
-if DEFAULT_FROM_EMAIL.startswith("SAMS Card"):
-    DEFAULT_FROM_EMAIL = DEFAULT_FROM_EMAIL.replace("SAMS Card", APP_NAME, 1)
-SERVER_EMAIL = os.getenv("SERVER_EMAIL", f"{APP_NAME} System <{APP_SUPPORT_EMAIL}>")
-if SERVER_EMAIL.startswith("SAMS Card"):
-    SERVER_EMAIL = SERVER_EMAIL.replace("SAMS Card", APP_NAME, 1)
-EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", APP_SUPPORT_EMAIL)
-
-DATA_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
-FILE_UPLOAD_MAX_MEMORY_SIZE = 12 * 1024 * 1024
-FILE_UPLOAD_PERMISSIONS = 0o640
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "dashboard"
-LOGOUT_REDIRECT_URL = "landing"
-ACCOUNT_ADAPTER = "cards.adapters.SamsAccountAdapter"
+AUTH_USER_MODEL = "auth.User"
+LOGIN_URL = "/accounts/login/"
+LOGIN_REDIRECT_URL = "/dashboard/"
+LOGOUT_REDIRECT_URL = "/accounts/login/"
+
+# django-allauth
 ACCOUNT_EMAIL_VERIFICATION = "none"
-SOCIALACCOUNT_EMAIL_VERIFICATION = "none"
+ACCOUNT_LOGOUT_ON_GET = False
 SOCIALACCOUNT_AUTO_SIGNUP = True
-SOCIALACCOUNT_LOGIN_ON_GET = True
-SOCIALACCOUNT_QUERY_EMAIL = True
-
-
-def _apple_private_key():
-    direct_value = os.getenv("APPLE_PRIVATE_KEY", "").strip()
-    encoded_value = os.getenv("APPLE_PRIVATE_KEY_BASE64", "").strip()
-    value = direct_value or encoded_value
-    if not value:
-        return ""
-
-    normalized = value.replace("\\n", "\n").strip()
-    if "-----BEGIN PRIVATE KEY-----" in normalized:
-        return normalized
-
-    try:
-        compact_value = "".join(value.split())
-        decoded = base64.b64decode(compact_value, validate=True).decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
-        return ""
-    return decoded.replace("\\n", "\n").strip()
-
-
-APPLE_CLIENT_ID = os.getenv("APPLE_CLIENT_ID", "").strip()
+SOCIALACCOUNT_LOGIN_ON_GET = False
+APPLE_LOGIN_ENABLED = os.getenv("APPLE_LOGIN_ENABLED", "0") == "1"
+APPLE_WALLET_ENABLED = os.getenv("APPLE_WALLET_ENABLED", "0") == "1"
+APPLE_CLIENT_ID = os.getenv("APPLE_CLIENT_ID", IOS_BUNDLE_ID).strip()
+APPLE_BUNDLE_ID = os.getenv("APPLE_BUNDLE_ID", IOS_BUNDLE_ID).strip()
+APPLE_TEAM_ID = os.getenv("APPLE_TEAM_ID", IOS_APP_TEAM_ID).strip()
 APPLE_KEY_ID = os.getenv("APPLE_KEY_ID", "").strip()
-APPLE_TEAM_ID = os.getenv("APPLE_TEAM_ID", "").strip()
-APPLE_PRIVATE_KEY = _apple_private_key()
-APPLE_BUNDLE_ID = os.getenv("APPLE_BUNDLE_ID", "").strip()
-APPLE_REDIRECT_URI = os.getenv(
-    "APPLE_REDIRECT_URI",
-    "https://cards.smarbiz.sbs/accounts/apple/callback/",
-).strip()
-APPLE_PRIVATE_KEY_HAS_PEM_MARKERS = (
-    APPLE_PRIVATE_KEY.startswith("-----BEGIN PRIVATE KEY-----")
-    and APPLE_PRIVATE_KEY.endswith("-----END PRIVATE KEY-----")
-)
-APPLE_LOGIN_ENABLED = all([
-    APPLE_CLIENT_ID,
-    APPLE_KEY_ID,
-    APPLE_TEAM_ID,
-    APPLE_PRIVATE_KEY_HAS_PEM_MARKERS,
-    APPLE_REDIRECT_URI,
-])
-APPLE_PROVIDER_APPS = []
-if APPLE_LOGIN_ENABLED:
-    apple_settings = {"certificate_key": APPLE_PRIVATE_KEY}
-    APPLE_PROVIDER_APPS.append({
-        "client_id": APPLE_CLIENT_ID,
-        "secret": APPLE_KEY_ID,
-        "key": APPLE_TEAM_ID,
-        "settings": apple_settings,
-    })
-    if APPLE_BUNDLE_ID and APPLE_BUNDLE_ID != APPLE_CLIENT_ID:
-        APPLE_PROVIDER_APPS.append({
-            "client_id": APPLE_BUNDLE_ID,
-            "secret": APPLE_KEY_ID,
-            "key": APPLE_TEAM_ID,
-            "settings": {**apple_settings, "hidden": True},
-        })
-SOCIALACCOUNT_PROVIDERS = {"apple": {"APPS": APPLE_PROVIDER_APPS}}
+APPLE_PRIVATE_KEY = os.getenv("APPLE_PRIVATE_KEY", "").strip()
+APPLE_REDIRECT_URI = os.getenv("APPLE_REDIRECT_URI", f"{APP_PUBLIC_BASE_URL}/accounts/apple/callback/").strip()
 
-# Apple Wallet uses a Pass Type ID certificate, not the Sign-in-with-Apple .p8 key.
-APPLE_WALLET_PASS_TYPE_ID = os.getenv("APPLE_WALLET_PASS_TYPE_ID", "").strip()
-APPLE_WALLET_TEAM_ID = os.getenv("APPLE_WALLET_TEAM_ID", APPLE_TEAM_ID).strip()
-APPLE_WALLET_P12_BASE64 = os.getenv("APPLE_WALLET_P12_BASE64", "").strip()
-APPLE_WALLET_P12_PASSWORD = os.getenv("APPLE_WALLET_P12_PASSWORD", "").strip()
-APPLE_WALLET_WWDR_CERT_BASE64 = os.getenv("APPLE_WALLET_WWDR_CERT_BASE64", "").strip()
-APPLE_WALLET_ENABLED = all([
-    APPLE_WALLET_PASS_TYPE_ID,
-    APPLE_WALLET_TEAM_ID,
-    APPLE_WALLET_P12_BASE64,
-    APPLE_WALLET_WWDR_CERT_BASE64,
-])
+if APPLE_LOGIN_ENABLED and all([APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY]):
+    SOCIALACCOUNT_PROVIDERS = {
+        "apple": {
+            "APP": {
+                "client_id": APPLE_CLIENT_ID,
+                "secret": APPLE_PRIVATE_KEY,
+                "key": APPLE_KEY_ID,
+                "settings": {
+                    "certificate_key": APPLE_PRIVATE_KEY,
+                },
+            }
+        }
+    }
+else:
+    SOCIALACCOUNT_PROVIDERS = {}
 
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication", "rest_framework.authentication.TokenAuthentication"],
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
-}
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# Email
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.strato.de")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "465"))
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "1") == "1"
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "0") == "1"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", f"{APP_NAME} <{APP_SUPPORT_EMAIL}>")
+SERVER_EMAIL = os.getenv("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
+EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", APP_SUPPORT_EMAIL)
+
+# Security
+SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "0") == "1"
 SESSION_COOKIE_SECURE = os.getenv("DJANGO_SECURE_COOKIES", "1") == "1"
 CSRF_COOKIE_SECURE = os.getenv("DJANGO_SECURE_COOKIES", "1") == "1"
-SESSION_COOKIE_SAMESITE = os.getenv("DJANGO_SESSION_COOKIE_SAMESITE", "None")
-CSRF_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_NAME = "__Host-sid" if SESSION_COOKIE_SECURE else "sid"
-CSRF_COOKIE_NAME = "__Host-ct" if CSRF_COOKIE_SECURE else "ct"
 SESSION_COOKIE_HTTPONLY = True
-CSRF_COOKIE_HTTPONLY = True
-SESSION_COOKIE_AGE = 60 * 60 * 24 * 14
-SECURE_CONTENT_TYPE_NOSNIFF = True
-SECURE_REFERRER_POLICY = "same-origin"
-SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin-allow-popups"
+CSRF_COOKIE_HTTPONLY = False
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
 SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_HSTS_SECONDS", "0"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
 SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Apple Wallet
+APPLE_PASS_TYPE_IDENTIFIER = os.getenv("APPLE_PASS_TYPE_IDENTIFIER", "").strip()
+APPLE_PASS_CERTIFICATE_BASE64 = os.getenv("APPLE_PASS_CERTIFICATE_BASE64", "").strip()
+APPLE_PASS_PRIVATE_KEY_BASE64 = os.getenv("APPLE_PASS_PRIVATE_KEY_BASE64", "").strip()
+APPLE_PASS_WWDR_CERTIFICATE_BASE64 = os.getenv("APPLE_PASS_WWDR_CERTIFICATE_BASE64", "").strip()
+APPLE_PASS_CERTIFICATE_PASSWORD = os.getenv("APPLE_PASS_CERTIFICATE_PASSWORD", "").strip()
+
+# Throttling / compliance
+COMPLIANCE_RATE_LIMITS = {
+    "login": (10, 60),
+    "register": (5, 300),
+    "payment": (60, 60),
+}
