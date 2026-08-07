@@ -21,8 +21,7 @@ class Command(BaseCommand):
             .first()
         )
         if membership is None:
-            self.stdout.write(self.style.WARNING("Kein internes Gerät für einen echten Push-Smoke-Test registriert."))
-            return
+            raise CommandError("Kein internes iOS- oder Android-Gerät für einen echten Push-Smoke-Test registriert.")
 
         notification = AppNotification.objects.create(
             recipient=membership.user,
