@@ -1,4 +1,5 @@
 import io
+import json
 import os
 from unittest import mock
 
@@ -12,6 +13,7 @@ from django.urls import reverse
 
 from .models import AuditEvent, Business, BusinessSettings, Membership
 from .security_models import AuditChainSeal, PrivilegedMfaDevice
+from .security_services import biometric_device_token_is_valid
 
 
 @mock.patch.dict(
@@ -42,6 +44,12 @@ class PrivilegedSecurityPhaseTwoTests(TestCase):
             email="customer@example.com",
             password="Customer-Test-2026!",
         )
+
+    def _confirmed_owner_device(self):
+        device = PrivilegedMfaDevice.objects.create(user=self.owner)
+        device.set_secret(pyotp.random_base32())
+        device.confirm(PrivilegedMfaDevice.generate_recovery_codes())
+        return device
 
     def test_privileged_user_is_forced_to_enroll_mfa(self):
         self.client.force_login(self.owner)
@@ -82,11 +90,71 @@ class PrivilegedSecurityPhaseTwoTests(TestCase):
         self.assertGreaterEqual(device.last_counter, 0)
         self.assertEqual(len(device.recovery_code_hashes), 10)
 
+        # MFA is re-checked more often, but it must not shorten the underlying
+        # Django login session to twelve hours.
+        self.assertGreater(self.client.session.get_expiry_age(), 12 * 60 * 60)
+
         response = self.client.get(reverse("manager_dashboard"))
         self.assertNotIn(response.status_code, (401, 403, 428))
         if response.status_code == 302:
             self.assertNotIn(reverse("mfa_setup"), response.url)
             self.assertNotIn(reverse("mfa_challenge"), response.url)
+
+    def test_native_totp_confirmation_enrolls_server_validated_biometric_device(self):
+        device = self._confirmed_owner_device()
+        self.client.force_login(self.owner)
+        code = pyotp.TOTP(device.get_secret()).now()
+
+        response = self.client.post(
+            reverse("mfa_challenge"),
+            {"code": code, "next": reverse("manager_dashboard")},
+            HTTP_ACCEPT="application/json",
+            HTTP_X_SAMS_BIOMETRIC_ENROLL="1",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["biometric_token"])
+        self.assertTrue(biometric_device_token_is_valid(self.owner, payload["biometric_token"]))
+
+    def test_native_biometric_token_can_renew_mfa_but_not_after_password_change(self):
+        device = self._confirmed_owner_device()
+        self.client.force_login(self.owner)
+        code = pyotp.TOTP(device.get_secret()).now()
+        enrolled = self.client.post(
+            reverse("mfa_challenge"),
+            {"code": code, "next": reverse("manager_dashboard")},
+            HTTP_ACCEPT="application/json",
+            HTTP_X_SAMS_BIOMETRIC_ENROLL="1",
+        ).json()
+        token = enrolled["biometric_token"]
+
+        # Simulate the MFA re-check becoming due while the login session remains.
+        session = self.client.session
+        session.pop("privileged_mfa_user_id", None)
+        session.pop("privileged_mfa_verified_at", None)
+        session.save()
+
+        response = self.client.post(
+            reverse("mfa_biometric_verify"),
+            data=json.dumps({"token": token, "next": reverse("manager_dashboard")}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+
+        self.owner.set_password("Changed-Owner-Test-2026!")
+        self.owner.save(update_fields=["password"])
+        self.assertFalse(biometric_device_token_is_valid(self.owner, token))
+
+    def test_mfa_challenge_does_not_autofocus_mobile_code_input(self):
+        self._confirmed_owner_device()
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("mfa_challenge"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, " required autofocus")
+        self.assertContains(response, "Face ID / Biometrie")
 
     def test_recovery_codes_are_hashed_and_single_use(self):
         device = PrivilegedMfaDevice.objects.create(user=self.owner)
