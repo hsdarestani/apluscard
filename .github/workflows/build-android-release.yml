@@ -74,7 +74,7 @@ jobs:
           npx cap sync android
           npm run assets:android
 
-      - name: Kamera-Berechtigung für QR-Scanner eintragen
+      - name: Kamera- und Biometrie-Berechtigungen eintragen
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -83,7 +83,11 @@ jobs:
           if ! grep -q 'android.permission.CAMERA' "$MANIFEST"; then
             sed -i '/<manifest/a\    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera.any" android:required="false" />' "$MANIFEST"
           fi
+          if ! grep -q 'android.permission.USE_BIOMETRIC' "$MANIFEST"; then
+            sed -i '/<manifest/a\    <uses-permission android:name="android.permission.USE_BIOMETRIC" />' "$MANIFEST"
+          fi
           grep -q 'android.permission.CAMERA' "$MANIFEST"
+          grep -q 'android.permission.USE_BIOMETRIC' "$MANIFEST"
 
       - name: Firebase- und Signing-Dateien sicher bereitstellen
         shell: bash
