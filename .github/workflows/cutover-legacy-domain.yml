@@ -1,0 +1,176 @@
+name: Cut Over Legacy Domain to Canonical Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cutover-legacy-domain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-cutover-legacy-domain
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    name: Redirect legacy origin and retire old writers
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      LEGACY_DOMAIN: cards.smarbiz.sbs
+      CANONICAL_DOMAIN: app.samsclublounge.de
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          : "${OLD_HOST:?HETZNER_HOST is missing}"
+          : "${OLD_PASSWORD:?HETZNER_PASSWORD is missing}"
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Replace old reverse proxy with safe permanent redirect
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' LEGACY_DOMAIN='$LEGACY_DOMAIN' CANONICAL_DOMAIN='$CANONICAL_DOMAIN' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          SITE_LINK="/etc/nginx/sites-enabled/$LEGACY_DOMAIN"
+          test -e "$SITE_LINK"
+          SITE_FILE="$(readlink -f "$SITE_LINK")"
+          test -f "$SITE_FILE"
+          BACKUP="${SITE_FILE}.pre-canonical-$(date -u +%Y%m%dT%H%M%SZ)"
+          cp -a "$SITE_FILE" "$BACKUP"
+          chmod --reference="$SITE_FILE" "$BACKUP"
+
+          rollback() {
+            status="${1:-1}"
+            echo "LEGACY_CUTOVER_ROLLBACK=YES status=$status" >&2
+            set +e
+            cp -a "$BACKUP" "$SITE_FILE"
+            nginx -t >/dev/null 2>&1 && systemctl reload nginx
+            cd "$APP_DIR" && docker compose up -d web push-worker </dev/null >/dev/null 2>&1
+            exit 1
+          }
+          trap 'rollback $?' ERR
+
+          cat > "$SITE_FILE" <<NGINX
+          server {
+              listen 443 ssl;
+              listen [::]:443 ssl ipv6only=on;
+              server_name $LEGACY_DOMAIN;
+
+              ssl_certificate /etc/letsencrypt/live/$LEGACY_DOMAIN/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/$LEGACY_DOMAIN/privkey.pem;
+              include /etc/letsencrypt/options-ssl-nginx.conf;
+              ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+              return 308 https://$CANONICAL_DOMAIN\$request_uri;
+          }
+
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name $LEGACY_DOMAIN;
+              return 308 https://$CANONICAL_DOMAIN\$request_uri;
+          }
+          NGINX
+
+          nginx -t
+          systemctl reload nginx
+          echo "LEGACY_NGINX_REDIRECT_INSTALLED=YES"
+          echo "LEGACY_NGINX_BACKUP=$BACKUP"
+
+          # Verify the old origin itself before removing Django writers.
+          local_location="$(curl --silent --show-error --max-time 15 --resolve "$LEGACY_DOMAIN:443:127.0.0.1" \
+            --insecure --output /dev/null --write-out '%{redirect_url}' \
+            "https://$LEGACY_DOMAIN/health/?origin_cutover=$(date +%s)")"
+          case "$local_location" in
+            "https://$CANONICAL_DOMAIN/health/"*|"https://$CANONICAL_DOMAIN/health/?"*) ;;
+            *) echo "Unexpected local redirect: $local_location" >&2; false ;;
+          esac
+
+          cd "$APP_DIR"
+          docker compose stop web push-worker </dev/null
+          test -z "$(docker compose ps --status running -q web)"
+          test -z "$(docker compose ps --status running -q push-worker)"
+          test "$(docker compose ps --status running -q db | wc -l)" -eq 1
+          echo "LEGACY_WRITERS_STOPPED=YES"
+
+          trap - ERR
+          echo "$BACKUP" > /root/.sams-legacy-nginx-pre-canonical-backup
+          REMOTE
+
+      - name: Verify public redirect and canonical health
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          stamp="$(date +%s)"
+          headers="$RUNNER_TEMP/legacy-headers.txt"
+          code="$(curl --silent --show-error --max-time 20 \
+            -H 'Cache-Control: no-cache' \
+            -D "$headers" -o /dev/null --write-out '%{http_code}' \
+            "https://$LEGACY_DOMAIN/health/?public_cutover=$stamp")"
+          location="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$headers")"
+          echo "Legacy redirect HTTP=$code"
+          echo "Legacy redirect destination=$location"
+          test "$code" = "308" || test "$code" = "301"
+          case "$location" in
+            "https://$CANONICAL_DOMAIN/health/"*) ;;
+            *) echo "Legacy URL does not redirect to canonical production." >&2; exit 1 ;;
+          esac
+
+          final_code="$(curl --silent --show-error --location --max-time 25 \
+            -H 'Cache-Control: no-cache' -o /dev/null --write-out '%{http_code}' \
+            "https://$LEGACY_DOMAIN/health/?public_follow=$stamp")"
+          canonical_code="$(curl --silent --show-error --max-time 20 \
+            -H 'Cache-Control: no-cache' -o /dev/null --write-out '%{http_code}' \
+            "https://$CANONICAL_DOMAIN/health/?canonical_check=$stamp")"
+          echo "Legacy-followed health HTTP=$final_code"
+          echo "Canonical health HTTP=$canonical_code"
+          test "$final_code" = "200"
+          test "$canonical_code" = "200"
+          echo "LEGACY_PUBLIC_REDIRECT_TO_CANONICAL_VERIFIED=YES"
+
+      - name: Roll back old origin if public verification failed
+        if: failure()
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' LEGACY_DOMAIN='$LEGACY_DOMAIN' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          SITE_FILE="$(readlink -f "/etc/nginx/sites-enabled/$LEGACY_DOMAIN")"
+          MARKER=/root/.sams-legacy-nginx-pre-canonical-backup
+          if [ -s "$MARKER" ]; then
+            BACKUP="$(cat "$MARKER")"
+            if [ -f "$BACKUP" ]; then
+              cp -a "$BACKUP" "$SITE_FILE"
+              nginx -t
+              systemctl reload nginx
+            fi
+          fi
+          cd "$APP_DIR"
+          docker compose up -d web push-worker </dev/null
+          echo "LEGACY_ORIGIN_RESTORED_AFTER_PUBLIC_VERIFY_FAILURE=YES"
+          REMOTE
+          exit 1
