@@ -1,0 +1,40 @@
+name: Probe STRATO via Legacy Host
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-strato-via-legacy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      NEW_HOST: ${{ secrets.NEWHOST }}
+    steps:
+      - name: Probe new SSH from old production host
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "NEW_HOST='$NEW_HOST' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          echo "Testing $NEW_HOST:22 from legacy host"
+          timeout 12 bash -c "</dev/tcp/$NEW_HOST/22"
+          echo "STRATO_SSH_REACHABLE_FROM_LEGACY=YES"
+          REMOTE
