@@ -147,6 +147,44 @@ appleWalletButton?.addEventListener('click', async event => {
   }
 });
 
+const dataExportButton = document.querySelector('a[href="/datenschutz/datenexport/"]');
+dataExportButton?.addEventListener('click', async event => {
+  const browser = nativeBrowserPlugin();
+  const platform = nativePlatform();
+  if (!platform || !browser) return;
+
+  event.preventDefault();
+  if (dataExportButton.dataset.busy === 'true') return;
+  dataExportButton.dataset.busy = 'true';
+  dataExportButton.setAttribute('aria-disabled', 'true');
+  const originalLabel = dataExportButton.textContent;
+  dataExportButton.textContent = 'Datenexport wird geöffnet …';
+
+  try {
+    const handoffUrl = `${dataExportButton.href}${dataExportButton.href.includes('?') ? '&' : '?'}handoff=1`;
+    const response = await fetch(handoffUrl, {
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    if (!response.ok) throw new Error(`Data export handoff failed: ${response.status}`);
+    const payload = await response.json();
+    if (!payload.url) throw new Error('Data export download URL missing');
+    await browser.open({
+      url: payload.url,
+      presentationStyle: 'fullscreen',
+      toolbarColor: '#09050f'
+    });
+  } catch (error) {
+    console.error('Data export handoff failed', error);
+    window.location.assign(dataExportButton.href);
+  } finally {
+    dataExportButton.dataset.busy = 'false';
+    dataExportButton.removeAttribute('aria-disabled');
+    dataExportButton.textContent = originalLabel;
+  }
+});
+
 function safePushTarget(value) {
   if (!value) return '/mitteilungen/';
   try {
@@ -329,7 +367,7 @@ document.addEventListener('click', event => {
       button.classList.toggle('active', button === tabButton);
     });
     wrapper?.querySelectorAll('.tab-content').forEach(panel => {
-      panel.classList.toggle('active', panel.id === tabButton.dataset.tab);
+      panel.classList.toggle('active', panel.id === tabButton.dataset.tab;
     });
   }
 });
