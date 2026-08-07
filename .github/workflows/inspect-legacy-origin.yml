@@ -1,0 +1,63 @@
+name: Inspect Legacy Origin Routing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-legacy-origin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      APP_DIR: /root/apluscard
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Inspect proxy and compose topology without secrets
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          echo '=== SERVICES ==='
+          for service in nginx caddy apache2; do
+            printf '%s=' "$service"
+            systemctl is-active "$service" 2>/dev/null || true
+          done
+          echo '=== LISTENERS ==='
+          ss -lntp 2>/dev/null | grep -E ':(80|443|8000|8010)\b' || true
+          echo '=== COMPOSE ==='
+          cd "$APP_DIR"
+          docker compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Ports}}'
+          echo '=== NGINX LEGACY DOMAIN CONTEXT ==='
+          if command -v nginx >/dev/null 2>&1; then
+            nginx -T 2>&1 | grep -n -B 8 -A 24 'cards\.smarbiz\.sbs' | head -n 220 || true
+          fi
+          echo '=== CADDY LEGACY DOMAIN CONTEXT ==='
+          grep -R -n -B 5 -A 20 'cards\.smarbiz\.sbs' /etc/caddy 2>/dev/null | head -n 180 || true
+          echo '=== APACHE LEGACY DOMAIN CONTEXT ==='
+          grep -R -n -B 5 -A 20 'cards\.smarbiz\.sbs' /etc/apache2 2>/dev/null | head -n 180 || true
+          REMOTE
