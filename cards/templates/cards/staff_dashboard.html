@@ -5,8 +5,8 @@
 <section class="dashboard-head staff-private-head">
   <div>
     <span class="eyebrow">SAMS Kasse</span>
-    <h1>Zahlung<br><span class="gradient-text">abbuchen</span></h1>
-    <p class="muted">QR-Code scannen, Betrag eingeben und Zahlung abschließen. Kundendaten werden Mitarbeitern nicht angezeigt.</p>
+    <h1>Zahlung<br><span class="gradient-text">anfordern</span></h1>
+    <p class="muted">QR-Code scannen und nur den Rechnungsbetrag eingeben. Kundendaten und Trinkgeld bleiben beim Kunden.</p>
   </div>
   <div class="dashboard-context"><span class="vip-chip">{{ active_location.name|default:"Standort wählen" }}</span><span class="role-pill">Staff</span></div>
 </section>
@@ -32,23 +32,12 @@
 
       <label class="staff-amount-field"><span>Rechnungsbetrag (€)</span><input type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required></label>
 
-      <fieldset class="tip-fieldset custom-tip-fieldset">
-        <legend>Trinkgeld</legend>
-        <p class="form-note">10 Cent, 1 Euro oder einen eigenen Betrag eingeben.</p>
-        <div class="tip-quick-actions" data-tip-controls>
-          <button type="button" data-tip-value="0.10">0,10 €</button>
-          <button type="button" data-tip-value="1.00">1,00 €</button>
-          <button type="button" data-tip-value="0.00">Kein Trinkgeld</button>
-        </div>
-        <label class="custom-tip-input"><span>Eigener Betrag (€)</span><input type="number" name="tip_amount" min="0" max="100" step="0.01" inputmode="decimal" value="0.00" placeholder="0,00"></label>
-      </fieldset>
+      <div class="platform-alert">
+        <strong>Trinkgeld wählt der Kunde</strong>
+        <span>Nach dem Senden kann der Kunde 0,10 €, 1,00 €, kein Trinkgeld oder einen eigenen Betrag wählen und anschließend die Zahlung bestätigen.</span>
+      </div>
 
-      {% if settings.require_customer_confirmation %}
-        <div class="platform-alert warning"><strong>Kundenfreigabe aktiv</strong><span>Die Zahlung wird zuerst an das Kundengerät zur Bestätigung geschickt.</span></div>
-        <button class="button primary full" type="submit">Zahlungsfreigabe senden</button>
-      {% else %}
-        <button class="button primary full" type="submit">Betrag jetzt abbuchen</button>
-      {% endif %}
+      <button class="button primary full" type="submit">Zahlung an Kunden senden</button>
 
       <details class="manual-code-fallback">
         <summary>QR-Code konnte nicht gescannt werden</summary>
@@ -79,15 +68,6 @@
   };
   manual?.addEventListener('input',()=>setToken(manual.value));
 
-  document.querySelectorAll('[data-tip-value]').forEach(button=>{
-    button.addEventListener('click',()=>{
-      const tipInput=form.querySelector('input[name="tip_amount"]');
-      tipInput.value=button.dataset.tipValue;
-      tipInput.focus();
-      tipInput.dispatchEvent(new Event('input',{bubbles:true}));
-    });
-  });
-
   form?.addEventListener('submit',event=>{
     if(!input.value.trim()){
       event.preventDefault();
@@ -116,7 +96,7 @@
         const token=String(text||'').trim();
         if(!token){handled=false;status.textContent='Kein gültiger QR-Code erkannt.';return;}
         setToken(token);
-        status.textContent='QR-Code erkannt. Betrag eingeben und abbuchen.';
+        status.textContent='QR-Code erkannt. Rechnungsbetrag eingeben und an den Kunden senden.';
         await stop();
         form.querySelector('input[name="amount"]')?.focus();
       },()=>{});
