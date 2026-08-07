@@ -1,9 +1,15 @@
-from django.contrib import admin
+from django.conf import settings
+from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import redirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
 
 from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
 from .legal_models import AccountDeletionRequest, LegalAcceptance, LegalConfiguration, PrivacyPreference
 from .models import AppNotification, AuditEvent, Business, BusinessSettings, LedgerEntry, Location, MemberProfile, Membership, Offer, PaymentRequest, PushDevice, ReviewStatus, Wallet
 from .push_models import PushDelivery
+from .test_data_cleanup import build_test_data_preview, purge_test_data
 
 
 @admin.register(Business)
@@ -91,6 +97,52 @@ class WalletAdmin(admin.ModelAdmin):
     list_filter = ("tier", "status", "business")
     search_fields = ("member_number", "display_name", "phone", "email", "qr_token")
     readonly_fields = ("id", "member_number", "qr_token", "balance", "created_at", "updated_at")
+    change_list_template = "admin/cards/wallet/change_list.html"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "testdaten-bereinigen/",
+                self.admin_site.admin_view(self.test_data_cleanup_view),
+                name="cards_wallet_test_data_cleanup",
+            )
+        ]
+        return custom + urls
+
+    def test_data_cleanup_view(self, request):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+
+        preview = build_test_data_preview()
+        if request.method == "POST":
+            if not settings.ALLOW_TEST_DATA_PURGE:
+                messages.error(
+                    request,
+                    "Testdaten-Löschung ist in Production gesperrt. ALLOW_TEST_DATA_PURGE muss zuerst bewusst aktiviert werden.",
+                )
+            elif request.POST.get("confirmation", "").strip() != "TESTDATEN LÖSCHEN":
+                messages.error(request, "Bestätigung stimmt nicht. Es wurde nichts gelöscht.")
+            else:
+                before_total = preview["total_records"]
+                before_blocked = preview["blocked_user_count"]
+                purge_test_data()
+                messages.success(
+                    request,
+                    f"Testdaten-Bereinigung abgeschlossen. Vorher erkannt: {before_total} Datensätze. "
+                    f"Aus Sicherheitsgründen blockierte Benutzer: {before_blocked}.",
+                )
+                return redirect(reverse("admin:cards_wallet_changelist"))
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Testdaten sicher bereinigen",
+            "opts": self.model._meta,
+            "preview": preview,
+            "purge_enabled": settings.ALLOW_TEST_DATA_PURGE,
+            "changelist_url": reverse("admin:cards_wallet_changelist"),
+        }
+        return TemplateResponse(request, "admin/cards/wallet/test_data_cleanup.html", context)
 
 
 @admin.register(PaymentRequest)
