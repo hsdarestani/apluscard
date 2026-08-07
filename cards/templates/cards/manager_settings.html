@@ -24,6 +24,10 @@
   .manage-accordion-body>.section-heading:first-child{margin-top:0}
   .manage-accordion .panel{border:0;background:transparent;padding:0;box-shadow:none}
   .manage-legal-row{display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .location-links-form{display:grid;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)}
+  .location-links-form label{display:grid;gap:5px;font-size:11px;opacity:.9}
+  .location-links-form input{width:100%;min-width:0}
+  .location-link-status{display:inline-flex;margin-top:7px;font-size:11px;opacity:.72}
   @media(max-width:900px){.manage-jumps{grid-template-columns:repeat(3,minmax(0,1fr))}}
   @media(max-width:640px){
     .manage-hub-head.dashboard-head{display:block}
@@ -54,7 +58,7 @@
   <a class="manage-jump" href="#offers" data-open-section="offers"><strong>Angebote</strong><small>Aktionen veröffentlichen</small></a>
   {% endif %}
   {% if is_owner %}
-  <a class="manage-jump" href="#locations" data-open-section="locations"><strong>Standorte</strong><small>Bilder & Beschreibungen</small></a>
+  <a class="manage-jump" href="#locations" data-open-section="locations"><strong>Standorte</strong><small>Bilder & Google-Links</small></a>
   <a class="manage-jump" href="#payment" data-open-section="payment"><strong>A+ Pay</strong><small>Zahlung & Treueprogramm</small></a>
   <a class="manage-jump" href="#legal" data-open-section="legal"><strong>Rechtliches</strong><small>AGB & Datenschutz</small></a>
   {% endif %}
@@ -67,7 +71,7 @@
     <span class="manage-chevron" aria-hidden="true">⌄</span>
   </summary>
   <div class="manage-accordion-body">
-    <p class="muted">Die Nachricht erscheint sofort im persönlichen Posteingang. Auf registrierten iOS- und Android-Geräten wird sie zusätzlich als Push gesendet.</p>
+    <p class="muted">Die Nachricht erscheint sofort im persönlichen Posteingang. Transaktions- und Systemhinweise werden auf registrierten Geräten gepusht. Angebots- und Geburtstags-Pushs gehen nur an Mitglieder mit aktivierter Marketing-Push-Einwilligung.</p>
     <form method="post" action="{% url 'manager_broadcast_notification' %}" class="settings-grid broadcast-form">{% csrf_token %}
       <label class="setting-field"><span>Titel</span><input type="text" name="title" maxlength="160" placeholder="Zum Beispiel: Heute Live-Musik" required></label>
       <label class="setting-field"><span>Zielgruppe</span><select name="target"><option value="ALL">Alle aktiven Mitglieder</option><option value="SILVER">Nur Silber</option><option value="GOLD">Nur Gold</option><option value="PLATINUM">Nur Platin</option></select></label>
@@ -95,11 +99,28 @@
 {% if is_owner %}
 <details class="manage-accordion" id="locations" {% if location_form.errors %}open{% endif %}>
   <summary>
-    <span class="manage-summary-copy"><strong>Standorte und Bilder</strong><small>Standortdarstellung, Foto und Kurzbeschreibung verwalten</small></span>
+    <span class="manage-summary-copy"><strong>Standorte und Links</strong><small>Foto, Kurzbeschreibung, Google-Bewertung und Social Links verwalten</small></span>
     <span class="manage-chevron" aria-hidden="true">⌄</span>
   </summary>
   <div class="manage-accordion-body">
-    <div class="location-admin-grid">{% for location in locations %}<article>{% if location.visual.image %}<img class="location-admin-image" src="{{ location.visual.image.url }}" alt="{{ location.name }}" loading="lazy">{% endif %}<strong>{{ location.name }}</strong><span>{{ location.address|default:"Adresse noch ergänzen" }}</span>{% if location.visual.short_description %}<p>{{ location.visual.short_description }}</p>{% endif %}<small>{{ location.slug }} · {% if location.is_active %}aktiv{% else %}inaktiv{% endif %}</small></article>{% endfor %}</div>
+    <div class="location-admin-grid">
+      {% for location in locations %}
+      <article>
+        {% if location.visual.image %}<img class="location-admin-image" src="{{ location.visual.image.url }}" alt="{{ location.name }}" loading="lazy">{% endif %}
+        <strong>{{ location.name }}</strong>
+        <span>{{ location.address|default:"Adresse noch ergänzen" }}</span>
+        {% if location.visual.short_description %}<p>{{ location.visual.short_description }}</p>{% endif %}
+        <small>{{ location.slug }} · {% if location.is_active %}aktiv{% else %}inaktiv{% endif %}</small>
+        <span class="location-link-status">Google Review: {% if location.google_review_url %}✓ eingerichtet{% else %}noch nicht eingerichtet{% endif %}</span>
+        <form method="post" action="{% url 'location_links_update' location.id %}" class="location-links-form">{% csrf_token %}
+          <label><span>Google-Bewertungslink</span><input type="url" name="google_review_url" value="{{ location.google_review_url }}" placeholder="https://search.google.com/local/writereview?..." inputmode="url"></label>
+          <label><span>Instagram-Link</span><input type="url" name="instagram_url" value="{{ location.instagram_url }}" placeholder="https://instagram.com/..." inputmode="url"></label>
+          <label><span>TikTok-Link</span><input type="url" name="tiktok_url" value="{{ location.tiktok_url }}" placeholder="https://tiktok.com/@..." inputmode="url"></label>
+          <button class="button secondary small" type="submit">Links speichern</button>
+        </form>
+      </article>
+      {% endfor %}
+    </div>
     <form method="post" enctype="multipart/form-data" action="{% url 'location_visual_update' %}" class="settings-grid compact-settings">{% csrf_token %}<label><span>Standort</span><select name="location" required>{% for location in locations %}<option value="{{ location.id }}">{{ location.name }}</option>{% endfor %}</select></label><label><span>Foto des Standorts</span><input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label><label><span>Kurze Beschreibung</span><input type="text" name="short_description" maxlength="180" placeholder="Zum Beispiel: Lounge, Shisha und Sportübertragungen"></label><button class="button primary" type="submit">Bild und Beschreibung speichern</button></form>
     <details class="admin-details"><summary>Weiteren Standort technisch anlegen</summary><form method="post" class="settings-grid compact-settings">{% csrf_token %}<input type="hidden" name="action" value="location">{% for field in location_form %}<label class="{% if field.field.widget.input_type == 'checkbox' %}setting-check{% endif %}">{% if field.field.widget.input_type == 'checkbox' %}{{ field }}<span><strong>{{ field.label }}</strong></span>{% else %}<span>{{ field.label }}</span>{{ field }}{% endif %}{{ field.errors }}</label>{% endfor %}<button class="button secondary" type="submit">Standort hinzufügen</button></form></details>
   </div>
