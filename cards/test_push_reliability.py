@@ -1,9 +1,11 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
-from cards.management.commands.run_push_worker import process_delivery
+from cards.management.commands.run_push_worker import claim_delivery, expire_stale_deliveries, process_delivery
 from cards.models import AppNotification, Business
 from cards.push_models import PushDelivery
 
@@ -79,3 +81,38 @@ class PushWorkerReliabilityTests(TestCase):
         self.assertEqual(delivery.sent_count, 1)
         self.assertIn("Teilzustellung", delivery.last_error)
         self.assertIn("Unregistered", delivery.last_error)
+
+    @override_settings(PUSH_NOTIFICATION_MAX_AGE_SECONDS=3600)
+    def test_stale_pending_deliveries_are_bulk_skipped(self):
+        delivery = PushDelivery.objects.create(notification=self.notification)
+        AppNotification.objects.filter(pk=self.notification.pk).update(
+            created_at=timezone.now() - timedelta(hours=2)
+        )
+
+        expired = expire_stale_deliveries()
+
+        self.assertEqual(expired, 1)
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.status, PushDelivery.Status.SKIPPED)
+        self.assertIsNotNone(delivery.processed_at)
+
+    def test_freshest_due_delivery_is_claimed_first(self):
+        older = AppNotification.objects.create(
+            recipient=self.user,
+            business=self.business,
+            kind=AppNotification.Kind.SYSTEM,
+            title="Older",
+            body="Older queued push",
+        )
+        older_delivery = PushDelivery.objects.create(notification=older)
+        fresh_delivery = PushDelivery.objects.create(notification=self.notification)
+        AppNotification.objects.filter(pk=older.pk).update(
+            created_at=timezone.now() - timedelta(minutes=10)
+        )
+
+        claimed = claim_delivery()
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.pk, fresh_delivery.pk)
+        older_delivery.refresh_from_db()
+        self.assertEqual(older_delivery.status, PushDelivery.Status.PENDING)
