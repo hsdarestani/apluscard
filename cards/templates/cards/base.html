@@ -10,23 +10,24 @@
   <meta name="apple-mobile-web-app-title" content="{{ app_short_name }}">
   <meta name="application-name" content="{{ app_name }}">
   <meta name="author" content="{{ app_publisher }}">
+  <meta name="sams-ui-release" content="20260807-2">
   {% if user.is_authenticated %}
   <meta name="csrf-token" content="{{ csrf_token }}">
   <meta name="push-device-url" content="{% url 'api_push_devices' %}">
   {% endif %}
   <title>{% block title %}{{ app_name }} · {{ app_publisher }}{% endblock %}</title>
   <link rel="manifest" href="{% url 'manifest' %}">
-  <link rel="icon" href="{% url 'app_icon' 192 %}?v=scl-20260807" type="image/png">
-  <link rel="apple-touch-icon" href="{% url 'app_icon' 192 %}?v=scl-20260807">
-  <link rel="stylesheet" href="{% static 'cards/app.css' %}?v=20260807-1">
-  <link rel="stylesheet" href="{% static 'cards/registration.css' %}?v=20260807-1">
-  <link rel="stylesheet" href="{% static 'cards/ledger.css' %}?v=20260807-1">
-  <link rel="stylesheet" href="{% static 'cards/sams-platform.css' %}?v=20260807-1">
-  <link rel="stylesheet" href="{% static 'cards/legal.css' %}?v=20260807-1">
-  <link rel="stylesheet" href="{% static 'cards/experience.css' %}?v=20260807-1">
-  <link rel="stylesheet" href="{% static 'cards/ui-fixes.css' %}?v=20260807-1">
-  <link rel="stylesheet" href="{% static 'cards/push.css' %}?v=20260807-1">
-  <link rel="stylesheet" href="{% static 'cards/operations.css' %}?v=20260807-1">
+  <link rel="icon" href="{% url 'app_icon' 192 %}?v=scl-20260807-2" type="image/png">
+  <link rel="apple-touch-icon" href="{% url 'app_icon' 192 %}?v=scl-20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/app.css' %}?v=20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/registration.css' %}?v=20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/ledger.css' %}?v=20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/sams-platform.css' %}?v=20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/legal.css' %}?v=20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/experience.css' %}?v=20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/ui-fixes.css' %}?v=20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/push.css' %}?v=20260807-2">
+  <link rel="stylesheet" href="{% static 'cards/operations.css' %}?v=20260807-2">
   <style>
     html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;}
     .brand-emblem-logo{overflow:hidden;padding:0;background:#09050f;}
@@ -48,7 +49,7 @@
   <div class="ambient ambient-three" aria-hidden="true"></div>
   <header class="topbar">
     <a href="{% url 'dashboard' %}" class="brand-lockup" aria-label="{{ app_name }} Übersicht">
-      <span class="brand-emblem brand-emblem-logo"><img src="{% url 'app_icon' 192 %}?v=scl-20260807" width="44" height="44" alt=""></span>
+      <span class="brand-emblem brand-emblem-logo"><img src="{% url 'app_icon' 192 %}?v=scl-20260807-2" width="44" height="44" alt=""></span>
       <span class="brand-copy"><strong>{{ app_name|upper }}</strong><small>Digitale Mitgliedskarte · {{ app_publisher }}</small></span>
     </a>
     <div class="topbar-actions">
@@ -125,8 +126,8 @@
     {% endif %}
   {% endwith %}
   {% endif %}
-  <script src="{% static 'cards/app.js' %}?v=push-20260807-1" defer></script>
-  <script src="{% static 'cards/runtime-fixes.js' %}?v=20260807-1" defer></script>
+  <script src="{% static 'cards/app.js' %}?v=push-20260807-2" defer></script>
+  <script src="{% static 'cards/runtime-fixes.js' %}?v=20260807-2" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
