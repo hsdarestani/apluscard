@@ -7,6 +7,8 @@ on:
 permissions:
   contents: read
 
+# This job is intentionally self-gated by the exact commit message below.
+# Future pushes leave the workflow dormant.
 jobs:
   purge:
     if: github.event.head_commit.message == 'Run one-time production test data purge'
