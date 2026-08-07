@@ -165,3 +165,5 @@ jobs:
           set -Eeuo pipefail
           curl --fail --silent --show-error --max-time 30 "https://$SITE_DOMAIN/health/" >/dev/null
           echo "PUBLIC_PRODUCTION_HEALTH_OK=YES"
+
+# Manual backend sync trigger: biometric MFA / trusted-device rollout (2026-08-07)
