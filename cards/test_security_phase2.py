@@ -48,6 +48,10 @@ class PrivilegedSecurityPhaseTwoTests(TestCase):
     def _confirmed_owner_device(self):
         device = PrivilegedMfaDevice.objects.create(user=self.owner)
         device.set_secret(pyotp.random_base32())
+        # set_secret only mutates the model field. Persist it before confirm(),
+        # whose intentionally narrow update_fields list does not include the
+        # encrypted secret because production enrollment already saved it.
+        device.save(update_fields=["secret_encrypted", "updated_at"])
         device.confirm(PrivilegedMfaDevice.generate_recovery_codes())
         return device
 
