@@ -1,0 +1,48 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main">
+  <div class="module aligned">
+    <h2>Sicherheitsvorschau</h2>
+    <p>Diese Seite erkennt ausschließlich klar markierte oder strukturell eindeutige Testdaten. Reale Benutzer mit Verbindungen zu echten Daten werden nicht gelöscht.</p>
+
+    <table style="width:100%;max-width:760px">
+      <tbody>
+        {% for label, count in preview.counts.items %}
+        <tr><th style="text-align:left;padding:8px 12px">{{ label }}</th><td style="padding:8px 12px">{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p style="margin-top:18px"><strong>Erkannte Datensätze gesamt:</strong> {{ preview.total_records }}</p>
+    {% if preview.blocked_user_count %}
+      <p class="errornote">{{ preview.blocked_user_count }} Test-Kandidat(en) sind blockiert, weil sie Referenzen außerhalb des Testbereichs besitzen. Diese Benutzer werden nicht gelöscht.</p>
+    {% endif %}
+  </div>
+
+  {% if purge_enabled %}
+  <div class="module aligned" style="margin-top:24px">
+    <h2>Endgültige Löschung</h2>
+    <p class="errornote">Diese Aktion löscht die oben erkannten Testdaten dauerhaft. Sie kann nicht rückgängig gemacht werden.</p>
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-row">
+        <label for="id_confirmation"><strong>Zum Bestätigen exakt eingeben: TESTDATEN LÖSCHEN</strong></label>
+        <input id="id_confirmation" type="text" name="confirmation" autocomplete="off" style="min-width:320px">
+      </div>
+      <div class="submit-row">
+        <input type="submit" value="Testdaten endgültig löschen" class="deletelink">
+        <a href="{{ changelist_url }}" class="button cancel-link">Abbrechen</a>
+      </div>
+    </form>
+  </div>
+  {% else %}
+  <div class="module aligned" style="margin-top:24px">
+    <h2>Löschung derzeit gesperrt</h2>
+    <p><strong>ALLOW_TEST_DATA_PURGE=0</strong>. Die Vorschau ist aktiv, aber selbst ein Superuser kann aktuell keine Daten löschen.</p>
+    <p>Die Sperre wird erst bewusst für den geplanten Bereinigungslauf aktiviert und danach wieder deaktiviert.</p>
+    <p><a href="{{ changelist_url }}" class="button">Zurück zu Wallets</a></p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
