@@ -82,15 +82,22 @@ def process_delivery(delivery):
     if device_count == 0:
         delivery.status = PushDelivery.Status.SKIPPED
         delivery.last_error = "Kein aktives iOS- oder Android-Gerät registriert."
-    elif errors and delivery.attempts < settings.PUSH_MAX_ATTEMPTS:
-        delivery.status = PushDelivery.Status.RETRY
-        delay_minutes = min(60, 2 ** max(delivery.attempts - 1, 0))
-        delivery.next_attempt_at = now + timedelta(minutes=delay_minutes)
-        delivery.last_error = " | ".join(errors)[:4000]
-        delivery.processed_at = None
+    elif sent_count == 0:
+        detail = " | ".join(errors)[:4000] if errors else "Kein Push wurde vom Provider angenommen."
+        if delivery.attempts < settings.PUSH_MAX_ATTEMPTS:
+            delivery.status = PushDelivery.Status.RETRY
+            delay_minutes = min(60, 2 ** max(delivery.attempts - 1, 0))
+            delivery.next_attempt_at = now + timedelta(minutes=delay_minutes)
+            delivery.last_error = detail
+            delivery.processed_at = None
+        else:
+            delivery.status = PushDelivery.Status.FAILED
+            delivery.last_error = detail
     elif errors:
-        delivery.status = PushDelivery.Status.FAILED
-        delivery.last_error = " | ".join(errors)[:4000]
+        # At least one registered device accepted the push. Do not retry the
+        # whole notification because that would duplicate it on healthy devices.
+        delivery.status = PushDelivery.Status.SENT
+        delivery.last_error = ("Teilzustellung: " + " | ".join(errors))[:4000]
     else:
         delivery.status = PushDelivery.Status.SENT
         delivery.last_error = ""
