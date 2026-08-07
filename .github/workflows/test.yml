@@ -222,7 +222,7 @@ jobs:
           echo "STRATO deployment and health checks completed for $DEPLOY_SHA."
           REMOTE
 
-      - name: Verify public UI release on production domains
+      - name: Verify public UI release on primary production domain
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -235,9 +235,15 @@ jobs:
           grep -F 'name="sams-ui-release" content="20260807-2"' "$RUNNER_TEMP/site-login.html"
           grep -F '?v=20260807-2' "$RUNNER_TEMP/site-login.html"
 
-          curl --fail --silent --show-error --max-time 30 \
-            "https://$LEGACY_DOMAIN/accounts/login/?ui_check=20260807-2" \
-            --output "$RUNNER_TEMP/legacy-login.html"
-          grep -F 'name="sams-ui-release" content="20260807-2"' "$RUNNER_TEMP/legacy-login.html"
+          # The old smarbiz hostname is diagnostic only. Android/iOS and the web app
+          # now load the primary app.samsclublounge.de origin.
+          legacy_code="$(curl --silent --location --max-time 30 --output "$RUNNER_TEMP/legacy-login.html" --write-out '%{http_code}' \
+            "https://$LEGACY_DOMAIN/accounts/login/?ui_check=20260807-2" || true)"
+          echo "Legacy-domain HTTP status: $legacy_code"
+          if grep -Fq 'name="sams-ui-release" content="20260807-2"' "$RUNNER_TEMP/legacy-login.html" 2>/dev/null; then
+            echo "Legacy domain also serves the current UI release."
+          else
+            echo "Legacy domain is not authoritative for the current app UI."
+          fi
 
-          echo "UI release 20260807-2 is live on both production domains."
+          echo "UI release 20260807-2 is live on the primary production domain."
