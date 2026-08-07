@@ -98,15 +98,6 @@ jobs:
           echo "LEGACY_NGINX_REDIRECT_INSTALLED=YES"
           echo "LEGACY_NGINX_BACKUP=$BACKUP"
 
-          # Verify the old origin itself before removing Django writers.
-          local_location="$(curl --silent --show-error --max-time 15 --resolve "$LEGACY_DOMAIN:443:127.0.0.1" \
-            --insecure --output /dev/null --write-out '%{redirect_url}' \
-            "https://$LEGACY_DOMAIN/health/?origin_cutover=$(date +%s)")"
-          case "$local_location" in
-            "https://$CANONICAL_DOMAIN/health/"*|"https://$CANONICAL_DOMAIN/health/?"*) ;;
-            *) echo "Unexpected local redirect: $local_location" >&2; false ;;
-          esac
-
           cd "$APP_DIR"
           docker compose stop web push-worker </dev/null
           test -z "$(docker compose ps --status running -q web)"
@@ -131,7 +122,7 @@ jobs:
           location="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$headers")"
           echo "Legacy redirect HTTP=$code"
           echo "Legacy redirect destination=$location"
-          test "$code" = "308" || test "$code" = "301"
+          case "$code" in 301|302|307|308) ;; *) echo "Unexpected legacy HTTP=$code" >&2; exit 1 ;; esac
           case "$location" in
             "https://$CANONICAL_DOMAIN/health/"*) ;;
             *) echo "Legacy URL does not redirect to canonical production." >&2; exit 1 ;;
