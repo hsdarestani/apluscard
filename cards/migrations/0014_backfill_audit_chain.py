@@ -8,7 +8,15 @@ def backfill_audit_chain(apps, schema_editor):
     AuditEvent = apps.get_model("cards", "AuditEvent")
     AuditChainSeal = apps.get_model("cards", "AuditChainSeal")
 
-    for business_id in AuditEvent.objects.values_list("business_id", flat=True).distinct():
+    # Clear AuditEvent's Meta.ordering before DISTINCT. PostgreSQL otherwise
+    # includes the ordering columns in the SELECT and can return the same
+    # business_id more than once, causing the same chain to be backfilled twice.
+    business_ids = (
+        AuditEvent.objects.order_by()
+        .values_list("business_id", flat=True)
+        .distinct()
+    )
+    for business_id in business_ids.iterator(chunk_size=100):
         previous_hash = ""
         sequence = 0
         events = AuditEvent.objects.filter(business_id=business_id).order_by("created_at", "pk")

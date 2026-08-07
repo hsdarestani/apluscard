@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: apluscard-production
+  group: apluscard-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -160,8 +160,6 @@ jobs:
             -exec rm -rf {} +
           tar -xzf "$release_archive" -C "$APP_DIR"
           rm -f "$release_archive"
-          printf '%s\n' "$DEPLOY_SHA" > "$APP_DIR/.deployed_sha"
-          chmod 600 "$APP_DIR/.deployed_sha"
 
           . "$push_payload"
           rm -f "$push_payload"
@@ -274,7 +272,13 @@ jobs:
 
           test "$(docker compose ps --status running -q push-worker | wc -l)" -eq 1
           curl --fail --silent --show-error -H "Host: $SITE_DOMAIN" http://127.0.0.1/health/ >/dev/null
+
+          deployed_tmp="$APP_DIR/.deployed_sha.tmp"
+          printf '%s\n' "$DEPLOY_SHA" > "$deployed_tmp"
+          chmod 600 "$deployed_tmp"
+          mv "$deployed_tmp" "$APP_DIR/.deployed_sha"
           test "$(cat "$APP_DIR/.deployed_sha")" = "$DEPLOY_SHA"
+
           docker compose ps
           echo "STRATO deployment, push credentials and health checks completed for $DEPLOY_SHA."
           REMOTE
