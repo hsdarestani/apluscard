@@ -13,16 +13,46 @@ permissions:
 
 jobs:
   trigger:
+    name: Wait for Android 1.0.3 and publish to production
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch Android 1.0.2 production release
+      - name: Wait for signed Android 1.0.3 build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BUILD_RUN_ID: "31202457235"
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 120); do
+            run_json="$(curl --silent --show-error --fail \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$REPOSITORY/actions/runs/$BUILD_RUN_ID")"
+            status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$run_json")"
+            conclusion="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")' <<<"$run_json")"
+            echo "Build run $BUILD_RUN_ID: status=$status conclusion=${conclusion:-pending}"
+            if [ "$status" = "completed" ]; then
+              test "$conclusion" = "success" || {
+                echo "Android 1.0.3 build failed with conclusion: $conclusion"
+                exit 1
+              }
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Android 1.0.3 build."
+          exit 1
+
+      - name: Dispatch Android 1.0.3 production release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -Eeuo pipefail
-          payload='{"ref":"main","inputs":{"build_run_id":"31107996225","artifact_name":"SAMS-Card-Android-1.0.2-5","track":"production","release_status":"completed"}}'
+          payload='{"ref":"main","inputs":{"build_run_id":"31202457235","artifact_name":"SAMS-Card-Android-1.0.3-6","track":"production","release_status":"completed"}}'
           response_code="$(curl --silent --show-error \
             --output "$RUNNER_TEMP/dispatch-response.txt" \
             --write-out '%{http_code}' \
@@ -37,4 +67,4 @@ jobs:
             echo "Workflow dispatch failed with HTTP $response_code"
             exit 1
           }
-          echo "Android 1.0.2 production publish was dispatched."
+          echo "Android 1.0.3 production publish was dispatched."
