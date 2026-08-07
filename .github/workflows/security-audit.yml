@@ -42,4 +42,8 @@ jobs:
       - name: Audit Python dependencies
         run: python -m pip_audit -r requirements.txt
       - name: Scan application code for medium and high severity findings
-        run: bandit -r cards config -x 'cards/migrations,cards/test_*.py' -ll
+        run: |
+          # Apple Wallet's PKPass manifest requires SHA-1 hashes by protocol.
+          # Exclude only that file from B324; SHA-1 remains a blocking finding everywhere else.
+          bandit -r cards config -x 'cards/migrations,cards/test_*.py,cards/wallet_pass.py' -ll
+          bandit cards/wallet_pass.py -ll -s B324
