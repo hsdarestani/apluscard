@@ -4,6 +4,7 @@ const config: CapacitorConfig = {
   appId: 'de.aplussolution.samscard',
   appName: 'Sams Club Lounge',
   webDir: 'www',
+  backgroundColor: '#05030b',
   server: {
     url: 'https://app.samsclublounge.de',
     cleartext: false,
@@ -15,8 +16,12 @@ const config: CapacitorConfig = {
     },
   },
   ios: {
-    contentInset: 'automatic',
+    // Prevent WKWebView from changing its safe-area/content inset after the
+    // first frame. That relayout was visible as a small page expanding to
+    // full size during cold start on iPhone.
+    contentInset: 'never',
     preferredContentMode: 'mobile',
+    zoomEnabled: false,
   },
   android: {
     allowMixedContent: false,
