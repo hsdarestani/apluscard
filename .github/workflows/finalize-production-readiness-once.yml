@@ -1,0 +1,376 @@
+name: Finalize Production Readiness Once
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-mfa-key:
+    if: github.event.head_commit.message == 'Finalize production readiness and split admin'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+    steps:
+      - name: Validate target and configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Install stable independent MFA encryption key before deployment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' python3 -" <<'PY'
+          import os
+          import secrets
+          from pathlib import Path
+
+          env_path = Path(os.environ["APP_DIR"]) / ".env"
+          if not env_path.is_file():
+              raise SystemExit("Production .env not found")
+          values = {}
+          order = []
+          passthrough = []
+          for raw in env_path.read_text(encoding="utf-8").splitlines():
+              if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+                  passthrough.append(raw)
+                  continue
+              key, value = raw.split("=", 1)
+              key = key.strip()
+              if key not in values:
+                  order.append(key)
+              values[key] = value
+
+          key = values.get("MFA_ENCRYPTION_KEY", "").strip()
+          if len(key) < 32:
+              key = secrets.token_urlsafe(48)
+          overrides = {
+              "MFA_ENCRYPTION_KEY": key,
+              "PRIVILEGED_MFA_REQUIRED": "1",
+              "PRIVILEGED_MFA_SESSION_SECONDS": "43200",
+          }
+          values.update(overrides)
+          for name in overrides:
+              if name not in order:
+                  order.append(name)
+          rendered = list(passthrough)
+          rendered.extend(f"{name}={values[name]}" for name in order)
+          env_path.write_text("\n".join(rendered).rstrip() + "\n", encoding="utf-8")
+          os.chmod(env_path, 0o600)
+          print("Stable MFA configuration prepared without exposing the key.")
+          PY
+
+  finalize:
+    if: github.event.head_commit.message == 'Finalize production readiness and split admin'
+    needs: prepare-mfa-key
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 40
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+      EXPECTED_SHA: ${{ github.sha }}
+      BACKUP_RESTIC_REPOSITORY: ${{ secrets.BACKUP_RESTIC_REPOSITORY }}
+      BACKUP_RESTIC_PASSWORD: ${{ secrets.BACKUP_RESTIC_PASSWORD }}
+      BACKUP_RCLONE_CONFIG_BASE64: ${{ secrets.BACKUP_RCLONE_CONFIG_BASE64 }}
+      BACKUP_AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
+      BACKUP_AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
+      BACKUP_AWS_DEFAULT_REGION: ${{ secrets.BACKUP_AWS_DEFAULT_REGION }}
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Wait for the tested release to be live
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 120); do
+            deployed="$(ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cat '$APP_DIR/.deployed_sha' 2>/dev/null || true")"
+            if [ "$deployed" = "$EXPECTED_SHA" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Production never reached $EXPECTED_SHA"
+          exit 1
+
+      - name: Back up database and split SAMS Owner from Django superuser
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' EXPECTED_SHA='$EXPECTED_SHA' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test "$(cat .deployed_sha)" = "$EXPECTED_SHA"
+          curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null
+
+          backup_dir="$APP_DIR/backups/admin-split"
+          mkdir -p "$backup_dir"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup="$backup_dir/pre-admin-split-$stamp.dump"
+          docker compose exec -T db sh -lc 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' </dev/null > "$backup"
+          test -s "$backup"
+          chmod 600 "$backup"
+
+          initial_password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          credential_file="/tmp/aplus-admin-initial-credentials-$EXPECTED_SHA.txt"
+          script="/tmp/split-owner-admin-$EXPECTED_SHA.py"
+          cat > "$script" <<'PY'
+          import os
+          from django.contrib.auth import get_user_model
+          from django.db import transaction
+          from cards.models import Membership
+
+          User = get_user_model()
+          password = os.environ["TECH_ADMIN_PASSWORD"]
+
+          with transaction.atomic():
+              owner = User.objects.select_for_update().get(username="owner")
+              owner_memberships = Membership.objects.select_for_update().filter(
+                  user=owner,
+                  business__slug="shisha-bar",
+                  is_active=True,
+                  role=Membership.Role.OWNER,
+              )
+              if owner_memberships.count() != 1:
+                  raise SystemExit("Safety stop: owner must have exactly one active SAMS OWNER membership")
+
+              tech, _ = User.objects.select_for_update().get_or_create(
+                  username="aplus-admin",
+                  defaults={"email": "", "is_active": True},
+              )
+              if Membership.objects.filter(user=tech).exists():
+                  raise SystemExit("Safety stop: technical admin unexpectedly has a business membership")
+
+              tech.is_active = True
+              tech.is_staff = True
+              tech.is_superuser = True
+              tech.set_password(password)
+              tech.save()
+
+              owner.is_active = True
+              owner.is_staff = False
+              owner.is_superuser = False
+              owner.save(update_fields=["is_active", "is_staff", "is_superuser"])
+
+              owner.refresh_from_db()
+              tech.refresh_from_db()
+              if owner.is_staff or owner.is_superuser:
+                  raise SystemExit("Owner demotion verification failed")
+              if not (tech.is_staff and tech.is_superuser and tech.is_active):
+                  raise SystemExit("Technical superuser verification failed")
+              if not Membership.objects.filter(
+                  user=owner,
+                  business__slug="shisha-bar",
+                  is_active=True,
+                  role=Membership.Role.OWNER,
+              ).exists():
+                  raise SystemExit("Owner business permissions were lost")
+              if Membership.objects.filter(user=tech).exists():
+                  raise SystemExit("Technical superuser must not have SAMS business permissions")
+
+          print("OWNER_ADMIN_SPLIT_OK=1")
+          print("OWNER_USERNAME=owner OWNER_STAFF=0 OWNER_SUPERUSER=0 OWNER_ROLE=OWNER")
+          print("TECH_USERNAME=aplus-admin TECH_STAFF=1 TECH_SUPERUSER=1 BUSINESS_MEMBERSHIP=0")
+          PY
+          chmod 600 "$script"
+          TECH_ADMIN_PASSWORD="$initial_password" docker compose exec -T -e TECH_ADMIN_PASSWORD web python manage.py shell < "$script"
+          rm -f "$script"
+
+          {
+            echo "SAMS technical Django administrator"
+            echo "URL=https://app.samsclublounge.de/admin/"
+            echo "Username=aplus-admin"
+            echo "InitialPassword=$initial_password"
+            echo "The first login is protected by mandatory TOTP setup. Change this password after handoff."
+          } > "$credential_file"
+          chmod 600 "$credential_file"
+          unset initial_password
+
+          echo "ADMIN_SPLIT_BACKUP=$backup"
+          sha256sum "$backup"
+          docker compose exec -T web python manage.py verify_audit_chain </dev/null
+          REMOTE
+
+      - name: Fetch one-time technical admin credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          remote="/tmp/aplus-admin-initial-credentials-$EXPECTED_SHA.txt"
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" "$SSH_USER@$SSH_HOST:$remote" aplus-admin-initial-credentials.txt
+          chmod 600 aplus-admin-initial-credentials.txt
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "rm -f '$remote'"
+          test -s aplus-admin-initial-credentials.txt
+
+      - name: Upload one-time technical admin credentials
+        uses: actions/upload-artifact@v4
+        with:
+          name: aplus-admin-initial-credentials
+          path: aplus-admin-initial-credentials.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Validate and package offsite-backup secrets
+        id: backup
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$BACKUP_RESTIC_REPOSITORY" || { echo "BACKUP_RESTIC_REPOSITORY missing"; exit 1; }
+          test "${#BACKUP_RESTIC_PASSWORD}" -ge 24 || { echo "BACKUP_RESTIC_PASSWORD missing/short"; exit 1; }
+          case "$BACKUP_RESTIC_REPOSITORY" in
+            rclone:*) test -n "$BACKUP_RCLONE_CONFIG_BASE64" || { echo "BACKUP_RCLONE_CONFIG_BASE64 missing"; exit 1; } ;;
+            s3:*)
+              test -n "$BACKUP_AWS_ACCESS_KEY_ID" || { echo "BACKUP_AWS_ACCESS_KEY_ID missing"; exit 1; }
+              test -n "$BACKUP_AWS_SECRET_ACCESS_KEY" || { echo "BACKUP_AWS_SECRET_ACCESS_KEY missing"; exit 1; }
+              ;;
+            *) echo "Unsupported backup repository"; exit 1 ;;
+          esac
+          umask 077
+          payload="$RUNNER_TEMP/backup-secrets.payload"
+          {
+            printf 'RESTIC_REPOSITORY_B64=%s\n' "$(printf '%s' "$BACKUP_RESTIC_REPOSITORY" | base64 -w0)"
+            printf 'RESTIC_PASSWORD_B64=%s\n' "$(printf '%s' "$BACKUP_RESTIC_PASSWORD" | base64 -w0)"
+            printf 'RCLONE_CONFIG_SECRET_B64=%s\n' "$(printf '%s' "$BACKUP_RCLONE_CONFIG_BASE64" | base64 -w0)"
+            printf 'AWS_ACCESS_KEY_ID_B64=%s\n' "$(printf '%s' "$BACKUP_AWS_ACCESS_KEY_ID" | base64 -w0)"
+            printf 'AWS_SECRET_ACCESS_KEY_B64=%s\n' "$(printf '%s' "$BACKUP_AWS_SECRET_ACCESS_KEY" | base64 -w0)"
+            printf 'AWS_DEFAULT_REGION_B64=%s\n' "$(printf '%s' "${BACKUP_AWS_DEFAULT_REGION:-auto}" | base64 -w0)"
+          } > "$payload"
+          echo "payload=$payload" >> "$GITHUB_OUTPUT"
+
+      - name: Configure STRATO encrypted offsite backups and run restore drill
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" "${{ steps.backup.outputs.payload }}" "$SSH_USER@$SSH_HOST:$APP_DIR/.backup-secrets.payload"
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test -s .backup-secrets.payload
+          . ./.backup-secrets.payload
+          decode_value() { if [[ -n "${1:-}" ]]; then printf '%s' "$1" | base64 --decode; fi; }
+          repository="$(decode_value "$RESTIC_REPOSITORY_B64")"
+          password="$(decode_value "$RESTIC_PASSWORD_B64")"
+          rclone_config_b64="$(decode_value "$RCLONE_CONFIG_SECRET_B64")"
+          aws_id="$(decode_value "$AWS_ACCESS_KEY_ID_B64")"
+          aws_secret="$(decode_value "$AWS_SECRET_ACCESS_KEY_B64")"
+          aws_region="$(decode_value "$AWS_DEFAULT_REGION_B64")"
+
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y restic rclone jq
+
+          rclone_file="/root/.config/rclone/rclone.conf"
+          if [[ "$repository" == rclone:* ]]; then
+            install -m 700 -d "$(dirname "$rclone_file")"
+            printf '%s' "$rclone_config_b64" | base64 --decode > "$rclone_file"
+            chmod 600 "$rclone_file"
+            remote_spec="${repository#rclone:}"
+            remote_name="${remote_spec%%:*}"
+            rclone --config "$rclone_file" listremotes | grep -Fxq "${remote_name}:"
+            rclone --config "$rclone_file" lsf "${remote_name}:" --max-depth 1 >/dev/null
+          fi
+
+          umask 077
+          tmp="$(mktemp)"
+          {
+            printf 'RESTIC_REPOSITORY=%q\n' "$repository"
+            printf 'RESTIC_PASSWORD=%q\n' "$password"
+            printf 'RESTIC_CACHE_DIR=%q\n' "/var/cache/restic"
+            printf 'BACKUP_HOST_TAG=%q\n' "apluscard-production-strato"
+            if [[ "$repository" == rclone:* ]]; then
+              printf 'RCLONE_CONFIG=%q\n' "$rclone_file"
+            else
+              printf 'AWS_ACCESS_KEY_ID=%q\n' "$aws_id"
+              printf 'AWS_SECRET_ACCESS_KEY=%q\n' "$aws_secret"
+              printf 'AWS_DEFAULT_REGION=%q\n' "${aws_region:-auto}"
+            fi
+          } > "$tmp"
+          chmod 600 "$tmp"
+          mv "$tmp" .backup.env
+          rm -f .backup-secrets.payload
+
+          chmod 700 ops/backup/common.sh ops/backup/backup.sh ops/backup/restore-drill.sh ops/backup/restore-production.sh
+          install -m 644 ops/backup/systemd/apluscard-backup.service /etc/systemd/system/apluscard-backup.service
+          install -m 644 ops/backup/systemd/apluscard-backup.timer /etc/systemd/system/apluscard-backup.timer
+          install -m 644 ops/backup/systemd/apluscard-restore-drill.service /etc/systemd/system/apluscard-restore-drill.service
+          install -m 644 ops/backup/systemd/apluscard-restore-drill.timer /etc/systemd/system/apluscard-restore-drill.timer
+          mkdir -p /var/lib/apluscard-backup /var/cache/restic
+          chmod 700 /var/lib/apluscard-backup /var/cache/restic
+          systemctl daemon-reload
+          systemctl enable --now apluscard-backup.timer apluscard-restore-drill.timer
+          systemctl start apluscard-backup.service
+          systemctl --quiet is-failed apluscard-backup.service && { journalctl -u apluscard-backup.service --no-pager -n 120; exit 1; }
+          systemctl start apluscard-restore-drill.service
+          systemctl --quiet is-failed apluscard-restore-drill.service && { journalctl -u apluscard-restore-drill.service --no-pager -n 120; exit 1; }
+          jq -e '.status == "success"' /var/lib/apluscard-backup/last-backup.json >/dev/null
+          jq -e '.status == "success"' /var/lib/apluscard-backup/last-restore-drill.json >/dev/null
+          echo "STRATO_BACKUP_AND_RESTORE_DRILL_OK=1"
+          REMOTE
+
+      - name: Harden STRATO host and verify a fresh SSH connection
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "cd '$APP_DIR' && EXPECTED_HOST='$SSH_HOST' SSH_PORT='$SSH_PORT' APP_DIR='$APP_DIR' bash ops/security/harden-strato.sh"
+          sleep 2
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "echo SSH_AFTER_HARDENING_OK=1"
+
+      - name: Final production verification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose exec -T web python manage.py check </dev/null
+          docker compose exec -T web python manage.py verify_audit_chain </dev/null
+          docker compose exec -T web python manage.py shell -c '
+          from django.contrib.auth import get_user_model
+          from cards.models import Membership
+          U=get_user_model()
+          owner=U.objects.get(username="owner")
+          tech=U.objects.get(username="aplus-admin")
+          assert owner.is_active and not owner.is_staff and not owner.is_superuser
+          assert Membership.objects.filter(user=owner,business__slug="shisha-bar",role="OWNER",is_active=True).exists()
+          assert tech.is_active and tech.is_staff and tech.is_superuser
+          assert not Membership.objects.filter(user=tech).exists()
+          print("ACCOUNT_BOUNDARIES_OK=1")
+          ' </dev/null
+          systemctl is-active --quiet apluscard-backup.timer
+          systemctl is-active --quiet apluscard-restore-drill.timer
+          jq -e '.status == "success"' /var/lib/apluscard-backup/last-backup.json >/dev/null
+          jq -e '.status == "success"' /var/lib/apluscard-backup/last-restore-drill.json >/dev/null
+          jq -e '.status == "success"' /var/lib/apluscard-security/last-hardening.json >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null
+          echo "FINAL_PRODUCTION_READINESS_OK=1"
+          REMOTE
+          curl --fail --silent --show-error --max-time 30 https://app.samsclublounge.de/health/ >/dev/null

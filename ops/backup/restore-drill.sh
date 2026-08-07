@@ -19,11 +19,13 @@ write_status() {
   local migrations="${3:-0}"
   local wallets="${4:-0}"
   local backend="${5:-unknown}"
+  local audit_events="${6:-0}"
+  local audit_seals="${7:-0}"
   local timestamp temp
   timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   temp="$(mktemp "$STATE_DIR/drill.XXXXXX")"
   cat > "$temp" <<JSON
-{"status":"$status","completed_at":"$timestamp","snapshot_id":"$snapshot_id","django_migrations":$migrations,"wallets":$wallets,"backend":"$backend"}
+{"status":"$status","completed_at":"$timestamp","snapshot_id":"$snapshot_id","django_migrations":$migrations,"wallets":$wallets,"audit_events":$audit_events,"audit_seals":$audit_seals,"backend":"$backend"}
 JSON
   chmod 600 "$temp"
   mv "$temp" "$STATUS_FILE"
@@ -61,6 +63,7 @@ flock -n 9 || { echo "Ein Restore-Test läuft bereits."; SUCCESS=1; exit 0; }
 
 cd "$APP_DIR"
 docker compose ps --status running db | grep -q db || { echo "PostgreSQL-Container läuft nicht." >&2; exit 1; }
+docker compose ps --status running web | grep -q web || { echo "Web-Container läuft nicht." >&2; exit 1; }
 
 HOST_TAG="${BACKUP_HOST_TAG:-apluscard-production}"
 SNAPSHOT_ID="$(restic snapshots --json --host "$HOST_TAG" --tag apluscard | jq -r 'sort_by(.time) | last | .short_id // .id // empty')"
@@ -77,6 +80,8 @@ BACKUP_DIR="$(find "$RESTORE_DIR" -type f -name database.dump -printf '%h\n' | h
   cd "$BACKUP_DIR"
   sha256sum -c SHA256SUMS
   tar -tzf media.tar.gz >/dev/null
+  test -s audit-chain.jsonl
+  jq -c . audit-chain.jsonl >/dev/null
 )
 
 TEST_DB="apluscard_restore_$(date -u +%Y%m%d%H%M%S)_$RANDOM"
@@ -85,11 +90,22 @@ docker compose exec -T db sh -lc 'pg_restore --username="$POSTGRES_USER" --dbnam
 
 MIGRATIONS="$(docker compose exec -T db sh -lc 'psql --username="$POSTGRES_USER" --dbname="$1" --tuples-only --no-align --command="SELECT COUNT(*) FROM django_migrations"' sh "$TEST_DB" | tr -d '[:space:]')"
 WALLETS="$(docker compose exec -T db sh -lc 'psql --username="$POSTGRES_USER" --dbname="$1" --tuples-only --no-align --command="SELECT COUNT(*) FROM cards_wallet"' sh "$TEST_DB" | tr -d '[:space:]')"
+AUDIT_EVENTS="$(docker compose exec -T db sh -lc 'psql --username="$POSTGRES_USER" --dbname="$1" --tuples-only --no-align --command="SELECT COUNT(*) FROM cards_auditevent"' sh "$TEST_DB" | tr -d '[:space:]')"
+AUDIT_SEALS="$(docker compose exec -T db sh -lc 'psql --username="$POSTGRES_USER" --dbname="$1" --tuples-only --no-align --command="SELECT COUNT(*) FROM cards_auditchainseal"' sh "$TEST_DB" | tr -d '[:space:]')"
 
 [[ "$MIGRATIONS" =~ ^[0-9]+$ && "$MIGRATIONS" -gt 0 ]] || { echo "Restore enthält keine Django-Migrationen." >&2; exit 1; }
 [[ "$WALLETS" =~ ^[0-9]+$ ]] || { echo "Wallet-Anzahl konnte nicht geprüft werden." >&2; exit 1; }
+[[ "$AUDIT_EVENTS" =~ ^[0-9]+$ ]] || { echo "Audit-Anzahl konnte nicht geprüft werden." >&2; exit 1; }
+[[ "$AUDIT_SEALS" =~ ^[0-9]+$ ]] || { echo "Audit-Siegel konnten nicht geprüft werden." >&2; exit 1; }
+[[ "$AUDIT_EVENTS" = "$AUDIT_SEALS" ]] || { echo "Audit-Ereignisse und Integritätssiegel stimmen nicht überein." >&2; exit 1; }
 
-write_status "success" "$SNAPSHOT_ID" "$MIGRATIONS" "$WALLETS" "$BACKUP_BACKEND_TYPE"
+DB_USER="$(docker compose exec -T db sh -lc 'printf %s "$POSTGRES_USER"')"
+DB_PASSWORD="$(docker compose exec -T db sh -lc 'printf %s "$POSTGRES_PASSWORD"')"
+docker compose exec -T \
+  -e DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${TEST_DB}" \
+  web python manage.py verify_audit_chain
+
+write_status "success" "$SNAPSHOT_ID" "$MIGRATIONS" "$WALLETS" "$BACKUP_BACKEND_TYPE" "$AUDIT_EVENTS" "$AUDIT_SEALS"
 SUCCESS=1
 
-echo "Restore-Drill erfolgreich: Snapshot $SNAPSHOT_ID, Migrationen $MIGRATIONS, Wallets $WALLETS, Backend $BACKUP_BACKEND_TYPE"
+echo "Restore-Drill erfolgreich: Snapshot $SNAPSHOT_ID, Migrationen $MIGRATIONS, Wallets $WALLETS, Audit-Kette $AUDIT_EVENTS/$AUDIT_SEALS, Backend $BACKUP_BACKEND_TYPE"

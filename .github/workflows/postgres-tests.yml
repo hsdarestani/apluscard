@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   postgres:
     runs-on: ubuntu-latest
@@ -31,6 +35,8 @@ jobs:
       DJANGO_DEBUG: "1"
       DJANGO_SECURE_COOKIES: "0"
       DEFAULT_BUSINESS_SLUG: shisha-bar
+      PRIVILEGED_MFA_REQUIRED: "0"
+      MFA_ENCRYPTION_KEY: ci-only-mfa-encryption-key-not-for-production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

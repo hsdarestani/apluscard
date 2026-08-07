@@ -1,0 +1,52 @@
+{% extends 'cards/base.html' %}
+{% block title %}Zwei-Faktor-Schutz · {{ app_name }}{% endblock %}
+{% block head %}
+<style>
+  .mfa-shell{max-width:760px;margin:28px auto 80px}.mfa-card{padding:28px}.mfa-grid{display:grid;grid-template-columns:220px 1fr;gap:28px;align-items:center}.mfa-qr{background:#fff;border-radius:22px;padding:14px;width:220px;max-width:100%}.mfa-qr img{display:block;width:100%;height:auto}.mfa-secret{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:12px}.mfa-code-input{font-size:28px;letter-spacing:.28em;text-align:center}.recovery-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0}.recovery-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:12px;text-align:center}.security-note{border-left:3px solid #d9b66f;padding-left:14px}@media(max-width:680px){.mfa-grid{grid-template-columns:1fr}.mfa-qr{margin:auto}.recovery-grid{grid-template-columns:1fr}.mfa-card{padding:20px}}
+</style>
+{% endblock %}
+{% block content %}
+<section class="mfa-shell">
+  <article class="panel mfa-card">
+    <span class="eyebrow">Sicherheit für Inhaber und Leitung</span>
+    <h1>Zwei-Faktor-Schutz</h1>
+
+    {% if activated %}
+      <div class="platform-alert"><strong>2FA ist aktiv</strong><span>Dein Konto ist jetzt zusätzlich durch einen Einmalcode geschützt.</span></div>
+      <h2>Wiederherstellungscodes einmalig sichern</h2>
+      <p class="muted security-note">Speichere diese Codes offline in einem Passwortmanager. Jeder Code funktioniert nur einmal. Nach Verlassen dieser Seite werden sie nicht erneut im Klartext angezeigt.</p>
+      <div class="recovery-grid">
+        {% for code in recovery_codes %}<div class="recovery-code">{{ code }}</div>{% endfor %}
+      </div>
+      <a class="button primary full" href="{{ next }}">Sicher gespeichert – weiter</a>
+
+    {% elif already_active %}
+      <div class="platform-alert"><strong>2FA ist aktiv</strong><span>Dieses Konto ist mit einer Authenticator-App geschützt.</span></div>
+      <form method="post" action="{% url 'mfa_regenerate_recovery_codes' %}" class="stack-form">{% csrf_token %}
+        <label>Aktuellen sechsstelligen App-Code eingeben<input class="mfa-code-input" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+        <button class="button secondary full" type="submit">Neue Wiederherstellungscodes erzeugen</button>
+      </form>
+      <a class="button primary full" href="{{ next }}">Zurück</a>
+
+    {% else %}
+      <p class="muted">Scanne den QR-Code mit einer Authenticator-App wie Apple Passwörter, Google Authenticator, Microsoft Authenticator oder 1Password.</p>
+      <div class="mfa-grid">
+        <div class="mfa-qr"><img src="{{ qr_data_uri }}" alt="QR-Code zur Einrichtung der Zwei-Faktor-Authentifizierung"></div>
+        <div>
+          <ol>
+            <li>Authenticator-App öffnen.</li>
+            <li>Neues Konto über QR-Code hinzufügen.</li>
+            <li>Den angezeigten sechsstelligen Code unten bestätigen.</li>
+          </ol>
+          <details><summary>Manuellen Schlüssel anzeigen</summary><div class="mfa-secret">{{ secret }}</div></details>
+        </div>
+      </div>
+      <form method="post" class="stack-form">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}">
+        <label>Sechsstelliger Code<input class="mfa-code-input" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus></label>
+        <button class="button primary full" type="submit">2FA aktivieren</button>
+      </form>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

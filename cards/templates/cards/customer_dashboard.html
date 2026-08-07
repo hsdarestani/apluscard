@@ -66,14 +66,14 @@
   </article>
 
   <div class="dashboard-stack">
-    {% if active_location and active_location.google_review_url %}
+    {% if active_location and active_location.google_review_url and should_request_review %}
     <article class="panel review-card" id="google-review">
       <span class="eyebrow">Google Bewertung</span>
       <h2>Wie gefällt dir {{ active_location.name }}?</h2>
-      <p>{% if should_request_review %}Danke für deinen Besuch. Teile deine Erfahrung direkt auf Google.{% else %}Du kannst jederzeit eine Google-Bewertung für diesen Standort abgeben.{% endif %}</p>
+      <p>Danke für deinen Besuch. Teile deine Erfahrung direkt auf Google.</p>
       <div class="action-row">
         <a class="button primary" href="{{ active_location.google_review_url }}" target="_blank" rel="noopener">Google-Bewertung öffnen</a>
-        {% if should_request_review %}<form method="post" action="{% url 'mark_reviewed' active_location.id %}">{% csrf_token %}<button class="button secondary">Erinnerung ausblenden</button></form>{% endif %}
+        <form method="post" action="{% url 'mark_reviewed' active_location.id %}">{% csrf_token %}<button class="button secondary">Erinnerung ausblenden</button></form>
       </div>
     </article>
     {% endif %}

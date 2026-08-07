@@ -1,0 +1,45 @@
+name: Security Audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-security:
+    name: Python dependency and static security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install application and audit tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pip-audit bandit
+      - name: Check Django configuration and migrations
+        env:
+          DJANGO_DEBUG: "1"
+          DJANGO_SECURE_COOKIES: "0"
+          PRIVILEGED_MFA_REQUIRED: "0"
+          MFA_ENCRYPTION_KEY: "ci-only-mfa-encryption-key-not-for-production"
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+      - name: Audit Python dependencies
+        run: python -m pip_audit -r requirements.txt
+      - name: Scan application code for medium and high severity findings
+        run: bandit -r cards config -x 'cards/migrations,cards/test_*.py' -ll
