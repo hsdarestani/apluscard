@@ -1,0 +1,57 @@
+name: Production Push Smoke Once
+
+on:
+  workflow_run:
+    workflows: ["Test and Deploy"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-production-push-smoke-once
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+      MARKER: /root/.sams-push-smoke-customer-tip-v1
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71"
+          test -n "$SSH_PRIVATE_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Send one real production push to an internal SAMS device
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams root@"$SSH_HOST" \
+            "APP_DIR='$APP_DIR' MARKER='$MARKER' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          if [ -f "$MARKER" ]; then
+            echo "Production push smoke already completed successfully."
+            exit 0
+          fi
+          cd "$APP_DIR"
+          test "$(docker compose ps --status running -q push-worker | wc -l)" -eq 1
+          docker compose exec -T web python manage.py smoke_management_push </dev/null
+          touch "$MARKER"
+          chmod 600 "$MARKER"
+          echo "One-time real production push smoke completed."
+          REMOTE
