@@ -43,13 +43,14 @@ patched_launch_storyboard = launch_storyboard.gsub(/<color key="backgroundColor"
 abort('LaunchScreen backgroundColor konnte nicht gepatcht werden.') if patched_launch_storyboard == launch_storyboard
 File.write(launch_storyboard_path, patched_launch_storyboard)
 
+# New native releases are bound only to the canonical production domain.
+# cards.smarbiz.sbs remains a server-side compatibility proxy for already
+# installed legacy builds, but it must not be a dependency of new binaries.
 entitlements = {
   'aps-environment' => 'production',
   'com.apple.developer.associated-domains' => [
     'applinks:app.samsclublounge.de',
-    'webcredentials:app.samsclublounge.de',
-    'applinks:cards.smarbiz.sbs',
-    'webcredentials:cards.smarbiz.sbs'
+    'webcredentials:app.samsclublounge.de'
   ],
   'com.apple.developer.applesignin' => ['Default']
 }
