@@ -151,20 +151,26 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
 
 
 @transaction.atomic
-def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_amount=Decimal("0.00"), tip_employee=None, ip_address=None, force_immediate=False, tip_percentage=None):
-    """Create a charge with a fixed or customer-entered euro tip."""
+def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_amount=Decimal("0.00"), tip_employee=None, ip_address=None, force_immediate=False, tip_percentage=None, customer_tip_required=False):
+    """Create a charge; staff flows can require the customer to choose the final tip."""
     require_role(actor, wallet.business, STAFF_ROLES)
     if location.business_id != wallet.business_id or not location.is_active:
         raise ValidationError("Ungültiger Standort.")
     settings_obj = get_business_settings(wallet.business)
     amount = normalize_amount(amount)
-    if tip_percentage is not None and tip_amount in (None, "", Decimal("0.00"), 0, "0"):
-        tip_amount = tip_percentage
-    selected_tip = normalize_tip_amount(tip_amount)
+
+    if customer_tip_required:
+        selected_tip = Decimal("0.00")
+    else:
+        if tip_percentage is not None and tip_amount in (None, "", Decimal("0.00"), 0, "0"):
+            tip_amount = tip_percentage
+        selected_tip = normalize_tip_amount(tip_amount)
+
     payable_wallet = Wallet.objects.select_related("owner", "owner__member_profile").get(pk=wallet.pk)
     _assert_wallet_payable(payable_wallet)
     if payable_wallet.balance < amount + selected_tip:
         raise ValidationError("Nicht genügend Guthaben für Zahlung und Trinkgeld.")
+
     tip_recipient = settings_obj.tip_allocation
     if tip_recipient == BusinessSettings.TipAllocation.EMPLOYEE:
         tip_employee = tip_employee or actor
@@ -172,7 +178,8 @@ def create_payment_request(*, wallet, location, actor, amount, description="", o
             raise ValidationError("Der ausgewählte Mitarbeiter gehört nicht zu SAMS.")
     else:
         tip_employee = None
-    confirmation_required = bool(settings_obj.require_customer_confirmation and not force_immediate)
+
+    confirmation_required = bool(customer_tip_required or (settings_obj.require_customer_confirmation and not force_immediate))
     payment = PaymentRequest.objects.create(
         business=wallet.business,
         location=location,
