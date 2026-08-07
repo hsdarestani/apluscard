@@ -19,7 +19,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_commit.message == 'Execute legacy reconciliation without SSH stdin drain')
+       github.event.workflow_run.head_commit.message == 'Reset production sequences before legacy remap')
     name: Strict mapped merge of legacy production data
     runs-on: ubuntu-latest
     environment: production
@@ -149,6 +149,36 @@ jobs:
           LEGACY_WALLETS="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_wallet'" </dev/null | tr -d '\r')"
           LEGACY_PROFILES="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_memberprofile'" </dev/null | tr -d '\r')"
           echo "LEGACY_COUNTS users=$LEGACY_USERS wallets=$LEGACY_WALLETS profiles=$LEGACY_PROFILES"
+
+          # Some historical/current rows were inserted with explicit integer PKs.
+          # Bring every PostgreSQL serial sequence up to the real table maximum
+          # before mapped inserts need a fresh PK (PushDevice, Notification, etc.).
+          docker compose exec -T db sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+          DO $$
+          DECLARE r record;
+          DECLARE seq_name text;
+          DECLARE max_value bigint;
+          BEGIN
+            FOR r IN
+              SELECT table_schema, table_name, column_name
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND column_default LIKE 'nextval(%'
+            LOOP
+              seq_name := pg_get_serial_sequence(format('%I.%I', r.table_schema, r.table_name), r.column_name);
+              IF seq_name IS NOT NULL THEN
+                EXECUTE format('SELECT max(%I)::bigint FROM %I.%I', r.column_name, r.table_schema, r.table_name)
+                  INTO max_value;
+                IF max_value IS NULL THEN
+                  EXECUTE format('SELECT setval(%L, 1, false)', seq_name);
+                ELSE
+                  EXECUTE format('SELECT setval(%L, %s, true)', seq_name, max_value);
+                END IF;
+              END IF;
+            END LOOP;
+          END $$;
+          SQL
+          echo "CURRENT_SERIAL_SEQUENCES_RESET=YES"
 
           set +e
           docker compose run --rm -T --no-deps web \
