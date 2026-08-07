@@ -23,13 +23,25 @@ app_dir = File.join(ios_root, 'App')
 info_plist_path = File.join(app_dir, 'Info.plist')
 entitlements_path = File.join(app_dir, 'App.entitlements')
 app_delegate_path = File.join(app_dir, 'AppDelegate.swift')
+launch_storyboard_path = File.join(app_dir, 'Base.lproj', 'LaunchScreen.storyboard')
 privacy_manifest_source = File.join(mobile_root, 'ci', 'PrivacyInfo.xcprivacy')
 privacy_manifest_path = File.join(app_dir, 'PrivacyInfo.xcprivacy')
 
 abort("Xcode-Projekt fehlt: #{project_path}") unless File.directory?(project_path)
 abort("Info.plist fehlt: #{info_plist_path}") unless File.file?(info_plist_path)
 abort("AppDelegate.swift fehlt: #{app_delegate_path}") unless File.file?(app_delegate_path)
+abort("LaunchScreen.storyboard fehlt: #{launch_storyboard_path}") unless File.file?(launch_storyboard_path)
 abort("Privacy Manifest fehlt: #{privacy_manifest_source}") unless File.file?(privacy_manifest_source)
+
+# Capacitor's generated launch storyboard uses iOS systemBackgroundColor, which is
+# white in Light Mode. The web app itself is dark, so the hand-off produced a
+# visible white flash before WKWebView rendered its first frame. Force the launch
+# view to the same dark background as the web/native shell.
+launch_storyboard = File.read(launch_storyboard_path)
+dark_launch_color = '<color key="backgroundColor" red="0.0196078431" green="0.0117647059" blue="0.0431372549" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>'
+patched_launch_storyboard = launch_storyboard.gsub(/<color key="backgroundColor"[^>]*\/>/, dark_launch_color)
+abort('LaunchScreen backgroundColor konnte nicht gepatcht werden.') if patched_launch_storyboard == launch_storyboard
+File.write(launch_storyboard_path, patched_launch_storyboard)
 
 entitlements = {
   'aps-environment' => 'production',
