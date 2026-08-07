@@ -53,6 +53,9 @@ class CustomerRegistrationForm(UserCreationForm):
         user.last_name = self.cleaned_data["last_name"].strip()
         if commit:
             user.save()
+        # The wallet post-save signal uses this request-local marker to
+        # distinguish a real self-registration from cards created by staff.
+        user._sams_self_registration = True
         return user
 
 
@@ -96,6 +99,9 @@ class AppleProfileCompletionForm(forms.Form):
                 "email_verified_at": timezone.now(),
             },
         )
+        # Native/Apple profile completion is also a self-registration and must
+        # notify the owner once the member wallet is created below in the view.
+        self.user._sams_self_registration = True
         return self.user
 
 
