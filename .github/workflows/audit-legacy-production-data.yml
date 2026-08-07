@@ -1,0 +1,155 @@
+name: Audit Legacy vs Current Production Data
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-legacy-production-data.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-legacy-production-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Compare old and canonical PostgreSQL data
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PORT: "22"
+      NEW_USER: root
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Validate migration access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${OLD_HOST:?HETZNER_HOST is missing}"
+          : "${OLD_PASSWORD:?HETZNER_PASSWORD is missing}"
+          : "${NEW_HOST:?NEWHOST is missing}"
+          : "${NEW_PRIVATE_KEY:?HETZNER_SSH_PRIVATE_KEY is missing}"
+          test "$NEW_HOST" = "217.160.50.71"
+
+      - name: Configure SSH clients
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H -p "$NEW_PORT" "$NEW_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Collect privacy-safe database fingerprints
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          OUT="$RUNNER_TEMP/sams-db-audit"
+          mkdir -p "$OUT"
+          chmod 700 "$OUT"
+
+          collect_script='set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose up -d db >/dev/null
+          for attempt in $(seq 1 40); do
+            if docker compose exec -T db sh -lc '\''pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'\'' </dev/null >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker compose exec -T db sh -lc '\''psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'\'' <<'\''SQL'\''
+          SELECT '\''META|vendor|postgresql'\'';
+          SELECT '\''TABLE|'\'' || quote_ident(schemaname) || '\''.'\'' || quote_ident(relname) || '\''|'\'' || n_live_tup
+          FROM pg_stat_user_tables
+          WHERE schemaname = '\''public'\''
+            AND (relname = '\''auth_user'\'' OR relname LIKE '\''cards_%'\'' OR relname LIKE '\''account_%'\'' OR relname LIKE '\''socialaccount_%'\'' OR relname LIKE '\''authtoken_%'\'')
+          ORDER BY relname;
+          SELECT '\''KEY|auth_user|'\'' || id || '\''|'\'' || md5(lower(coalesce(username,'\'''\'')) || '\''|'\'' || lower(coalesce(email,'\'''\''))) FROM auth_user ORDER BY id;
+          SELECT '\''KEY|cards_wallet|'\'' || id || '\''|'\'' || md5(coalesce(member_number,'\'''\'') || '\''|'\'' || coalesce(owner_id::text,'\'''\'') || '\''|'\'' || lower(coalesce(email,'\'''\''))) FROM cards_wallet ORDER BY id;
+          SELECT '\''KEY|cards_membership|'\'' || id || '\''|'\'' || md5(user_id::text || '\''|'\'' || business_id::text || '\''|'\'' || role) FROM cards_membership ORDER BY id;
+          SELECT '\''KEY|cards_paymentrequest|'\'' || id || '\''|'\'' || md5(wallet_id::text || '\''|'\'' || base_amount::text || '\''|'\'' || tip_amount::text || '\''|'\'' || status || '\''|'\'' || created_at::text) FROM cards_paymentrequest ORDER BY id;
+          SELECT '\''KEY|cards_ledgerentry|'\'' || id || '\''|'\'' || md5(bill_number || '\''|'\'' || wallet_id::text || '\''|'\'' || amount::text || '\''|'\'' || entry_type || '\''|'\'' || created_at::text) FROM cards_ledgerentry ORDER BY id;
+          SQL'
+
+          SSHPASS="$OLD_PASSWORD" sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<<"$collect_script" > "$OUT/old.txt"
+          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<<"$collect_script" > "$OUT/current.txt"
+
+          test -s "$OUT/old.txt"
+          test -s "$OUT/current.txt"
+          chmod 600 "$OUT"/*.txt
+
+      - name: Compare counts, identities and row fingerprints
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from collections import defaultdict
+
+          root = Path(__import__('os').environ['RUNNER_TEMP']) / 'sams-db-audit'
+
+          def parse(path):
+              tables = {}
+              keys = defaultdict(dict)
+              for raw in path.read_text(encoding='utf-8').splitlines():
+                  line = raw.strip()
+                  if not line:
+                      continue
+                  parts = line.split('|')
+                  if parts[0] == 'TABLE' and len(parts) == 3:
+                      tables[parts[1]] = int(parts[2])
+                  elif parts[0] == 'KEY' and len(parts) == 4:
+                      keys[parts[1]][parts[2]] = parts[3]
+              return tables, keys
+
+          old_tables, old_keys = parse(root / 'old.txt')
+          cur_tables, cur_keys = parse(root / 'current.txt')
+          all_tables = sorted(set(old_tables) | set(cur_tables))
+          print('=== TABLE COUNTS ===')
+          for table in all_tables:
+              old = old_tables.get(table, 0)
+              cur = cur_tables.get(table, 0)
+              marker = 'DIFF' if old != cur else 'OK'
+              print(f'{marker} {table}: legacy={old} current={cur} delta={cur-old:+d}')
+
+          print('=== CRITICAL KEY COMPARISON ===')
+          unsafe = False
+          for table in sorted(set(old_keys) | set(cur_keys)):
+              old = old_keys.get(table, {})
+              cur = cur_keys.get(table, {})
+              old_ids = set(old)
+              cur_ids = set(cur)
+              missing = old_ids - cur_ids
+              extra = cur_ids - old_ids
+              collisions = {pk for pk in old_ids & cur_ids if old[pk] != cur[pk]}
+              if collisions:
+                  unsafe = True
+              print(
+                  f'{table}: legacy={len(old)} current={len(cur)} '
+                  f'missing_from_current={len(missing)} current_only={len(extra)} '
+                  f'same_pk_different_payload={len(collisions)}'
+              )
+
+          print(f'DIRECT_PK_UNION_SAFE={"NO" if unsafe else "YES"}')
+          if unsafe:
+              print('A direct primary-key union must NOT be applied; conflicting rows require mapped reconciliation.')
+          else:
+              print('No conflicting payload was found for shared critical primary keys. Missing legacy rows can be reconciled without overwriting current rows, subject to full-table dependency checks.')
+          PY
