@@ -4,6 +4,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import include, path, re_path
 from django.views.static import serve
 
+from cards import security_views
 from cards.apple_views import apple_callback
 
 admin.site.site_header = "Sams Club Lounge Verwaltung"
@@ -20,6 +21,9 @@ urlpatterns = [
         apple_callback,
         name="apple_callback",
     ),
+    path("sicherheit/2fa/einrichten/", security_views.mfa_setup, name="mfa_setup"),
+    path("sicherheit/2fa/bestaetigen/", security_views.mfa_challenge, name="mfa_challenge"),
+    path("sicherheit/2fa/notfallcodes-neu/", security_views.mfa_regenerate_recovery_codes, name="mfa_regenerate_recovery_codes"),
     path("", include("cards.urls")),
     re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
 ]

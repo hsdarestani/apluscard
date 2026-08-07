@@ -19,12 +19,13 @@ write_status() {
   local media_bytes="${4:-0}"
   local git_commit="${5:-unknown}"
   local backend="${6:-unknown}"
+  local audit_bytes="${7:-0}"
   local timestamp
   timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   local temp
   temp="$(mktemp "$STATE_DIR/status.XXXXXX")"
   cat > "$temp" <<JSON
-{"status":"$status","completed_at":"$timestamp","snapshot_id":"$snapshot_id","database_bytes":$db_bytes,"media_bytes":$media_bytes,"git_commit":"$git_commit","backend":"$backend"}
+{"status":"$status","completed_at":"$timestamp","snapshot_id":"$snapshot_id","database_bytes":$db_bytes,"media_bytes":$media_bytes,"audit_evidence_bytes":$audit_bytes,"git_commit":"$git_commit","backend":"$backend"}
 JSON
   chmod 600 "$temp"
   mv "$temp" "$STATUS_FILE"
@@ -76,6 +77,15 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
 HOST_TAG="${BACKUP_HOST_TAG:-apluscard-production}"
 
+# Do not create a backup from an already corrupted audit trail. The canonical
+# JSONL export is stored next to the DB dump as independently hashable evidence.
+docker compose exec -T web python manage.py verify_audit_chain
+docker compose exec -T web python manage.py export_audit_evidence > "$WORK_DIR/audit-chain.jsonl"
+test -s "$WORK_DIR/audit-chain.jsonl" || {
+  echo "Audit-Beweisexport ist leer; Backup wird abgebrochen." >&2
+  exit 1
+}
+
 # PostgreSQL logical backup: portable across a fresh PostgreSQL 16 installation.
 docker compose exec -T db sh -lc '
   exec pg_dump \
@@ -105,13 +115,13 @@ cat > "$WORK_DIR/metadata.json" <<JSON
   "git_commit": "$GIT_COMMIT",
   "postgres_image": "postgres:16-alpine",
   "backup_backend": "$BACKUP_BACKEND_TYPE",
-  "contents": ["database.dump", "media.tar.gz", "production.env"]
+  "contents": ["database.dump", "media.tar.gz", "production.env", "audit-chain.jsonl"]
 }
 JSON
 
 (
   cd "$WORK_DIR"
-  sha256sum database.dump media.tar.gz production.env metadata.json > SHA256SUMS
+  sha256sum database.dump media.tar.gz production.env audit-chain.jsonl metadata.json > SHA256SUMS
 )
 
 if ! restic snapshots --no-lock >/dev/null 2>&1; then
@@ -124,6 +134,7 @@ restic backup "$WORK_DIR" \
   --tag apluscard \
   --tag production \
   --tag scheduled \
+  --tag audit-evidence \
   --exclude-caches
 
 restic forget \
@@ -145,7 +156,8 @@ SNAPSHOT_ID="$(restic snapshots --json --host "$HOST_TAG" --tag apluscard | jq -
 
 DB_BYTES="$(stat -c %s "$WORK_DIR/database.dump")"
 MEDIA_BYTES="$(stat -c %s "$WORK_DIR/media.tar.gz")"
-write_status "success" "$SNAPSHOT_ID" "$DB_BYTES" "$MEDIA_BYTES" "$GIT_COMMIT" "$BACKUP_BACKEND_TYPE"
+AUDIT_BYTES="$(stat -c %s "$WORK_DIR/audit-chain.jsonl")"
+write_status "success" "$SNAPSHOT_ID" "$DB_BYTES" "$MEDIA_BYTES" "$GIT_COMMIT" "$BACKUP_BACKEND_TYPE" "$AUDIT_BYTES"
 SUCCESS=1
 
-echo "Backup erfolgreich: Snapshot $SNAPSHOT_ID über $BACKUP_BACKEND_TYPE"
+echo "Backup erfolgreich: Snapshot $SNAPSHOT_ID über $BACKUP_BACKEND_TYPE; Audit-Kette geprüft und exportiert."
