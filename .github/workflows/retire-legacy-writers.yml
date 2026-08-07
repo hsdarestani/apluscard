@@ -1,0 +1,92 @@
+name: Retire Legacy Writers Safely
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/retire-legacy-writers.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-retire-legacy-writers
+  cancel-in-progress: false
+
+jobs:
+  retire:
+    name: Stop legacy writers only after DNS cutover
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      LEGACY_DOMAIN: cards.smarbiz.sbs
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Validate access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${OLD_HOST:?HETZNER_HOST is missing}"
+          : "${OLD_PASSWORD:?HETZNER_PASSWORD is missing}"
+          : "${NEW_HOST:?NEWHOST is missing}"
+
+      - name: Resolve legacy domain and decide safely
+        id: dns
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          IPS="$(getent ahostsv4 "$LEGACY_DOMAIN" | awk '{print $1}' | sort -u | tr '\n' ' ')"
+          test -n "$IPS" || { echo "Could not resolve $LEGACY_DOMAIN" >&2; exit 1; }
+          echo "Legacy-domain IPv4: $IPS"
+          if printf '%s\n' "$IPS" | tr ' ' '\n' | grep -Fxq "$OLD_HOST"; then
+            echo "points_to_old=true" >> "$GITHUB_OUTPUT"
+            echo "LEGACY_DOMAIN_STILL_POINTS_TO_OLD=YES"
+          else
+            echo "points_to_old=false" >> "$GITHUB_OUTPUT"
+            echo "LEGACY_DOMAIN_STILL_POINTS_TO_OLD=NO"
+          fi
+          if printf '%s\n' "$IPS" | tr ' ' '\n' | grep -Fxq "$NEW_HOST"; then
+            echo "points_to_new=true" >> "$GITHUB_OUTPUT"
+            echo "LEGACY_DOMAIN_POINTS_TO_CANONICAL=YES"
+          else
+            echo "points_to_new=false" >> "$GITHUB_OUTPUT"
+            echo "LEGACY_DOMAIN_POINTS_TO_CANONICAL=NO"
+          fi
+
+      - name: Keep old writers untouched while domain still depends on old host
+        if: steps.dns.outputs.points_to_old == 'true'
+        shell: bash
+        run: |
+          echo "Legacy writers were NOT stopped because $LEGACY_DOMAIN still resolves to the old host."
+          echo "No production availability change was made."
+
+      - name: Stop old web and push worker after DNS cutover
+        if: steps.dns.outputs.points_to_old != 'true'
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose stop web push-worker </dev/null
+          test -z "$(docker compose ps --status running -q web)"
+          test -z "$(docker compose ps --status running -q push-worker)"
+          test "$(docker compose ps --status running -q db | wc -l)" -eq 1
+          echo "LEGACY_WRITERS_STOPPED=YES"
+          echo "Legacy PostgreSQL retained online as read-only archival source by service topology."
+          REMOTE
