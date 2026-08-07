@@ -105,7 +105,7 @@ class AppleCallbackSecurityTests(TestCase):
         response = csrf_client.post(
             "/accounts/apple/callback/",
             {"state": "test", "code": "test"},
-            HTTP_HOST="cards.smarbiz.sbs",
+            HTTP_HOST="app.samsclublounge.de",
             HTTP_X_FORWARDED_PROTO="https",
             secure=True,
         )
