@@ -1,0 +1,99 @@
+name: Verify Legacy Retirement Without Downtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-legacy-retirement.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-verify-legacy-retirement
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify public legacy URL after old writers are stopped
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      LEGACY_DOMAIN: cards.smarbiz.sbs
+      CANONICAL_DOMAIN: app.samsclublounge.de
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Configure legacy SSH fallback
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          : "${OLD_HOST:?HETZNER_HOST is missing}"
+          : "${OLD_PASSWORD:?HETZNER_PASSWORD is missing}"
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify canonical and legacy public health
+        id: public
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          stamp="$(date +%s)"
+          canonical_code="$(curl --silent --show-error --max-time 20 --output "$RUNNER_TEMP/canonical-health" --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' "https://$CANONICAL_DOMAIN/health/?retirement_check=$stamp" || true)"
+          legacy_code="$(curl --silent --show-error --max-time 20 --output "$RUNNER_TEMP/legacy-health" --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' "https://$LEGACY_DOMAIN/health/?retirement_check=$stamp" || true)"
+          echo "Canonical health HTTP=$canonical_code"
+          echo "Legacy public health HTTP=$legacy_code"
+          test "$canonical_code" = "200"
+          if [ "$legacy_code" = "200" ]; then
+            echo "legacy_healthy=true" >> "$GITHUB_OUTPUT"
+            echo "LEGACY_PUBLIC_URL_HEALTHY_WITH_OLD_WRITERS_STOPPED=YES"
+          else
+            echo "legacy_healthy=false" >> "$GITHUB_OUTPUT"
+            echo "LEGACY_PUBLIC_URL_HEALTHY_WITH_OLD_WRITERS_STOPPED=NO"
+          fi
+
+      - name: Confirm old writer services remain stopped
+        if: steps.public.outputs.legacy_healthy == 'true'
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test -z "$(docker compose ps --status running -q web)"
+          test -z "$(docker compose ps --status running -q push-worker)"
+          test "$(docker compose ps --status running -q db | wc -l)" -eq 1
+          echo "LEGACY_WRITERS_REMAIN_STOPPED=YES"
+          REMOTE
+
+      - name: Restore old writers if public legacy URL broke
+        if: steps.public.outputs.legacy_healthy != 'true'
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose up -d web push-worker </dev/null
+          echo "LEGACY_WRITERS_RESTORED_FOR_AVAILABILITY=YES"
+          REMOTE
+          echo "Public legacy URL depends on the old origin. Old writers were restored to avoid downtime." >&2
+          exit 1
