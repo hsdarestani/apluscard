@@ -7,6 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .compliance_qr import issue_wallet_qr
+from .legal_models import LegalAcceptance, LegalConfiguration
 from .models import AppNotification, Business, BusinessSettings, Location, MemberProfile, Membership, PaymentRequest, PushDevice, Wallet
 from .push_models import PushDelivery
 
@@ -17,6 +18,13 @@ class OperationsFlowTests(TestCase):
         self.business = Business.objects.create(name="SAMS CLUB LOUNGE", slug="shisha-bar")
         BusinessSettings.objects.create(business=self.business)
         self.location = Location.objects.create(business=self.business, name="SAMS", slug="sams", is_active=True)
+        LegalConfiguration.objects.create(
+            business=self.business,
+            app_display_name=self.business.name,
+            controller_name=self.business.name,
+            terms_version="1.0",
+            privacy_version="1.0",
+        )
         self.owner = User.objects.create_user(username="owner-op", password="test")
         self.manager = User.objects.create_user(username="manager-op", password="test")
         self.staff = User.objects.create_user(username="staff-op", password="test")
@@ -38,6 +46,15 @@ class OperationsFlowTests(TestCase):
             email=self.customer.email,
             balance=Decimal("100.00"),
         )
+        for document_type in (LegalAcceptance.DocumentType.TERMS, LegalAcceptance.DocumentType.PRIVACY):
+            LegalAcceptance.objects.create(
+                user=self.customer,
+                business=self.business,
+                document_type=document_type,
+                version="1.0",
+                source=LegalAcceptance.Source.REGISTRATION,
+                member_number=self.wallet.member_number,
+            )
 
     def test_staff_invalid_card_redirects_with_message_instead_of_404(self):
         self.client.force_login(self.staff)
