@@ -98,13 +98,13 @@ jobs:
           echo "SERVER_HOSTNAME=$(hostname)"
           echo "DEPLOYED_SHA=$(cat .deployed_sha)"
           echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          docker compose ps
+          docker compose ps </dev/null
 
           stamp="$(date -u +%Y%m%dT%H%M%SZ)"
           backup_dir="$APP_DIR/backups/test-data-purge"
           mkdir -p "$backup_dir"
           backup="$backup_dir/pre-exact-members-live-purge-$stamp.dump"
-          docker compose exec -T db sh -lc 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$backup"
+          docker compose exec -T db sh -lc 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' </dev/null > "$backup"
           test -s "$backup"
           chmod 600 "$backup"
           echo "BACKUP=$backup"
