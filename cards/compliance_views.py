@@ -37,14 +37,6 @@ class SecureMoneyActionForm(forms.Form):
     wallet_token = forms.CharField(label="Sicherer Kartencode", max_length=1200)
     location_id = forms.UUIDField(label="Standort")
     amount = forms.DecimalField(label="Betrag", min_value=Decimal("0.01"), max_digits=12, decimal_places=2)
-    tip_amount = forms.DecimalField(
-        label="Trinkgeld in Euro",
-        min_value=Decimal("0.00"),
-        max_value=Decimal("100.00"),
-        max_digits=8,
-        decimal_places=2,
-        required=False,
-    )
     description = forms.CharField(label="Beschreibung", max_length=255, required=False)
     order_reference = forms.CharField(label="Bestellnummer", max_length=100, required=False)
 
@@ -96,7 +88,7 @@ def staff_charge_secure(request):
 
     form = SecureMoneyActionForm(request.POST)
     if not form.is_valid():
-        messages.error(request, _form_error_text(form) or "Bitte Kartencode, Betrag, Standort und Trinkgeld prüfen.")
+        messages.error(request, _form_error_text(form) or "Bitte Kartencode, Betrag und Standort prüfen.")
         return redirect("staff_dashboard")
 
     try:
@@ -126,7 +118,8 @@ def staff_charge_secure(request):
             location=location,
             actor=request.user,
             amount=form.cleaned_data["amount"],
-            tip_amount=form.cleaned_data.get("tip_amount") or Decimal("0.00"),
+            tip_amount=Decimal("0.00"),
+            customer_tip_required=True,
             description=form.cleaned_data.get("description", ""),
             order_reference=form.cleaned_data.get("order_reference", ""),
             ip_address=_client_ip(request),
@@ -134,10 +127,10 @@ def staff_charge_secure(request):
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:
-        if payment.status == PaymentRequest.Status.PENDING:
-            messages.success(request, "Die Zahlungsfreigabe wurde an das Kundengerät gesendet.")
-        else:
-            messages.success(request, f"{payment.base_amount:.2f} € Zahlung + {payment.tip_amount:.2f} € Trinkgeld wurden abgebucht.")
+        messages.success(
+            request,
+            f"{payment.base_amount:.2f} € wurden an das Kundengerät gesendet. Der Kunde wählt das Trinkgeld und bestätigt die Zahlung.",
+        )
     return redirect("staff_dashboard")
 
 
