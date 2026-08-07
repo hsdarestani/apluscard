@@ -147,7 +147,7 @@ class SecurityAndPerformanceTests(MemberExperienceMixin, TestCase):
     def test_service_worker_caches_sams_release_assets(self):
         response = self.client.get(reverse("service_worker"))
         content = response.content.decode("utf-8")
-        self.assertIn("sams-club-lounge-v13", content)
+        self.assertIn("sams-club-lounge-v14", content)
         self.assertIn("/static/cards/push.css", content)
         self.assertIn("/app-icon-512.png?v=scl-20260725", content)
         self.assertIn("const isAsset", content)
@@ -162,7 +162,7 @@ class AppleWalletPayloadTests(MemberExperienceMixin, TestCase):
     def setUp(self): self.create_experience()
     @override_settings(APPLE_WALLET_PASS_TYPE_ID="pass.de.sams.member", APPLE_WALLET_TEAM_ID="TEAM123456")
     def test_store_card_payload_contains_member_number_and_qr(self):
-        request = RequestFactory().get("/customer/apple-wallet/", HTTP_HOST="cards.smarbiz.sbs", secure=True)
+        request = RequestFactory().get("/customer/apple-wallet/", HTTP_HOST="app.samsclublounge.de", secure=True)
         files = _pass_files(self.wallet, request)
         payload = json.loads(files["pass.json"])
         self.assertEqual(payload["storeCard"]["headerFields"][0]["value"], "101")
