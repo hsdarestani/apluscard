@@ -1,0 +1,292 @@
+name: Reconcile Legacy Production Data
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/reconcile-legacy-production-data.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-legacy-production-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Reconcile legacy production data safely'
+    name: Union missing legacy rows into canonical PostgreSQL
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PORT: "22"
+      NEW_USER: root
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Validate access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${OLD_HOST:?HETZNER_HOST is missing}"
+          : "${OLD_PASSWORD:?HETZNER_PASSWORD is missing}"
+          : "${NEW_HOST:?NEWHOST is missing}"
+          : "${NEW_PRIVATE_KEY:?HETZNER_SSH_PRIVATE_KEY is missing}"
+          test "$NEW_HOST" = "217.160.50.71"
+
+      - name: Configure SSH clients
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H -p "$NEW_PORT" "$NEW_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Preflight identity conflicts without exposing PII
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          OUT="$RUNNER_TEMP/reconcile-preflight"
+          mkdir -p "$OUT"
+          chmod 700 "$OUT"
+
+          export_script='set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose up -d db >/dev/null
+          docker compose exec -T db sh -lc '\''psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'\'' <<'\''SQL'\''
+          SELECT '\''USER|'\'' || id || '\''|'\'' || md5(lower(coalesce(username,'\'''\''))) || '\''|'\'' || md5(lower(coalesce(email,'\'''\''))) FROM auth_user ORDER BY id;
+          SELECT '\''WALLET|'\'' || id || '\''|'\'' || md5(coalesce(member_number,'\'''\'')) || '\''|'\'' || md5(coalesce(qr_token::text,'\'''\'')) FROM cards_wallet ORDER BY id;
+          SQL'
+
+          SSHPASS="$OLD_PASSWORD" sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<<"$export_script" > "$OUT/old.txt"
+          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<<"$export_script" > "$OUT/current.txt"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ['RUNNER_TEMP']) / 'reconcile-preflight'
+
+          def parse(path):
+              users = {}
+              wallets = {}
+              for line in path.read_text().splitlines():
+                  p = line.strip().split('|')
+                  if len(p) != 4:
+                      continue
+                  if p[0] == 'USER': users[p[1]] = (p[2], p[3])
+                  if p[0] == 'WALLET': wallets[p[1]] = (p[2], p[3])
+              return users, wallets
+
+          old_users, old_wallets = parse(root / 'old.txt')
+          cur_users, cur_wallets = parse(root / 'current.txt')
+
+          current_usernames = {v[0]: pk for pk, v in cur_users.items()}
+          current_emails = {v[1]: pk for pk, v in cur_users.items() if v[1] != 'd41d8cd98f00b204e9800998ecf8427e'}
+          current_members = {v[0]: pk for pk, v in cur_wallets.items()}
+          current_qr = {v[1]: pk for pk, v in cur_wallets.items()}
+
+          user_conflicts = 0
+          for pk, (username_hash, email_hash) in old_users.items():
+              if pk in cur_users:
+                  continue
+              if username_hash in current_usernames and current_usernames[username_hash] != pk:
+                  user_conflicts += 1
+              if email_hash != 'd41d8cd98f00b204e9800998ecf8427e' and email_hash in current_emails and current_emails[email_hash] != pk:
+                  user_conflicts += 1
+
+          wallet_conflicts = 0
+          for pk, (member_hash, qr_hash) in old_wallets.items():
+              if pk in cur_wallets:
+                  continue
+              if member_hash in current_members and current_members[member_hash] != pk:
+                  wallet_conflicts += 1
+              if qr_hash in current_qr and current_qr[qr_hash] != pk:
+                  wallet_conflicts += 1
+
+          print(f'legacy_missing_users={len(set(old_users)-set(cur_users))}')
+          print(f'legacy_missing_wallets={len(set(old_wallets)-set(cur_wallets))}')
+          print(f'user_unique_identity_conflicts={user_conflicts}')
+          print(f'wallet_unique_identity_conflicts={wallet_conflicts}')
+          if user_conflicts or wallet_conflicts:
+              raise SystemExit('Preflight found unique-identity conflicts. Automatic union aborted before any write.')
+          print('PREFLIGHT_SAFE=YES')
+          PY
+
+      - name: Build legacy union SQL
+        id: legacy
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          SQL_FILE="$RUNNER_TEMP/legacy-union.sql"
+          {
+            echo 'SET session_replication_role = replica;'
+            SSHPASS="$OLD_PASSWORD" sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+              "cd '$APP_DIR' && docker compose exec -T db sh -lc 'pg_dump -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" --data-only --inserts --on-conflict-do-nothing --no-owner --no-privileges -t \"public.auth_group\" -t \"public.auth_group_permissions\" -t \"public.auth_user\" -t \"public.auth_user_groups\" -t \"public.auth_user_user_permissions\" -t \"public.account_*\" -t \"public.socialaccount_*\" -t \"public.authtoken_*\" -t \"public.cards_*\" --exclude-table=public.cards_pushdelivery'"
+            echo 'SET session_replication_role = DEFAULT;'
+          } > "$SQL_FILE"
+          test -s "$SQL_FILE"
+          chmod 600 "$SQL_FILE"
+          sha256sum "$SQL_FILE"
+          echo "sql_file=$SQL_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload union payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scp -i ~/.ssh/strato_sams -P "$NEW_PORT" \
+            "${{ steps.legacy.outputs.sql_file }}" \
+            "$NEW_USER@$NEW_HOST:/root/sams-legacy-union.sql"
+
+      - name: Backup, merge, validate and rollback on failure
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          PAYLOAD=/root/sams-legacy-union.sql
+          BACKUP_DIR=/root/sams-reconcile-backups
+          mkdir -p "$BACKUP_DIR"
+          chmod 700 "$BACKUP_DIR"
+          TS="$(date -u +%Y%m%dT%H%M%SZ)"
+          BACKUP="$BACKUP_DIR/pre-legacy-merge-$TS.dump"
+
+          docker compose up -d db >/dev/null
+          docker compose exec -T db sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$BACKUP"
+          test -s "$BACKUP"
+          chmod 600 "$BACKUP"
+          sha256sum "$BACKUP"
+
+          rollback() {
+            status=$?
+            echo "Legacy merge validation failed; restoring canonical pre-merge backup." >&2
+            set +e
+            docker compose stop push-worker web
+            docker compose up -d db
+            docker compose exec -T db sh -lc 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges' < "$BACKUP"
+            docker compose up -d --remove-orphans
+            rm -f "$PAYLOAD"
+            exit "$status"
+          }
+          trap rollback ERR
+
+          docker compose stop push-worker web
+          docker compose up -d db
+          docker compose exec -T db sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$PAYLOAD"
+
+          # pg_dump carries source sequence values. Reset every serial sequence to
+          # the actual maximum after the union so future inserts cannot collide.
+          docker compose exec -T db sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+          DO $$
+          DECLARE r record;
+          DECLARE seq text;
+          DECLARE max_value bigint;
+          BEGIN
+            FOR r IN
+              SELECT table_schema, table_name, column_name
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND column_default LIKE 'nextval(%'
+            LOOP
+              seq := pg_get_serial_sequence(format('%I.%I', r.table_schema, r.table_name), r.column_name);
+              IF seq IS NOT NULL THEN
+                EXECUTE format('SELECT max(%I)::bigint FROM %I.%I', r.column_name, r.table_schema, r.table_name) INTO max_value;
+                IF max_value IS NULL THEN
+                  EXECUTE format('SELECT setval(%L, 1, false)', seq);
+                ELSE
+                  EXECUTE format('SELECT setval(%L, %s, true)', seq, max_value);
+                END IF;
+              END IF;
+            END LOOP;
+          END $$;
+          SQL
+
+          docker compose up -d --remove-orphans
+          healthy=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then healthy=1; break; fi
+            sleep 2
+          done
+          test "$healthy" -eq 1
+          docker compose exec -T web python manage.py migrate --noinput </dev/null
+          docker compose exec -T web python manage.py check </dev/null
+          docker compose exec -T web python manage.py check_database_integrity </dev/null
+
+          # Exact post-merge critical counts. No PII is printed.
+          docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
+          SELECT 'POST|auth_user|' || count(*) FROM auth_user;
+          SELECT 'POST|cards_wallet|' || count(*) FROM cards_wallet;
+          SELECT 'POST|cards_memberprofile|' || count(*) FROM cards_memberprofile;
+          SELECT 'POST|cards_privacypreference|' || count(*) FROM cards_privacypreference;
+          SELECT 'POST|cards_legalacceptance|' || count(*) FROM cards_legalacceptance;
+          SELECT 'POST|cards_reviewstatus|' || count(*) FROM cards_reviewstatus;
+          SELECT 'POST|cards_pushdevice|' || count(*) FROM cards_pushdevice;
+          SELECT 'POST|cards_paymentrequest|' || count(*) FROM cards_paymentrequest;
+          SELECT 'POST|cards_ledgerentry|' || count(*) FROM cards_ledgerentry;
+          SQL
+
+          trap - ERR
+          rm -f "$PAYLOAD"
+          echo "Legacy union merge completed and integrity validation passed. Backup retained at $BACKUP"
+          REMOTE
+
+      - name: Re-audit critical legacy keys after merge
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          OUT="$RUNNER_TEMP/post-merge-audit"
+          mkdir -p "$OUT"
+          collect='set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose exec -T db sh -lc '\''psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'\'' <<'\''SQL'\''
+          SELECT '\''auth_user|'\'' || id FROM auth_user ORDER BY id;
+          SELECT '\''cards_wallet|'\'' || id FROM cards_wallet ORDER BY id;
+          SELECT '\''cards_paymentrequest|'\'' || id FROM cards_paymentrequest ORDER BY id;
+          SELECT '\''cards_ledgerentry|'\'' || id FROM cards_ledgerentry ORDER BY id;
+          SQL'
+          SSHPASS="$OLD_PASSWORD" sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" "APP_DIR='$APP_DIR' bash -se" <<<"$collect" > "$OUT/old.txt"
+          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" "APP_DIR='$APP_DIR' bash -se" <<<"$collect" > "$OUT/current.txt"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          root = Path(os.environ['RUNNER_TEMP']) / 'post-merge-audit'
+          def read(p):
+              result = {}
+              for line in p.read_text().splitlines():
+                  table, pk = line.strip().split('|', 1)
+                  result.setdefault(table, set()).add(pk)
+              return result
+          old = read(root/'old.txt'); cur = read(root/'current.txt')
+          failed = False
+          for table in sorted(old):
+              missing = old[table] - cur.get(table, set())
+              print(f'{table}: legacy_missing_after_merge={len(missing)} current_only={len(cur.get(table,set())-old[table])}')
+              failed |= bool(missing)
+          if failed:
+              raise SystemExit('Critical legacy primary keys are still missing after merge.')
+          print('LEGACY_CRITICAL_DATA_COMPLETE=YES')
+          PY
