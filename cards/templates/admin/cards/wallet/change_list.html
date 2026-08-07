@@ -1,0 +1,8 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  {% if request.user.is_superuser %}
+    <li><a href="{% url 'admin:cards_wallet_test_data_cleanup' %}" class="historylink">Testdaten prüfen / bereinigen</a></li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}
