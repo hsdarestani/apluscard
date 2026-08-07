@@ -19,7 +19,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_commit.message == 'Reset production sequences before legacy remap')
+       github.event.workflow_run.head_commit.message == 'Run collision-safe legacy reconciliation')
     name: Strict mapped merge of legacy production data
     runs-on: ubuntu-latest
     environment: production
@@ -130,7 +130,7 @@ jobs:
 
           test -s "$LEGACY_DUMP"
           test -s "$LEGACY_MEDIA"
-          test -f cards/management/commands/reconcile_legacy_database.py
+          test -f cards/management/commands/reconcile_legacy_database_safe.py
           docker compose up -d db </dev/null >/dev/null
 
           docker compose exec -T db sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' </dev/null > "$BACKUP"
@@ -150,9 +150,6 @@ jobs:
           LEGACY_PROFILES="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_memberprofile'" </dev/null | tr -d '\r')"
           echo "LEGACY_COUNTS users=$LEGACY_USERS wallets=$LEGACY_WALLETS profiles=$LEGACY_PROFILES"
 
-          # Some historical/current rows were inserted with explicit integer PKs.
-          # Bring every PostgreSQL serial sequence up to the real table maximum
-          # before mapped inserts need a fresh PK (PushDevice, Notification, etc.).
           docker compose exec -T db sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
           DO $$
           DECLARE r record;
@@ -182,7 +179,7 @@ jobs:
 
           set +e
           docker compose run --rm -T --no-deps web \
-            python manage.py reconcile_legacy_database --legacy-db-name "$LEGACY_DB" \
+            python manage.py reconcile_legacy_database_safe --legacy-db-name "$LEGACY_DB" \
             </dev/null > "$COMMAND_LOG" 2>&1
           command_status=$?
           set -e
@@ -203,7 +200,6 @@ jobs:
           test "$CURRENT_WALLETS" -ge "$LEGACY_WALLETS" || { echo "Persisted wallets are still incomplete." >&2; false; }
           test "$CURRENT_PROFILES" -ge "$LEGACY_PROFILES" || { echo "Persisted profiles are still incomplete." >&2; false; }
 
-          # Current files always win; restore only legacy media files that are absent.
           docker compose run --rm -T --no-deps --entrypoint sh web -lc \
             'tar --skip-old-files -xzf - -C /app/media' < "$LEGACY_MEDIA"
 
