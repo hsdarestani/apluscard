@@ -19,7 +19,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_commit.message == 'Retry mapped legacy reconciliation with strict verification')
+       github.event.workflow_run.head_commit.message == 'Execute legacy reconciliation without SSH stdin drain')
     name: Strict mapped merge of legacy production data
     runs-on: ubuntu-latest
     environment: production
@@ -110,15 +110,15 @@ jobs:
             original_status="${1:-1}"
             echo "RECONCILIATION_ROLLBACK=YES original_status=$original_status" >&2
             set +e
-            docker compose stop push-worker web >/dev/null 2>&1
-            docker compose up -d db >/dev/null 2>&1
+            docker compose stop push-worker web </dev/null >/dev/null 2>&1
+            docker compose up -d db </dev/null >/dev/null 2>&1
             if [ -s "$BACKUP" ]; then
               docker compose exec -T db sh -lc \
                 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges' \
                 < "$BACKUP"
             fi
-            docker compose exec -T db sh -lc "dropdb -U \"\$POSTGRES_USER\" --if-exists '$LEGACY_DB'" >/dev/null 2>&1
-            docker compose up -d --remove-orphans >/dev/null 2>&1
+            docker compose exec -T db sh -lc "dropdb -U \"\$POSTGRES_USER\" --if-exists '$LEGACY_DB'" </dev/null >/dev/null 2>&1
+            docker compose up -d --remove-orphans </dev/null >/dev/null 2>&1
             if [ -s "$COMMAND_LOG" ]; then
               echo "--- reconciliation command output ---" >&2
               tail -n 120 "$COMMAND_LOG" >&2
@@ -131,29 +131,29 @@ jobs:
           test -s "$LEGACY_DUMP"
           test -s "$LEGACY_MEDIA"
           test -f cards/management/commands/reconcile_legacy_database.py
-          docker compose up -d db >/dev/null
+          docker compose up -d db </dev/null >/dev/null
 
-          docker compose exec -T db sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$BACKUP"
+          docker compose exec -T db sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' </dev/null > "$BACKUP"
           test -s "$BACKUP"
           chmod 600 "$BACKUP"
           echo "PRE_MERGE_BACKUP_OK=YES"
 
-          docker compose stop push-worker web >/dev/null
-          docker compose up -d db >/dev/null
-          docker compose exec -T db sh -lc "createdb -U \"\$POSTGRES_USER\" '$LEGACY_DB'"
+          docker compose stop push-worker web </dev/null >/dev/null
+          docker compose up -d db </dev/null >/dev/null
+          docker compose exec -T db sh -lc "createdb -U \"\$POSTGRES_USER\" '$LEGACY_DB'" </dev/null
           docker compose exec -T db sh -lc \
             "pg_restore -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' --no-owner --no-privileges" \
             < "$LEGACY_DUMP"
 
-          LEGACY_USERS="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM auth_user'" | tr -d '\r')"
-          LEGACY_WALLETS="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_wallet'" | tr -d '\r')"
-          LEGACY_PROFILES="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_memberprofile'" | tr -d '\r')"
+          LEGACY_USERS="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM auth_user'" </dev/null | tr -d '\r')"
+          LEGACY_WALLETS="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_wallet'" </dev/null | tr -d '\r')"
+          LEGACY_PROFILES="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_memberprofile'" </dev/null | tr -d '\r')"
           echo "LEGACY_COUNTS users=$LEGACY_USERS wallets=$LEGACY_WALLETS profiles=$LEGACY_PROFILES"
 
           set +e
           docker compose run --rm -T --no-deps web \
             python manage.py reconcile_legacy_database --legacy-db-name "$LEGACY_DB" \
-            > "$COMMAND_LOG" 2>&1
+            </dev/null > "$COMMAND_LOG" 2>&1
           command_status=$?
           set -e
           if [ "$command_status" -ne 0 ]; then
@@ -164,9 +164,9 @@ jobs:
           echo "--- reconciliation summary ---"
           grep -E 'Legacy-Reconciliation|POST_COUNTS|(_inserted|_mapped_to_existing_identity|_current_wins|_total)=' "$COMMAND_LOG" || true
 
-          CURRENT_USERS="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM auth_user"' | tr -d '\r')"
-          CURRENT_WALLETS="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM cards_wallet"' | tr -d '\r')"
-          CURRENT_PROFILES="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM cards_memberprofile"' | tr -d '\r')"
+          CURRENT_USERS="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM auth_user"' </dev/null | tr -d '\r')"
+          CURRENT_WALLETS="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM cards_wallet"' </dev/null | tr -d '\r')"
+          CURRENT_PROFILES="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM cards_memberprofile"' </dev/null | tr -d '\r')"
           echo "CURRENT_COUNTS users=$CURRENT_USERS wallets=$CURRENT_WALLETS profiles=$CURRENT_PROFILES"
 
           test "$CURRENT_USERS" -ge "$LEGACY_USERS" || { echo "Persisted users are still incomplete." >&2; false; }
@@ -177,8 +177,8 @@ jobs:
           docker compose run --rm -T --no-deps --entrypoint sh web -lc \
             'tar --skip-old-files -xzf - -C /app/media' < "$LEGACY_MEDIA"
 
-          docker compose exec -T db sh -lc "dropdb -U \"\$POSTGRES_USER\" '$LEGACY_DB'"
-          docker compose up -d --remove-orphans >/dev/null
+          docker compose exec -T db sh -lc "dropdb -U \"\$POSTGRES_USER\" '$LEGACY_DB'" </dev/null
+          docker compose up -d --remove-orphans </dev/null >/dev/null
 
           healthy=0
           for attempt in $(seq 1 60); do
