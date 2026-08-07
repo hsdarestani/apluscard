@@ -7,11 +7,9 @@ on:
 permissions:
   contents: read
 
-# This job is intentionally self-gated by the exact commit message below.
-# Future pushes leave the workflow dormant.
 jobs:
   purge:
-    if: github.event.head_commit.message == 'Purge exact test members 102 103 104 105 113 137 157'
+    if: github.event.head_commit.message == 'Verify and purge exact test members live'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
@@ -22,6 +20,8 @@ jobs:
       SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
       APP_DIR: /root/apluscard
       EXPECTED_SHA: ${{ github.sha }}
+      SITE_DOMAIN: app.samsclublounge.de
+      LEGACY_DOMAIN: cards.smarbiz.sbs
 
     steps:
       - name: Validate production target
@@ -30,6 +30,22 @@ jobs:
           set -Eeuo pipefail
           test "$SSH_HOST" = "217.160.50.71"
           test -n "$SSH_PRIVATE_KEY"
+
+      - name: Record public routing diagnostics
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "EXPECTED_HOST=$SSH_HOST"
+            echo "SITE_DOMAIN=$SITE_DOMAIN"
+            echo "SITE_DNS=$(getent ahostsv4 "$SITE_DOMAIN" | awk '{print $1}' | sort -u | paste -sd, -)"
+            echo "LEGACY_DNS=$(getent ahostsv4 "$LEGACY_DOMAIN" | awk '{print $1}' | sort -u | paste -sd, -)"
+            curl --silent --show-error --max-time 20 -o /dev/null \
+              -w 'SITE_HTTP=%{http_code} SITE_REMOTE_IP=%{remote_ip}\n' "https://$SITE_DOMAIN/health/" || true
+            curl --silent --show-error --max-time 20 -o /dev/null \
+              -w 'LEGACY_HTTP=%{http_code} LEGACY_REMOTE_IP=%{remote_ip} REDIRECT=%{redirect_url}\n' "https://$LEGACY_DOMAIN/health/" || true
+          } > runner-routing-report.txt
+          cat runner-routing-report.txt
 
       - name: Configure SSH
         shell: bash
@@ -42,7 +58,7 @@ jobs:
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Wait for this revision to be deployed
+      - name: Wait for deployed revision
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -56,170 +72,226 @@ jobs:
           echo "Production never reached expected revision $EXPECTED_SHA"
           exit 1
 
-      - name: Back up, purge exact members, and verify
+      - name: Back up, inspect, purge, and verify exact members
+        id: purge
         shell: bash
         run: |
           set -Eeuo pipefail
           ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "APP_DIR='$APP_DIR' EXPECTED_SHA='$EXPECTED_SHA' bash -se" <<'REMOTE' | tee targeted-purge-report.txt
+            "APP_DIR='$APP_DIR' EXPECTED_SHA='$EXPECTED_SHA' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           cd "$APP_DIR"
           test "$(cat .deployed_sha)" = "$EXPECTED_SHA"
-          curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null
+
+          healthy=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" -eq 1
+
+          report="/tmp/exact-member-live-report-$EXPECTED_SHA.txt"
+          script="/tmp/exact-member-live-purge-$EXPECTED_SHA.py"
+          : > "$report"
+          chmod 600 "$report"
+          exec >"$report" 2>&1
+
+          echo "SERVER_HOSTNAME=$(hostname)"
+          echo "DEPLOYED_SHA=$(cat .deployed_sha)"
+          echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          docker compose ps
 
           stamp="$(date -u +%Y%m%dT%H%M%SZ)"
           backup_dir="$APP_DIR/backups/test-data-purge"
           mkdir -p "$backup_dir"
-          backup="$backup_dir/pre-exact-members-purge-$stamp.dump"
+          backup="$backup_dir/pre-exact-members-live-purge-$stamp.dump"
           docker compose exec -T db sh -lc 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$backup"
           test -s "$backup"
           chmod 600 "$backup"
           echo "BACKUP=$backup"
           sha256sum "$backup"
 
-          docker compose exec -T web python manage.py shell <<'PY'
-          import json
-          from django.contrib.auth import get_user_model
-          from django.db import transaction
-          from django.db.models import Q
-          from rest_framework.authtoken.models import Token
+          cat > "$script" <<'PY'
+import json
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.db import transaction
+from django.db.models import Q
+from rest_framework.authtoken.models import Token
 
-          from cards.compliance_models import TestWalletMarker
-          from cards.experience_models import TransactionCase
-          from cards.legal_models import AccountDeletionRequest, LegalAcceptance, PrivacyPreference
-          from cards.models import AppNotification, LedgerEntry, Membership, Offer, PaymentRequest, PushDevice, ReviewStatus, Wallet
+from cards.compliance_models import TestWalletMarker
+from cards.experience_models import TransactionCase
+from cards.legal_models import AccountDeletionRequest, LegalAcceptance, PrivacyPreference
+from cards.models import AppNotification, LedgerEntry, Membership, Offer, PaymentRequest, PushDevice, ReviewStatus, Wallet
 
-          TARGETS = {
-              "102": "Hossein Farahani",
-              "103": "Ashkan Dian",
-              "104": "test test",
-              "105": "google review",
-              "113": "Ashkan Asadian",
-              "137": "TEST TEST",
-              "157": "SAMS Push Smoke Test",
-          }
+TARGETS = {
+    "102": {"name": "Hossein Farahani", "contact": "+989383773850"},
+    "103": {"name": "Ashkan Dian", "contact": "01727779721"},
+    "104": {"name": "test test", "contact": "09383773850"},
+    "105": {"name": "google review", "contact": "0172000000"},
+    "113": {"name": "Ashkan Asadian", "contact": "+491727779721"},
+    "137": {"name": "TEST TEST", "contact": "01729907936"},
+    "157": {"name": "SAMS Push Smoke Test", "contact": "owner@cards.smarbiz.sbs"},
+}
 
-          def norm(value):
-              return " ".join((value or "").split()).casefold()
+def norm(value):
+    return " ".join((value or "").split()).casefold()
 
-          wallets = list(
-              Wallet.objects.filter(member_number__in=TARGETS)
-              .select_related("owner", "business")
-              .order_by("member_number")
-          )
-          found = {w.member_number: w for w in wallets}
-          missing = sorted(set(TARGETS) - set(found))
-          mismatched = {
-              number: {"expected": TARGETS[number], "actual": found[number].display_name}
-              for number in found
-              if norm(found[number].display_name) != norm(TARGETS[number])
-          }
+def wallet_row(w):
+    owner = w.owner
+    return {
+        "id": str(w.pk),
+        "member_number": w.member_number,
+        "display_name": w.display_name,
+        "phone": w.phone,
+        "wallet_email": w.email,
+        "business": w.business.slug,
+        "owner_id": getattr(owner, "pk", None),
+        "owner_username": getattr(owner, "username", None),
+        "owner_email": getattr(owner, "email", None),
+        "owner_is_staff": bool(getattr(owner, "is_staff", False)),
+        "owner_is_superuser": bool(getattr(owner, "is_superuser", False)),
+    }
 
-          before = []
-          for w in wallets:
-              owner = w.owner
-              before.append({
-                  "member_number": w.member_number,
-                  "display_name": w.display_name,
-                  "phone": w.phone,
-                  "wallet_email": w.email,
-                  "business": w.business.slug,
-                  "owner_id": getattr(owner, "pk", None),
-                  "owner_username": getattr(owner, "username", None),
-                  "owner_email": getattr(owner, "email", None),
-                  "owner_is_staff": bool(getattr(owner, "is_staff", False)),
-                  "owner_is_superuser": bool(getattr(owner, "is_superuser", False)),
-              })
+def dump(label, value):
+    print(label + "=" + json.dumps(value, ensure_ascii=False, sort_keys=True, default=str), flush=True)
 
-          print("TARGET_BEFORE=" + json.dumps(before, ensure_ascii=False, sort_keys=True))
-          print("MISSING_BEFORE=" + json.dumps(missing))
-          print("MISMATCHED_BEFORE=" + json.dumps(mismatched, ensure_ascii=False, sort_keys=True))
-          if mismatched:
-              raise SystemExit("Safety stop: at least one member number has an unexpected display name")
+safe_db = dict(settings.DATABASES["default"])
+for key in ("PASSWORD", "USER"):
+    if key in safe_db and safe_db[key]:
+        safe_db[key] = "***"
+dump("DATABASE", safe_db)
+print("WALLET_COUNT_BEFORE=" + str(Wallet.objects.count()), flush=True)
 
-          owner_ids = sorted({w.owner_id for w in wallets if w.owner_id})
-          target_wallet_ids = [w.pk for w in wallets]
-          target_payment_ids = [str(pk) for pk in PaymentRequest.objects.filter(wallet_id__in=target_wallet_ids).values_list("pk", flat=True)]
+wallets = list(
+    Wallet.objects.filter(member_number__in=TARGETS)
+    .select_related("owner", "business")
+    .order_by("member_number")
+)
+found = {w.member_number: w for w in wallets}
+missing = sorted(set(TARGETS) - set(found))
+mismatched = {
+    number: {"expected": TARGETS[number]["name"], "actual": found[number].display_name}
+    for number in found
+    if norm(found[number].display_name) != norm(TARGETS[number]["name"])
+}
+dump("TARGET_BEFORE", [wallet_row(w) for w in wallets])
+dump("MISSING_BEFORE", missing)
+dump("MISMATCHED_BEFORE", mismatched)
 
-          user_results = []
-          with transaction.atomic():
-              # Remove only records attached to the seven explicitly identified test wallets.
-              TransactionCase.objects.filter(wallet_id__in=target_wallet_ids).delete()
-              AccountDeletionRequest.objects.filter(wallet_id__in=target_wallet_ids).delete()
-              ReviewStatus.objects.filter(wallet_id__in=target_wallet_ids).delete()
-              PaymentRequest.objects.filter(wallet_id__in=target_wallet_ids).delete()
-              LedgerEntry.objects.filter(wallet_id__in=target_wallet_ids).delete()
-              TestWalletMarker.objects.filter(wallet_id__in=target_wallet_ids).delete()
+# Extra diagnostic only: find rows resembling the supplied test identities even if their member number differs.
+name_values = [item["name"] for item in TARGETS.values()]
+contact_values = [item["contact"] for item in TARGETS.values()]
+suspects = Wallet.objects.filter(
+    Q(display_name__in=name_values) | Q(phone__in=contact_values) | Q(email__in=contact_values)
+).select_related("owner", "business").order_by("member_number")
+dump("SUSPECT_ROWS", [wallet_row(w) for w in suspects])
 
-              # Remove notifications that explicitly point at these test payments/smoke tests.
-              notif_q = Q(data__production_smoke_test=True)
-              if target_payment_ids:
-                  notif_q |= Q(data__payment_request_id__in=target_payment_ids)
-              AppNotification.objects.filter(notif_q).delete()
+if mismatched:
+    raise SystemExit("Safety stop: member number/name mismatch")
 
-              Wallet.objects.filter(pk__in=target_wallet_ids).delete()
+owner_ids = sorted({w.owner_id for w in wallets if w.owner_id})
+target_wallet_ids = [w.pk for w in wallets]
+target_payment_ids = [str(pk) for pk in PaymentRequest.objects.filter(wallet_id__in=target_wallet_ids).values_list("pk", flat=True)]
+user_results = []
 
-              User = get_user_model()
-              for user in User.objects.filter(pk__in=owner_ids).order_by("pk"):
-                  reasons = []
-                  if user.is_superuser:
-                      reasons.append("superuser")
-                  if user.is_staff:
-                      reasons.append("django_staff")
-                  if Membership.objects.filter(user=user).exclude(business__slug="demo-lounge").exists():
-                      reasons.append("business_membership")
-                  if Wallet.objects.filter(owner=user).exists():
-                      reasons.append("other_wallet")
-                  if PaymentRequest.objects.filter(created_by=user).exists():
-                      reasons.append("created_payment_request")
-                  if LedgerEntry.objects.filter(performed_by=user).exists():
-                      reasons.append("performed_ledger_entry")
-                  if Offer.objects.filter(created_by=user).exists():
-                      reasons.append("created_offer")
-                  if TransactionCase.objects.filter(opened_by=user).exists():
-                      reasons.append("opened_transaction_case")
+with transaction.atomic():
+    TransactionCase.objects.filter(wallet_id__in=target_wallet_ids).delete()
+    AccountDeletionRequest.objects.filter(wallet_id__in=target_wallet_ids).delete()
+    ReviewStatus.objects.filter(wallet_id__in=target_wallet_ids).delete()
+    PaymentRequest.objects.filter(wallet_id__in=target_wallet_ids).delete()
+    LedgerEntry.objects.filter(wallet_id__in=target_wallet_ids).delete()
+    TestWalletMarker.objects.filter(wallet_id__in=target_wallet_ids).delete()
 
-                  row = {
-                      "id": user.pk,
-                      "username": user.username,
-                      "email": user.email,
-                      "deleted": False,
-                      "preserved_reasons": reasons,
-                  }
-                  if not reasons:
-                      AppNotification.objects.filter(recipient=user).delete()
-                      AccountDeletionRequest.objects.filter(user=user).delete()
-                      Token.objects.filter(user=user).delete()
-                      PushDevice.objects.filter(user=user).delete()
-                      PrivacyPreference.objects.filter(user=user).delete()
-                      LegalAcceptance.objects.filter(user=user).delete()
-                      Membership.objects.filter(user=user, business__slug="demo-lounge").delete()
-                      user.delete()
-                      row["deleted"] = True
-                  user_results.append(row)
+    notif_q = Q(data__production_smoke_test=True)
+    if target_payment_ids:
+        notif_q |= Q(data__payment_request_id__in=target_payment_ids)
+    AppNotification.objects.filter(notif_q).delete()
 
-          remaining = list(
-              Wallet.objects.filter(member_number__in=TARGETS)
-              .order_by("member_number")
-              .values("member_number", "display_name", "email", "phone")
-          )
-          print("USER_RESULTS=" + json.dumps(user_results, ensure_ascii=False, sort_keys=True))
-          print("REMAINING_WALLETS=" + json.dumps(remaining, ensure_ascii=False, sort_keys=True))
-          if remaining:
-              raise SystemExit("Verification failed: one or more targeted wallets still exist")
-          print("PURGE_OK=1")
-          PY
+    Wallet.objects.filter(pk__in=target_wallet_ids).delete()
 
+    User = get_user_model()
+    for user in User.objects.filter(pk__in=owner_ids).order_by("pk"):
+        reasons = []
+        if user.is_superuser:
+            reasons.append("superuser")
+        if user.is_staff:
+            reasons.append("django_staff")
+        if Membership.objects.filter(user=user).exclude(business__slug="demo-lounge").exists():
+            reasons.append("business_membership")
+        if Wallet.objects.filter(owner=user).exists():
+            reasons.append("other_wallet")
+        if PaymentRequest.objects.filter(created_by=user).exists():
+            reasons.append("created_payment_request")
+        if LedgerEntry.objects.filter(performed_by=user).exists():
+            reasons.append("performed_ledger_entry")
+        if Offer.objects.filter(created_by=user).exists():
+            reasons.append("created_offer")
+        if TransactionCase.objects.filter(opened_by=user).exists():
+            reasons.append("opened_transaction_case")
+
+        row = {
+            "id": user.pk,
+            "username": user.username,
+            "email": user.email,
+            "deleted": False,
+            "preserved_reasons": reasons,
+        }
+        if not reasons:
+            AppNotification.objects.filter(recipient=user).delete()
+            AccountDeletionRequest.objects.filter(user=user).delete()
+            Token.objects.filter(user=user).delete()
+            PushDevice.objects.filter(user=user).delete()
+            PrivacyPreference.objects.filter(user=user).delete()
+            LegalAcceptance.objects.filter(user=user).delete()
+            Membership.objects.filter(user=user).delete()
+            user.delete()
+            row["deleted"] = True
+        user_results.append(row)
+
+dump("USER_RESULTS", user_results)
+remaining = list(
+    Wallet.objects.filter(member_number__in=TARGETS)
+    .select_related("owner", "business")
+    .order_by("member_number")
+)
+dump("TARGET_AFTER", [wallet_row(w) for w in remaining])
+print("WALLET_COUNT_AFTER=" + str(Wallet.objects.count()), flush=True)
+if remaining:
+    raise SystemExit("Verification failed: target wallet still exists")
+print("PURGE_OK=1", flush=True)
+PY
+
+          docker compose exec -T web python manage.py shell < "$script"
+          rm -f "$script"
           docker compose exec -T web python manage.py check </dev/null
           curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null
           echo "HEALTH_OK=1"
           REMOTE
 
-      - name: Upload purge report
+      - name: Fetch server report
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          scp -i ~/.ssh/strato_sams -P "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST:/tmp/exact-member-live-report-$EXPECTED_SHA.txt" \
+            server-purge-report.txt
+          if [ -f server-purge-report.txt ]; then
+            cat server-purge-report.txt
+          fi
+          exit 0
+
+      - name: Upload verification reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: exact-test-member-purge-report
-          path: targeted-purge-report.txt
+          name: exact-test-member-live-verification
+          path: |
+            runner-routing-report.txt
+            server-purge-report.txt
           if-no-files-found: warn
           retention-days: 14
