@@ -15,6 +15,20 @@ from cards.push_services import send_notification
 logger = logging.getLogger(__name__)
 
 
+def expire_stale_deliveries():
+    now = timezone.now()
+    cutoff = now - timedelta(seconds=settings.PUSH_NOTIFICATION_MAX_AGE_SECONDS)
+    return PushDelivery.objects.filter(
+        status__in=[PushDelivery.Status.PENDING, PushDelivery.Status.RETRY],
+        notification__created_at__lt=cutoff,
+    ).update(
+        status=PushDelivery.Status.SKIPPED,
+        last_error="Mitteilung ist für Push zu alt und wurde beim Queue-Aufräumen übersprungen.",
+        processed_at=now,
+        updated_at=now,
+    )
+
+
 def enqueue_recent_notifications(limit=500):
     cutoff = timezone.now() - timedelta(seconds=settings.PUSH_NOTIFICATION_MAX_AGE_SECONDS)
     notification_ids = list(
@@ -49,7 +63,10 @@ def claim_delivery():
                 status__in=[PushDelivery.Status.PENDING, PushDelivery.Status.RETRY],
                 next_attempt_at__lte=now,
             )
-            .order_by("next_attempt_at", "created_at")
+            # Native pushes are time-sensitive. During recovery from an outage,
+            # deliver fresh events first instead of making a new payment wait
+            # behind a historical queue. Old entries are still drained below.
+            .order_by("-notification__created_at", "next_attempt_at")
             .first()
         )
         if not delivery:
@@ -125,6 +142,9 @@ class Command(BaseCommand):
                 time.sleep(max(poll, 10))
                 continue
 
+            expired = expire_stale_deliveries()
+            if expired:
+                logger.info("Skipped %s stale push deliveries.", expired)
             enqueue_recent_notifications()
             processed = 0
             while processed < 100:
