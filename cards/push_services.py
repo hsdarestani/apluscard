@@ -88,7 +88,7 @@ def _firebase_app():
 
 def _send_android(notification, devices):
     if not devices:
-        return 0
+        return 0, []
     from firebase_admin import messaging
 
     message = messaging.MulticastMessage(
@@ -111,6 +111,7 @@ def _send_android(notification, devices):
     )
     response = messaging.send_each_for_multicast(message, app=_firebase_app())
     invalid_ids = []
+    errors = []
     for device, result in zip(devices, response.responses):
         if result.success:
             continue
@@ -124,10 +125,12 @@ def _send_android(notification, devices):
             or "sender-id-mismatch" in code
         ):
             invalid_ids.append(device.pk)
+        detail = str(error or "Unbekannter FCM-Fehler")
+        errors.append(f"Android Gerät {device.pk}: {detail}")
         logger.warning("Android push failed for device %s: %s", device.pk, error)
     if invalid_ids:
         PushDevice.objects.filter(pk__in=invalid_ids).update(is_active=False)
-    return response.success_count
+    return response.success_count, errors
 
 
 def _apns_auth_token():
@@ -150,7 +153,7 @@ def _apns_auth_token():
 
 def _send_ios(notification, devices):
     if not devices:
-        return 0
+        return 0, []
     endpoint = "https://api.sandbox.push.apple.com" if settings.APNS_USE_SANDBOX else "https://api.push.apple.com"
     unread_count = AppNotification.objects.filter(recipient=notification.recipient, is_read=False).count()
     payload = {
@@ -170,6 +173,7 @@ def _send_ios(notification, devices):
     }
     success_count = 0
     invalid_ids = []
+    errors = []
     with httpx.Client(http2=True, timeout=settings.PUSH_HTTP_TIMEOUT_SECONDS) as client:
         for device in devices:
             response = client.post(f"{endpoint}/3/device/{device.token}", headers=headers, json=payload)
@@ -181,12 +185,15 @@ def _send_ios(notification, devices):
                 reason = response.json().get("reason", "")
             except (ValueError, AttributeError):
                 reason = response.text[:200]
+            reason = reason or "Unbekannter APNs-Fehler"
             if response.status_code in {400, 410} and reason in {"BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"}:
                 invalid_ids.append(device.pk)
+            detail = f"iOS Gerät {device.pk}: HTTP {response.status_code} {reason}"
+            errors.append(detail)
             logger.warning("iOS push failed for device %s: HTTP %s %s", device.pk, response.status_code, reason)
     if invalid_ids:
         PushDevice.objects.filter(pk__in=invalid_ids).update(is_active=False)
-    return success_count
+    return success_count, errors
 
 
 def send_notification(notification):
@@ -210,13 +217,15 @@ def send_notification(notification):
 
     if grouped[PushDevice.Platform.ANDROID]:
         try:
-            result["android"] = _send_android(notification, grouped[PushDevice.Platform.ANDROID])
+            result["android"], android_errors = _send_android(notification, grouped[PushDevice.Platform.ANDROID])
+            result["errors"].extend(android_errors)
         except Exception as exc:
             logger.exception("Android push dispatch failed for notification %s.", notification.pk)
             result["errors"].append(f"Android: {exc}")
     if grouped[PushDevice.Platform.IOS]:
         try:
-            result["ios"] = _send_ios(notification, grouped[PushDevice.Platform.IOS])
+            result["ios"], ios_errors = _send_ios(notification, grouped[PushDevice.Platform.IOS])
+            result["errors"].extend(ios_errors)
         except Exception as exc:
             logger.exception("iOS push dispatch failed for notification %s.", notification.pk)
             result["errors"].append(f"iOS: {exc}")
