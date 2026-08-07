@@ -89,7 +89,10 @@ jobs:
                   proxy_ssl_server_name on;
                   proxy_ssl_name $CANONICAL_DOMAIN;
 
-                  proxy_set_header Host $LEGACY_DOMAIN;
+                  # Cloudflare/canonical ingress must see the canonical Host.
+                  # The browser itself remains on the legacy host, so relative
+                  # navigation stays inside older Capacitor WebViews.
+                  proxy_set_header Host $CANONICAL_DOMAIN;
                   proxy_set_header X-Forwarded-Host $LEGACY_DOMAIN;
                   proxy_set_header X-Forwarded-Proto https;
                   proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
