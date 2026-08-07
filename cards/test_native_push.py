@@ -116,7 +116,7 @@ class SamsWalletDesignTests(TestCase):
     def test_wallet_has_clean_layout_and_no_oversized_member_number(self):
         request = RequestFactory().get(
             "/customer/apple-wallet/",
-            HTTP_HOST="cards.smarbiz.sbs",
+            HTTP_HOST="app.samsclublounge.de",
             secure=True,
         )
         files = _pass_files(self.wallet, request)

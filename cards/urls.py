@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, apple_views, compliance_api, compliance_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, views
+from . import api, apple_views, compliance_api, compliance_views, data_export_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
@@ -13,7 +13,8 @@ urlpatterns = [
     path("datenschutz/", legal_views.privacy_policy, name="privacy_policy"),
     path("impressum/", legal_views.imprint, name="imprint"),
     path("datenschutz/einstellungen/", operations_views.privacy_choices_safe, name="privacy_choices"),
-    path("datenschutz/datenexport/", compliance_views.customer_data_export, name="customer_data_export"),
+    path("datenschutz/datenexport/", data_export_views.customer_data_export, name="customer_data_export"),
+    path("datenschutz/datenexport/download/<str:token>/", data_export_views.customer_data_export_download, name="customer_data_export_download"),
     path("datenschutz/konto-loeschen/", legal_views.account_deletion, name="account_deletion"),
     path("rechtliches-bestaetigen/", legal_views.legal_acceptance, name="legal_acceptance"),
     path("apps/<slug:business_slug>/agb/", legal_views.terms, name="app_terms"),
@@ -50,6 +51,7 @@ urlpatterns = [
     path("manager/", views.manager_dashboard, name="manager_dashboard"),
     path("manager/settings/", views.manager_settings, name="manager_settings"),
     path("manager/standortbild/", experience_views.location_visual_update, name="location_visual_update"),
+    path("manager/standorte/<uuid:location_id>/links/", experience_views.location_links_update, name="location_links_update"),
     path("manager/rechtliches/", legal_views.manager_legal, name="manager_legal"),
     path("manager/notifications/broadcast/", operations_views.manager_broadcast_notification, name="manager_broadcast_notification"),
     path("manager/notifications/<uuid:wallet_id>/send/", operations_views.manager_direct_notification, name="manager_direct_notification"),

@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   server: {
     url: 'https://app.samsclublounge.de',
     cleartext: false,
-    allowNavigation: ['app.samsclublounge.de', 'cards.smarbiz.sbs'],
+    allowNavigation: ['app.samsclublounge.de'],
   },
   plugins: {
     PushNotifications: {

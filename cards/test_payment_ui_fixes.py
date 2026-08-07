@@ -87,11 +87,11 @@ class EmailDeliveryTests(PlatformMixin, TestCase):
     def setUp(self): self.create_platform()
 
     def test_verification_email_uses_aplus_sender_and_contains_link(self):
-        request = RequestFactory().get("/", HTTP_HOST="cards.smarbiz.sbs", secure=True)
+        request = RequestFactory().get("/", HTTP_HOST="app.samsclublounge.de", secure=True)
         sent = send_verification_email(request, self.customer)
         self.assertTrue(sent)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].from_email, "A+ Card <app@aplus-solution.de>")
         self.assertEqual(mail.outbox[0].reply_to, ["app@aplus-solution.de"])
         self.assertIn("A+Solution GmbH", mail.outbox[0].body)
-        self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)
+        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)

@@ -3,6 +3,7 @@ import logging
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.validators import URLValidator
 from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,7 +14,7 @@ from django.views.decorators.http import require_POST
 from .experience_forms import LocationVisualForm, TransactionCaseForm, TransactionCaseReviewForm
 from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
-from .models import AppNotification, LedgerEntry, Membership, Wallet
+from .models import AppNotification, LedgerEntry, Location, Membership, Wallet
 from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, get_active_membership, require_role
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ def client_ip(request):
 
 def service_worker(request):
     content = """
-const CACHE = 'sams-club-lounge-v13';
+const CACHE = 'sams-club-lounge-v14';
 const ASSETS = [
   '/static/cards/app.css',
   '/static/cards/app.js',
@@ -159,6 +160,42 @@ def location_visual_update(request):
             + (detail or "Bitte Datei und Angaben prüfen."),
         )
     return redirect("manager_settings")
+
+
+@login_required
+@require_POST
+def location_links_update(request, location_id):
+    membership = get_active_membership(request.user)
+    if not membership:
+        raise PermissionDenied
+    require_role(request.user, membership.business, OWNER_ROLES)
+    location = get_object_or_404(Location, pk=location_id, business=membership.business)
+
+    validator = URLValidator(schemes=["https"])
+    values = {
+        "google_review_url": request.POST.get("google_review_url", "").strip(),
+        "instagram_url": request.POST.get("instagram_url", "").strip(),
+        "tiktok_url": request.POST.get("tiktok_url", "").strip(),
+    }
+    labels = {
+        "google_review_url": "Google-Bewertung",
+        "instagram_url": "Instagram",
+        "tiktok_url": "TikTok",
+    }
+    for field_name, value in values.items():
+        if not value:
+            continue
+        try:
+            validator(value)
+        except ValidationError:
+            messages.error(request, f"{labels[field_name]}: Bitte eine vollständige HTTPS-Adresse eintragen.")
+            return redirect(f"{reverse('manager_settings')}#locations")
+
+    for field_name, value in values.items():
+        setattr(location, field_name, value)
+    location.save(update_fields=["google_review_url", "instagram_url", "tiktok_url"])
+    messages.success(request, f"Links für {location.name} wurden gespeichert.")
+    return redirect(f"{reverse('manager_settings')}#locations")
 
 
 def _case_access(user, transaction_case):

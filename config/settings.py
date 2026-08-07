@@ -9,8 +9,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-me")
 DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 IS_TESTING = "test" in sys.argv
-ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,cards.smarbiz.sbs").split(",") if host.strip()]
-CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "https://cards.smarbiz.sbs").split(",") if origin.strip()]
+ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,app.samsclublounge.de").split(",") if host.strip()]
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "https://app.samsclublounge.de").split(",") if origin.strip()]
 DEFAULT_BUSINESS_SLUG = os.getenv("DEFAULT_BUSINESS_SLUG", "shisha-bar")
 
 # Zentrale öffentliche Identität für Web-App, Store-Einträge und Systemmails.
@@ -21,7 +21,7 @@ _configured_short_name = os.getenv("APP_SHORT_NAME", "").strip()
 APP_SHORT_NAME = "Sams Lounge" if _configured_short_name in {"", "SAMS"} else _configured_short_name
 APP_PUBLISHER = os.getenv("APP_PUBLISHER", "A+ Solution GmbH").strip()
 APP_SUPPORT_EMAIL = os.getenv("APP_SUPPORT_EMAIL", "app@aplus-solution.de").strip()
-APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "https://cards.smarbiz.sbs").strip().rstrip("/")
+APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "https://app.samsclublounge.de").strip().rstrip("/")
 ANDROID_PACKAGE_NAME = os.getenv("ANDROID_PACKAGE_NAME", "de.aplussolution.samscard").strip()
 ANDROID_APP_SIGNING_SHA256 = [
     fingerprint.strip().upper()
@@ -192,7 +192,7 @@ APPLE_PRIVATE_KEY = _apple_private_key()
 APPLE_BUNDLE_ID = os.getenv("APPLE_BUNDLE_ID", "").strip()
 APPLE_REDIRECT_URI = os.getenv(
     "APPLE_REDIRECT_URI",
-    "https://cards.smarbiz.sbs/accounts/apple/callback/",
+    "https://app.samsclublounge.de/accounts/apple/callback/",
 ).strip()
 APPLE_PRIVATE_KEY_HAS_PEM_MARKERS = (
     APPLE_PRIVATE_KEY.startswith("-----BEGIN PRIVATE KEY-----")
