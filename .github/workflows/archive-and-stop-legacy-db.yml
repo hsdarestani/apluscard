@@ -1,0 +1,133 @@
+name: Archive and Stop Legacy Database
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/archive-and-stop-legacy-db.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sams-archive-stop-legacy-db
+  cancel-in-progress: false
+
+jobs:
+  archive-stop:
+    name: Freeze final legacy DB archive and stop old PostgreSQL
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      LEGACY_DOMAIN: cards.smarbiz.sbs
+      CANONICAL_DOMAIN: app.samsclublounge.de
+      OLD_HOST: ${{ secrets.HETZNER_HOST }}
+      OLD_PORT: ${{ secrets.HETZNER_PORT }}
+      OLD_USER: ${{ secrets.HETZNER_USER }}
+      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
+      NEW_HOST: ${{ secrets.NEWHOST }}
+      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Verify public cutover before freezing archive
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          stamp="$(date +%s)"
+          headers="$RUNNER_TEMP/legacy-cutover-headers.txt"
+          legacy_code="$(curl --silent --show-error --max-time 20 -D "$headers" -o /dev/null --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' "https://$LEGACY_DOMAIN/health/?freeze_check=$stamp")"
+          location="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$headers")"
+          canonical_code="$(curl --silent --show-error --max-time 20 -o /dev/null --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' "https://$CANONICAL_DOMAIN/health/?freeze_check=$stamp")"
+          echo "Legacy HTTP=$legacy_code -> $location"
+          echo "Canonical HTTP=$canonical_code"
+          test "$legacy_code" = "308"
+          case "$location" in "https://$CANONICAL_DOMAIN/health/"*) ;; *) exit 1 ;; esac
+          test "$canonical_code" = "200"
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts
+          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -H "$NEW_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Export final legacy database archive
+        id: archive
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          ARCHIVE="$RUNNER_TEMP/sams-legacy-final-$(date -u +%Y%m%dT%H%M%SZ).dump"
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "cd '$APP_DIR' && test -z \"\$(docker compose ps --status running -q web)\" && test -z \"\$(docker compose ps --status running -q push-worker)\" && docker compose exec -T db sh -lc 'pg_dump -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Fc'" \
+            > "$ARCHIVE"
+          test -s "$ARCHIVE"
+          chmod 600 "$ARCHIVE"
+          sha256sum "$ARCHIVE" | tee "$ARCHIVE.sha256"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Store legacy archive on canonical server
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" 'install -m 700 -d /root/sams-legacy-archive'
+          base="$(basename "${{ steps.archive.outputs.archive }}")"
+          scp -i ~/.ssh/strato_sams \
+            "${{ steps.archive.outputs.archive }}" \
+            "${{ steps.archive.outputs.archive }}.sha256" \
+            root@"$NEW_HOST:/root/sams-legacy-archive/"
+          ssh -i ~/.ssh/strato_sams root@"$NEW_HOST" \
+            "cd /root/sams-legacy-archive && chmod 600 '$base' '$base.sha256' && sha256sum -c '$base.sha256'"
+          echo "LEGACY_FINAL_ARCHIVE_STORED_ON_CANONICAL=YES"
+
+      - name: Stop final legacy database service
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test -z "$(docker compose ps --status running -q web)"
+          test -z "$(docker compose ps --status running -q push-worker)"
+          test "$(docker compose ps --status running -q db | wc -l)" -eq 1
+          docker compose stop db </dev/null
+          test -z "$(docker compose ps --status running -q db)"
+          echo "LEGACY_WEB_STOPPED=YES"
+          echo "LEGACY_PUSH_WORKER_STOPPED=YES"
+          echo "LEGACY_DATABASE_STOPPED=YES"
+          REMOTE
+
+      - name: Re-verify public legacy redirect after full legacy shutdown
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          stamp="$(date +%s)"
+          headers="$RUNNER_TEMP/final-legacy-headers.txt"
+          code="$(curl --silent --show-error --max-time 20 -D "$headers" -o /dev/null --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' "https://$LEGACY_DOMAIN/health/?final_shutdown=$stamp")"
+          location="$(awk 'BEGIN{IGNORECASE=1} /^location:/ {sub(/^[^:]+:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$headers")"
+          final_code="$(curl --silent --show-error --location --max-time 25 -o /dev/null --write-out '%{http_code}' \
+            -H 'Cache-Control: no-cache' "https://$LEGACY_DOMAIN/health/?final_shutdown=$stamp")"
+          echo "Legacy redirect HTTP=$code -> $location"
+          echo "Legacy followed HTTP=$final_code"
+          test "$code" = "308"
+          case "$location" in "https://$CANONICAL_DOMAIN/health/"*) ;; *) exit 1 ;; esac
+          test "$final_code" = "200"
+          echo "SINGLE_ACTIVE_DATABASE_TOPOLOGY_VERIFIED=YES"
