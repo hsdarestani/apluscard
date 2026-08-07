@@ -19,8 +19,8 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_commit.message == 'Run mapped legacy production reconciliation once')
-    name: Map and merge missing legacy data into canonical PostgreSQL
+       github.event.workflow_run.head_commit.message == 'Retry mapped legacy reconciliation with strict verification')
+    name: Strict mapped merge of legacy production data
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -59,7 +59,7 @@ jobs:
           ssh-keyscan -H -p "$NEW_PORT" "$NEW_HOST" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Capture frozen legacy database and missing media
+      - name: Capture frozen legacy PostgreSQL and media
         id: legacy
         shell: bash
         env:
@@ -69,22 +69,18 @@ jobs:
           SNAPSHOT_DIR="$RUNNER_TEMP/sams-legacy-reconcile"
           mkdir -p "$SNAPSHOT_DIR"
           chmod 700 "$SNAPSHOT_DIR"
-
           sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
             "cd '$APP_DIR' && docker compose exec -T db sh -lc 'pg_dump -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Fc'" \
             > "$SNAPSHOT_DIR/legacy.dump"
-
           sshpass -e ssh -p "${OLD_PORT:-22}" "$OLD_USER@$OLD_HOST" \
             "cd '$APP_DIR' && docker compose run --rm -T --no-deps --entrypoint sh web -lc 'tar -C /app/media -czf - .'" \
             > "$SNAPSHOT_DIR/legacy-media.tar.gz"
-
           test -s "$SNAPSHOT_DIR/legacy.dump"
           test -s "$SNAPSHOT_DIR/legacy-media.tar.gz"
           chmod 600 "$SNAPSHOT_DIR"/*
-          sha256sum "$SNAPSHOT_DIR/legacy.dump" "$SNAPSHOT_DIR/legacy-media.tar.gz"
           echo "dir=$SNAPSHOT_DIR" >> "$GITHUB_OUTPUT"
 
-      - name: Upload legacy snapshot to canonical server
+      - name: Upload snapshot to canonical server
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -93,7 +89,7 @@ jobs:
             "${{ steps.legacy.outputs.dir }}/legacy-media.tar.gz" \
             "$NEW_USER@$NEW_HOST:/root/"
 
-      - name: Backup current data, reconcile and validate
+      - name: Reconcile with mandatory persistence checks
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -104,10 +100,33 @@ jobs:
           LEGACY_DUMP=/root/legacy.dump
           LEGACY_MEDIA=/root/legacy-media.tar.gz
           LEGACY_DB="apluscard_legacy_reconcile_$(date -u +%Y%m%d%H%M%S)"
+          COMMAND_LOG=/root/legacy-reconcile-command.log
           BACKUP_DIR=/root/sams-reconcile-backups
           mkdir -p "$BACKUP_DIR"
           chmod 700 "$BACKUP_DIR"
           BACKUP="$BACKUP_DIR/pre-legacy-merge-$(date -u +%Y%m%dT%H%M%SZ).dump"
+
+          rollback() {
+            original_status="${1:-1}"
+            echo "RECONCILIATION_ROLLBACK=YES original_status=$original_status" >&2
+            set +e
+            docker compose stop push-worker web >/dev/null 2>&1
+            docker compose up -d db >/dev/null 2>&1
+            if [ -s "$BACKUP" ]; then
+              docker compose exec -T db sh -lc \
+                'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges' \
+                < "$BACKUP"
+            fi
+            docker compose exec -T db sh -lc "dropdb -U \"\$POSTGRES_USER\" --if-exists '$LEGACY_DB'" >/dev/null 2>&1
+            docker compose up -d --remove-orphans >/dev/null 2>&1
+            if [ -s "$COMMAND_LOG" ]; then
+              echo "--- reconciliation command output ---" >&2
+              tail -n 120 "$COMMAND_LOG" >&2
+            fi
+            rm -f "$LEGACY_DUMP" "$LEGACY_MEDIA" "$COMMAND_LOG"
+            exit 1
+          }
+          trap 'rollback $?' ERR
 
           test -s "$LEGACY_DUMP"
           test -s "$LEGACY_MEDIA"
@@ -117,41 +136,49 @@ jobs:
           docker compose exec -T db sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$BACKUP"
           test -s "$BACKUP"
           chmod 600 "$BACKUP"
-          sha256sum "$BACKUP"
+          echo "PRE_MERGE_BACKUP_OK=YES"
 
-          rollback() {
-            status=$?
-            echo "Reconciliation failed. Restoring the exact pre-merge canonical backup." >&2
-            set +e
-            docker compose stop push-worker web
-            docker compose up -d db
-            docker compose exec -T db sh -lc \
-              'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges' \
-              < "$BACKUP"
-            docker compose exec -T db sh -lc "dropdb -U \"\$POSTGRES_USER\" --if-exists '$LEGACY_DB'" >/dev/null 2>&1
-            docker compose up -d --remove-orphans
-            rm -f "$LEGACY_DUMP" "$LEGACY_MEDIA"
-            exit "$status"
-          }
-          trap rollback ERR
-
-          docker compose stop push-worker web
-          docker compose up -d db
+          docker compose stop push-worker web >/dev/null
+          docker compose up -d db >/dev/null
           docker compose exec -T db sh -lc "createdb -U \"\$POSTGRES_USER\" '$LEGACY_DB'"
           docker compose exec -T db sh -lc \
             "pg_restore -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' --no-owner --no-privileges" \
             < "$LEGACY_DUMP"
 
-          docker compose run --rm -T --no-deps web \
-            python manage.py reconcile_legacy_database --legacy-db-name "$LEGACY_DB" </dev/null
+          LEGACY_USERS="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM auth_user'" | tr -d '\r')"
+          LEGACY_WALLETS="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_wallet'" | tr -d '\r')"
+          LEGACY_PROFILES="$(docker compose exec -T db sh -lc "psql -U \"\$POSTGRES_USER\" -d '$LEGACY_DB' -Atc 'SELECT count(*) FROM cards_memberprofile'" | tr -d '\r')"
+          echo "LEGACY_COUNTS users=$LEGACY_USERS wallets=$LEGACY_WALLETS profiles=$LEGACY_PROFILES"
 
-          # The current server wins on file-name collisions; only files that are
-          # actually missing from the canonical media volume are restored.
+          set +e
+          docker compose run --rm -T --no-deps web \
+            python manage.py reconcile_legacy_database --legacy-db-name "$LEGACY_DB" \
+            > "$COMMAND_LOG" 2>&1
+          command_status=$?
+          set -e
+          if [ "$command_status" -ne 0 ]; then
+            echo "RECONCILE_COMMAND_FAILED=$command_status" >&2
+            rollback "$command_status"
+          fi
+
+          echo "--- reconciliation summary ---"
+          grep -E 'Legacy-Reconciliation|POST_COUNTS|(_inserted|_mapped_to_existing_identity|_current_wins|_total)=' "$COMMAND_LOG" || true
+
+          CURRENT_USERS="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM auth_user"' | tr -d '\r')"
+          CURRENT_WALLETS="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM cards_wallet"' | tr -d '\r')"
+          CURRENT_PROFILES="$(docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM cards_memberprofile"' | tr -d '\r')"
+          echo "CURRENT_COUNTS users=$CURRENT_USERS wallets=$CURRENT_WALLETS profiles=$CURRENT_PROFILES"
+
+          test "$CURRENT_USERS" -ge "$LEGACY_USERS" || { echo "Persisted users are still incomplete." >&2; false; }
+          test "$CURRENT_WALLETS" -ge "$LEGACY_WALLETS" || { echo "Persisted wallets are still incomplete." >&2; false; }
+          test "$CURRENT_PROFILES" -ge "$LEGACY_PROFILES" || { echo "Persisted profiles are still incomplete." >&2; false; }
+
+          # Current files always win; restore only legacy media files that are absent.
           docker compose run --rm -T --no-deps --entrypoint sh web -lc \
             'tar --skip-old-files -xzf - -C /app/media' < "$LEGACY_MEDIA"
 
           docker compose exec -T db sh -lc "dropdb -U \"\$POSTGRES_USER\" '$LEGACY_DB'"
-          docker compose up -d --remove-orphans
+          docker compose up -d --remove-orphans >/dev/null
 
           healthy=0
           for attempt in $(seq 1 60); do
@@ -166,25 +193,8 @@ jobs:
           docker compose exec -T web python manage.py check </dev/null
           docker compose exec -T web python manage.py check_database_integrity </dev/null
 
-          docker compose exec -T web python manage.py shell -c '
-          from django.contrib.auth import get_user_model
-          from cards.models import Wallet, MemberProfile, PaymentRequest, LedgerEntry, PushDevice, ReviewStatus
-          from cards.legal_models import LegalAcceptance, PrivacyPreference
-          print("FINAL_COUNTS", {
-              "users": get_user_model().objects.count(),
-              "wallets": Wallet.objects.count(),
-              "profiles": MemberProfile.objects.count(),
-              "privacy": PrivacyPreference.objects.count(),
-              "legal": LegalAcceptance.objects.count(),
-              "reviews": ReviewStatus.objects.count(),
-              "push_devices": PushDevice.objects.count(),
-              "payments": PaymentRequest.objects.count(),
-              "ledger": LedgerEntry.objects.count(),
-          })
-          ' </dev/null
-
           trap - ERR
-          rm -f "$LEGACY_DUMP" "$LEGACY_MEDIA"
-          echo "MAPPED_LEGACY_RECONCILIATION_OK=YES"
-          echo "Pre-merge rollback backup retained: $BACKUP"
+          rm -f "$LEGACY_DUMP" "$LEGACY_MEDIA" "$COMMAND_LOG"
+          echo "MAPPED_LEGACY_RECONCILIATION_PERSISTED=YES"
+          echo "ROLLBACK_BACKUP_RETAINED=$BACKUP"
           REMOTE
