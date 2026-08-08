@@ -1,4 +1,4 @@
-name: Diagnose STRATO SSH Rate Limit
+name: Diagnose STRATO Hardening History
 
 on:
   push:
@@ -23,97 +23,33 @@ jobs:
       SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
 
     steps:
-      - name: Prepare read-only diagnostic access
+      - name: Prepare legacy jump only
         shell: bash
         run: |
           set -Eeuo pipefail
           test "$NEW_HOST" = "217.160.50.71"
           test -n "$NEW_PRIVATE_KEY"
-          test -n "$OLD_HOST"
-          test -n "$OLD_PASSWORD"
-
           sudo apt-get update >/dev/null
           sudo apt-get install -y sshpass >/dev/null
           install -m 700 -d ~/.ssh
           printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
           chmod 600 ~/.ssh/strato_sams
           ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
-
           ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts_legacy
           chmod 600 ~/.ssh/known_hosts_legacy
-
           cat > ~/.ssh/strato_proxy.sh <<'SH'
           #!/usr/bin/env bash
           set -Eeuo pipefail
-          exec sshpass -e ssh \
-            -p "${OLD_PORT:-22}" \
+          exec sshpass -e ssh -p "${OLD_PORT:-22}" \
             -o BatchMode=no \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts_legacy" \
             -o ConnectTimeout=15 \
-            -W "$1:$2" \
-            "$OLD_USER@$OLD_HOST"
+            -W "$1:$2" "$OLD_USER@$OLD_HOST"
           SH
           chmod 700 ~/.ssh/strato_proxy.sh
 
-          runner_ip="$(curl -fsS --max-time 10 https://api.ipify.org || true)"
-          echo "RUNNER_PUBLIC_IP=$runner_ip"
-          echo "RUNNER_PUBLIC_IP=$runner_ip" >> "$GITHUB_ENV"
-
-      - name: Direct SSH before any STRATO keyscan
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          ssh -i ~/.ssh/strato_sams \
-            -o BatchMode=yes \
-            -o PasswordAuthentication=no \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=15 \
-            root@"$NEW_HOST" 'bash -se' <<'REMOTE'
-          set -Eeuo pipefail
-          echo 'DIRECT_SSH_BEFORE_SCAN=YES'
-          echo '--- UFW STATUS ---'
-          ufw status verbose || true
-          echo '--- UFW NUMBERED ---'
-          ufw status numbered || true
-          echo '--- FAIL2BAN SSHD ---'
-          fail2ban-client status sshd || true
-          echo '--- SSHD EFFECTIVE ---'
-          sshd -T | grep -E '^(maxstartups|maxauthtries|logingracetime|passwordauthentication|kbdinteractiveauthentication|permitrootlogin|pubkeyauthentication) ' || true
-          REMOTE
-
-      - name: Clear rate window before reproduction
-        run: sleep 35
-
-      - name: Reproduce five-keyscan then real SSH
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -f /tmp/strato_keyscan /tmp/direct_after_scan
-          set +e
-          ssh-keyscan -H -T 8 "$NEW_HOST" > /tmp/strato_keyscan 2>&1
-          keyscan_rc=$?
-          set -e
-          echo "KEYSCAN_RC=$keyscan_rc"
-          grep -c 'SSH-2.0-OpenSSH' /tmp/strato_keyscan || true
-          cat /tmp/strato_keyscan
-
-          set +e
-          timeout 20 ssh -i ~/.ssh/strato_sams \
-            -o BatchMode=yes \
-            -o PasswordAuthentication=no \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=12 \
-            root@"$NEW_HOST" 'echo DIRECT_SSH_AFTER_SCAN=YES' \
-            > /tmp/direct_after_scan 2>&1
-          direct_rc=$?
-          set -e
-          echo "DIRECT_AFTER_SCAN_RC=$direct_rc"
-          cat /tmp/direct_after_scan
-
-      - name: Inspect STRATO through legacy path after direct lockout
+      - name: Read hardening timestamps and activation evidence
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -123,35 +59,35 @@ jobs:
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=15 \
             -o ProxyCommand='~/.ssh/strato_proxy.sh %h %p' \
-            root@"$NEW_HOST" "RUNNER_PUBLIC_IP='$RUNNER_PUBLIC_IP' bash -se" <<'REMOTE'
+            root@"$NEW_HOST" 'bash -se' <<'REMOTE'
           set -Eeuo pipefail
-          echo 'JUMP_SSH_AFTER_DIRECT_LOCKOUT=YES'
-          echo '--- FAIL2BAN SSHD AFTER REPRO ---'
-          fail2ban-client status sshd || true
-          echo '--- UFW STATUS AFTER REPRO ---'
-          ufw status numbered || true
-          echo '--- UFW KERNEL LOGS (RECENT) ---'
-          journalctl -k --since '3 minutes ago' --no-pager | grep -E 'UFW|LIMIT|BLOCK' | tail -n 120 || true
-          echo '--- SSH LOGS (RECENT) ---'
-          journalctl -u ssh --since '3 minutes ago' --no-pager | tail -n 160 || true
-          echo "RUNNER_PUBLIC_IP_SEEN=$RUNNER_PUBLIC_IP"
-          REMOTE
+          echo '--- HARDENING STATUS FILE ---'
+          if [ -f /var/lib/apluscard-security/last-hardening.json ]; then
+            cat /var/lib/apluscard-security/last-hardening.json
+          else
+            echo 'NO_LAST_HARDENING_FILE'
+          fi
 
-      - name: Check direct SSH after UFW window expires
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          sleep 40
-          set +e
-          timeout 20 ssh -i ~/.ssh/strato_sams \
-            -o BatchMode=yes \
-            -o PasswordAuthentication=no \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=12 \
-            root@"$NEW_HOST" 'echo DIRECT_SSH_AFTER_40S=YES' \
-            > /tmp/direct_after_40s 2>&1
-          rc=$?
-          set -e
-          echo "DIRECT_AFTER_40S_RC=$rc"
-          cat /tmp/direct_after_40s
+          echo '--- FILE TIMESTAMPS ---'
+          for f in \
+            /etc/ssh/sshd_config.d/99-sams-hardening.conf \
+            /etc/fail2ban/jail.d/sams.local \
+            /etc/ufw/user.rules \
+            /var/lib/apluscard-security/last-hardening.json \
+            /root/harden-strato.sh; do
+            [ -e "$f" ] && stat -c '%y | %n' "$f" || true
+          done
+
+          echo '--- HARDENING CONTENT FINGERPRINT ---'
+          grep -nE 'ufw limit|bantime|maxretry|mode = aggressive|PasswordAuthentication|MaxAuthTries' \
+            /root/harden-strato.sh /etc/fail2ban/jail.d/sams.local /etc/ssh/sshd_config.d/99-sams-hardening.conf 2>/dev/null || true
+
+          echo '--- PACKAGE INSTALL HISTORY ---'
+          zgrep -hE 'Install:.*(ufw|fail2ban)|Commandline:.*(ufw|fail2ban)' /var/log/apt/history.log* 2>/dev/null | tail -n 40 || true
+
+          echo '--- FAIL2BAN START/RELOAD HISTORY AROUND BREAK ---'
+          journalctl -u fail2ban --since '2026-08-07 11:30:00 UTC' --until '2026-08-07 15:30:00 UTC' --no-pager | tail -n 250 || true
+
+          echo '--- UFW JOURNAL AROUND BREAK ---'
+          journalctl -k --since '2026-08-07 11:30:00 UTC' --until '2026-08-07 15:30:00 UTC' --no-pager | grep -E 'UFW (LIMIT )?BLOCK' | tail -n 250 || true
+          REMOTE
