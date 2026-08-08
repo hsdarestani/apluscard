@@ -1,4 +1,4 @@
-name: Diagnose STRATO Hardening History
+name: Verify STRATO Single-Keyscan Path
 
 on:
   push:
@@ -10,84 +10,49 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  verify:
     runs-on: ubuntu-latest
     environment: production
     env:
-      NEW_HOST: ${{ secrets.NEWHOST }}
-      NEW_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
-      OLD_HOST: ${{ secrets.HETZNER_HOST }}
-      OLD_PORT: ${{ secrets.HETZNER_PORT }}
-      OLD_USER: ${{ secrets.HETZNER_USER }}
-      OLD_PASSWORD: ${{ secrets.HETZNER_PASSWORD }}
-      SSHPASS: ${{ secrets.HETZNER_PASSWORD }}
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+      SITE_DOMAIN: app.samsclublounge.de
 
     steps:
-      - name: Prepare legacy jump only
+      - name: Configure SSH with one host-key connection
         shell: bash
         run: |
           set -Eeuo pipefail
-          test "$NEW_HOST" = "217.160.50.71"
-          test -n "$NEW_PRIVATE_KEY"
-          sudo apt-get update >/dev/null
-          sudo apt-get install -y sshpass >/dev/null
+          test "$SSH_HOST" = "217.160.50.71"
+          test -n "$SSH_PRIVATE_KEY"
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$NEW_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
           chmod 600 ~/.ssh/strato_sams
           ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
-          ssh-keyscan -H -p "${OLD_PORT:-22}" "$OLD_HOST" > ~/.ssh/known_hosts_legacy
-          chmod 600 ~/.ssh/known_hosts_legacy
-          cat > ~/.ssh/strato_proxy.sh <<'SH'
-          #!/usr/bin/env bash
-          set -Eeuo pipefail
-          exec sshpass -e ssh -p "${OLD_PORT:-22}" \
-            -o BatchMode=no \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="$HOME/.ssh/known_hosts_legacy" \
-            -o ConnectTimeout=15 \
-            -W "$1:$2" "$OLD_USER@$OLD_HOST"
-          SH
-          chmod 700 ~/.ssh/strato_proxy.sh
+          ssh-keyscan -t ed25519 -H "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
-      - name: Read hardening timestamps and activation evidence
+      - name: Compare production revision
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh -i ~/.ssh/strato_sams \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=15 \
-            -o ProxyCommand='~/.ssh/strato_proxy.sh %h %p' \
-            root@"$NEW_HOST" 'bash -se' <<'REMOTE'
+          ssh -i ~/.ssh/strato_sams root@"$SSH_HOST" \
+            "test -s '$APP_DIR/.deployed_sha' && cat '$APP_DIR/.deployed_sha'"
+
+      - name: Verify production services and fail2ban state
+        shell: bash
+        run: |
           set -Eeuo pipefail
-          echo '--- HARDENING STATUS FILE ---'
-          if [ -f /var/lib/apluscard-security/last-hardening.json ]; then
-            cat /var/lib/apluscard-security/last-hardening.json
-          else
-            echo 'NO_LAST_HARDENING_FILE'
-          fi
-
-          echo '--- FILE TIMESTAMPS ---'
-          for f in \
-            /etc/ssh/sshd_config.d/99-sams-hardening.conf \
-            /etc/fail2ban/jail.d/sams.local \
-            /etc/ufw/user.rules \
-            /var/lib/apluscard-security/last-hardening.json \
-            /root/harden-strato.sh; do
-            [ -e "$f" ] && stat -c '%y | %n' "$f" || true
-          done
-
-          echo '--- HARDENING CONTENT FINGERPRINT ---'
-          grep -nE 'ufw limit|bantime|maxretry|mode = aggressive|PasswordAuthentication|MaxAuthTries' \
-            /root/harden-strato.sh /etc/fail2ban/jail.d/sams.local /etc/ssh/sshd_config.d/99-sams-hardening.conf 2>/dev/null || true
-
-          echo '--- PACKAGE INSTALL HISTORY ---'
-          zgrep -hE 'Install:.*(ufw|fail2ban)|Commandline:.*(ufw|fail2ban)' /var/log/apt/history.log* 2>/dev/null | tail -n 40 || true
-
-          echo '--- FAIL2BAN START/RELOAD HISTORY AROUND BREAK ---'
-          journalctl -u fail2ban --since '2026-08-07 11:30:00 UTC' --until '2026-08-07 15:30:00 UTC' --no-pager | tail -n 250 || true
-
-          echo '--- UFW JOURNAL AROUND BREAK ---'
-          journalctl -k --since '2026-08-07 11:30:00 UTC' --until '2026-08-07 15:30:00 UTC' --no-pager | grep -E 'UFW (LIMIT )?BLOCK' | tail -n 250 || true
+          ssh -i ~/.ssh/strato_sams root@"$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose exec -T web python manage.py check </dev/null
+          test "$(docker compose ps --status running -q web | wc -l)" -eq 1
+          test "$(docker compose ps --status running -q push-worker | wc -l)" -eq 1
+          curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null
+          fail2ban-client status sshd
           REMOTE
+          curl --fail --silent --show-error --max-time 30 "https://$SITE_DOMAIN/health/" >/dev/null
+          echo "SINGLE_KEYSCAN_PATH_OK=YES"
