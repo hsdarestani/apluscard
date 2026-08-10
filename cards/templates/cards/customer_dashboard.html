@@ -27,7 +27,7 @@
 </section>
 
 {% for payment in pending_payments %}
-<section class="payment-confirm-card">
+<section class="payment-confirm-card" id="payment-{{ payment.id }}" data-payment-id="{{ payment.id }}">
   <div class="payment-confirm-head">
     <div><span class="eyebrow">Zahlungsfreigabe</span><h2>{{ payment.base_amount|floatformat:2 }} € bestätigen</h2></div>
     <span class="status-pill pending">{{ payment.location.name }}</span>
@@ -42,15 +42,15 @@
 {% endfor %}
 
 {% wallet_qr_payload wallet as qr_payload %}
-<section class="customer-grid">
+<section class="customer-grid" data-pending-payments-url="{% url 'api_pending_payments' %}">
   <article class="wallet-card tier-{{ wallet.tier|lower }}">
     <div class="wallet-top"><span class="wallet-brand">SAMS CLUB<br>LOUNGE<small>bereitgestellt von <span class="aplus-signature">A+</span></small></span><span>{{ wallet.tier|sams_label|upper }}</span></div>
     <div class="wallet-label">Verfügbares Guthaben</div>
     <div class="wallet-balance">{{ wallet.balance|floatformat:2 }} €</div>
     <div class="wallet-bonus">Diesen Monat aufgeladen: {{ wallet.monthly_topup_total|floatformat:2 }} €</div>
     <div class="tier-progress"><span style="width:{% if wallet.tier == 'PLATINUM' %}100{% elif wallet.tier == 'GOLD' %}72{% else %}35{% endif %}%"></span></div>
-    <div class="qr-frame"><div class="qr-box"><img id="wallet-payment-qr" src="{{ qr_payload.data_uri }}" width="194" height="194" alt="Sicherer QR-Code der Mitgliedskarte" data-refresh-url="{% url 'customer_qr_refresh' %}" data-refresh-seconds="{{ qr_payload.refresh_in }}"></div></div>
-    <div class="wallet-code">Sicherer Zahlungs-QR · wird automatisch erneuert</div>
+    <div class="qr-frame"><div class="qr-box"><img id="wallet-payment-qr" src="{{ qr_payload.data_uri }}" width="194" height="194" alt="QR-Code der Mitgliedskarte"></div></div>
+    <div class="wallet-code">Mitglieds-QR · identisch mit Apple Wallet</div>
     <div class="wallet-code">Mitgliedsnummer {{ wallet.member_number }}</div>
     <div class="member-line"><span>Für alle SAMS Standorte</span><span>✦ {{ wallet.tier|sams_label }}</span></div>
     <div class="wallet-actions">
@@ -128,29 +128,54 @@
     window.setInterval(checkVerificationStatus, 15000);
   }
 
-  const image = document.getElementById('wallet-payment-qr');
-  const refresh = async () => {
-    if (!image) return;
+  const customerGrid = document.querySelector('.customer-grid[data-pending-payments-url]');
+  const knownPaymentIds = new Set(
+    Array.from(document.querySelectorAll('[data-payment-id]')).map(element => element.dataset.paymentId)
+  );
+  let pendingCheckInFlight = false;
+
+  const checkPendingPayments = async () => {
+    if (!customerGrid || pendingCheckInFlight || document.visibilityState !== 'visible') return;
+    pendingCheckInFlight = true;
     try {
-      const response = await fetch(image.dataset.refreshUrl, {
+      const response = await fetch(customerGrid.dataset.pendingPaymentsUrl, {
         credentials: 'same-origin',
         cache: 'no-store',
         headers: {'Accept': 'application/json'}
       });
       if (!response.ok) return;
-      const payload = await response.json();
-      if (payload.data_uri) image.src = payload.data_uri;
+      const payments = await response.json();
+      if (!Array.isArray(payments)) return;
+      const incoming = payments.find(payment => payment?.id && !knownPaymentIds.has(String(payment.id)));
+      if (incoming) {
+        sessionStorage.setItem('sams-new-payment', String(incoming.id));
+        if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+        window.location.reload();
+      }
     } catch (_) {
-      // Keep the current QR visible; the cashier can request a page refresh.
+      // The next poll/foreground event retries automatically.
+    } finally {
+      pendingCheckInFlight = false;
     }
   };
-  if (image) {
-    const seconds = Math.max(15, Number(image.dataset.refreshSeconds || 45));
-    window.setInterval(refresh, seconds * 1000);
+
+  if (customerGrid) {
+    window.setInterval(checkPendingPayments, 2000);
+    window.addEventListener('focus', checkPendingPayments);
   }
+
+  const arrivedPaymentId = sessionStorage.getItem('sams-new-payment');
+  if (arrivedPaymentId) {
+    sessionStorage.removeItem('sams-new-payment');
+    const paymentCard = document.getElementById(`payment-${arrivedPaymentId}`) || document.querySelector('[data-payment-id]');
+    if (paymentCard) {
+      window.setTimeout(() => paymentCard.scrollIntoView({behavior: 'smooth', block: 'start'}), 120);
+    }
+  }
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      refresh();
+      checkPendingPayments();
       checkVerificationStatus();
     }
   });
