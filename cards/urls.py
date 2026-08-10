@@ -1,12 +1,13 @@
 from django.urls import path
 
-from . import api, apple_views, compliance_api, compliance_views, data_export_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, views
+from . import api, apple_views, compliance_api, compliance_views, data_export_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, verification_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
     path("accounts/register/", legal_views.register_customer, name="register"),
     path("accounts/profil-vervollstaendigen/", legal_views.complete_customer_profile, name="complete_customer_profile"),
     path("accounts/verify/<str:token>/", views.verify_email, name="verify_email"),
+    path("accounts/verification-status/", verification_views.email_verification_status, name="email_verification_status"),
     path("accounts/resend-verification/", views.resend_verification, name="resend_verification"),
     path("api/v1/auth/apple/native/", apple_views.native_apple_login, name="native_apple_login"),
     path("agb/", legal_views.terms, name="terms"),
