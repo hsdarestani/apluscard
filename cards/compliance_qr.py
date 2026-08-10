@@ -20,7 +20,7 @@ QR_BINARY_PAYLOAD_BYTES = 20
 QR_BINARY_TOKEN_BYTES = QR_BINARY_PAYLOAD_BYTES + QR_BINARY_SIGNATURE_BYTES
 SIGNED_TOKEN_PATTERN = re.compile(r"samsqr1\.[A-Za-z0-9_:\-.]+")
 UUID_PATTERN = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}",
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
     re.IGNORECASE,
 )
 MEMBER_NUMBER_PATTERN = re.compile(r"\d{3,12}")
@@ -39,7 +39,10 @@ def _b64url_encode(raw):
 
 
 def _b64url_decode(value):
-    raw = str(value or "").encode("ascii")
+    try:
+        raw = str(value or "").encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise signing.BadSignature("Invalid SAMS QR encoding") from exc
     padding = b"=" * ((4 - len(raw) % 4) % 4)
     try:
         return base64.urlsafe_b64decode(raw + padding)
