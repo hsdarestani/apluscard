@@ -1,18 +1,26 @@
+import base64
+import hmac
 import re
+import time
 from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
+from django.utils.crypto import salted_hmac
 
 from .models import Wallet
-from .qr_utils import qr_data_uri
+from .qr_utils import qr_svg_data_uri
 
 QR_PREFIX = "samsqr1."
 QR_SIGNING_SALT = "sams-wallet-payment-qr-v1"
 QR_SHORT_SIGNING_SALT = "sams-wallet-payment-qr-v2"
+QR_BINARY_SIGNING_SALT = "sams-wallet-payment-qr-v3"
+QR_BINARY_SIGNATURE_BYTES = 12
+QR_BINARY_PAYLOAD_BYTES = 20
+QR_BINARY_TOKEN_BYTES = QR_BINARY_PAYLOAD_BYTES + QR_BINARY_SIGNATURE_BYTES
 SIGNED_TOKEN_PATTERN = re.compile(r"samsqr1\.[A-Za-z0-9_:\-.]+")
 UUID_PATTERN = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}",
     re.IGNORECASE,
 )
 MEMBER_NUMBER_PATTERN = re.compile(r"\d{3,12}")
@@ -21,33 +29,59 @@ MEMBER_NUMBER_PATTERN = re.compile(r"\d{3,12}")
 def _effective_qr_max_age(max_age=None):
     if max_age is not None:
         return max_age
-    # Keep rotating QR codes short-lived, but give real-world cashier scans enough
-    # time even when a WebView throttles the refresh timer or the customer needs a
-    # moment to open the card. The payment still requires authenticated staff,
-    # matching business scope, an active wallet and customer confirmation.
+    # Give real-world cashier scans enough time even when a WebView throttles its
+    # refresh timer or the customer needs a moment to open the card.
     return max(int(settings.WALLET_QR_MAX_AGE_SECONDS), 10 * 60)
 
 
-def issue_wallet_qr(wallet):
-    """Issue a compact rotating payment token.
+def _b64url_encode(raw):
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
-    Older versions embedded two UUIDs inside a signed JSON payload. That produced
-    a very dense QR code on smaller phone screens. The current format signs only
-    the card UUID with a timestamp, while keeping the public prefix unchanged so
-    existing scanner clients do not need an app update.
+
+def _b64url_decode(value):
+    raw = str(value or "").encode("ascii")
+    padding = b"=" * ((4 - len(raw) % 4) % 4)
+    try:
+        return base64.urlsafe_b64decode(raw + padding)
+    except (ValueError, TypeError) as exc:
+        raise signing.BadSignature("Invalid SAMS QR encoding") from exc
+
+
+def _binary_signature(payload):
+    return salted_hmac(
+        QR_BINARY_SIGNING_SALT,
+        payload,
+        secret=settings.SECRET_KEY,
+        algorithm="sha256",
+    ).digest()[:QR_BINARY_SIGNATURE_BYTES]
+
+
+def issue_wallet_qr(wallet):
+    """Issue a very compact, expiring payment token optimized for phone screens.
+
+    Previous signed formats were secure but still substantially denser than the
+    QR rendered by Apple Wallet. This format stores the 16-byte card UUID and a
+    4-byte timestamp directly, then authenticates them with a truncated 96-bit
+    HMAC. The public prefix stays unchanged so existing scanner clients continue
+    to pass the raw value to the same backend endpoint.
     """
 
-    signed = signing.TimestampSigner(salt=QR_SHORT_SIGNING_SALT).sign(str(wallet.qr_token))
-    return f"{QR_PREFIX}{signed}"
+    timestamp = int(time.time())
+    payload = wallet.qr_token.bytes + timestamp.to_bytes(4, "big", signed=False)
+    token = payload + _binary_signature(payload)
+    return f"{QR_PREFIX}{_b64url_encode(token)}"
 
 
 def wallet_qr_payload(wallet):
     token = issue_wallet_qr(wallet)
     return {
         "token": token,
-        "data_uri": qr_data_uri(token),
+        "data_uri": qr_svg_data_uri(token),
         "expires_in": _effective_qr_max_age(),
-        "refresh_in": settings.WALLET_QR_REFRESH_SECONDS,
+        # Refresh far less often than before. The current token remains valid for
+        # ten minutes, so a four-minute refresh avoids visible redraws while a
+        # cashier camera is trying to lock onto the screen.
+        "refresh_in": min(4 * 60, max(60, _effective_qr_max_age() // 2)),
     }
 
 
@@ -94,7 +128,34 @@ def _active_wallet_from_member_number(raw_value, *, business=None):
     ).first()
 
 
+def _resolve_binary_signed_token(signed_value, *, business=None, max_age=None):
+    raw = _b64url_decode(signed_value)
+    if len(raw) != QR_BINARY_TOKEN_BYTES:
+        raise signing.BadSignature("Not a compact binary SAMS QR token")
+
+    payload = raw[:QR_BINARY_PAYLOAD_BYTES]
+    signature = raw[QR_BINARY_PAYLOAD_BYTES:]
+    if not hmac.compare_digest(signature, _binary_signature(payload)):
+        raise signing.BadSignature("Invalid SAMS QR signature")
+
+    card_bytes = payload[:16]
+    issued_at = int.from_bytes(payload[16:20], "big", signed=False)
+    now = int(time.time())
+    age = now - issued_at
+    allowed_age = _effective_qr_max_age(max_age)
+    if age < -60 or age > allowed_age:
+        raise signing.SignatureExpired("SAMS QR token expired")
+
+    card_id = UUID(bytes=card_bytes)
+    wallet = _wallet_for_card_id(card_id, business=business)
+    if wallet is None:
+        raise signing.BadSignature("Wallet not found or inactive")
+    return wallet
+
+
 def _resolve_compact_signed_token(signed_value, *, business=None, max_age=None):
+    """Resolve the previous Django TimestampSigner-based compact format."""
+
     raw_card_id = signing.TimestampSigner(salt=QR_SHORT_SIGNING_SALT).unsign(
         signed_value,
         max_age=_effective_qr_max_age(max_age),
@@ -137,7 +198,7 @@ def _resolve_legacy_signed_token(signed_value, *, business=None, max_age=None):
 
 
 def resolve_payment_qr(raw_value, *, business=None, max_age=None):
-    """Resolve rotating app QR, legacy rotating QR, Apple Wallet code or member number."""
+    """Resolve current/legacy app QR, Apple Wallet code or member number."""
 
     signed_error = None
     try:
@@ -146,17 +207,23 @@ def resolve_payment_qr(raw_value, *, business=None, max_age=None):
         signed_error = exc
     else:
         try:
+            return _resolve_binary_signed_token(signed_value, business=business, max_age=max_age)
+        except signing.BadSignature as binary_error:
+            signed_error = binary_error
+
+        try:
             return _resolve_compact_signed_token(signed_value, business=business, max_age=max_age)
         except signing.BadSignature as compact_error:
             signed_error = compact_error
-            try:
-                return _resolve_legacy_signed_token(signed_value, business=business, max_age=max_age)
-            except signing.BadSignature:
-                pass
+
+        try:
+            return _resolve_legacy_signed_token(signed_value, business=business, max_age=max_age)
+        except signing.BadSignature:
+            pass
 
     # Static Apple Wallet codes are accepted only when the complete value is a
-    # UUID. This prevents an expired compact token (which contains a UUID inside
-    # the signed string) from bypassing the timestamp check.
+    # UUID. This prevents an expired signed token containing a UUID from bypassing
+    # its timestamp check.
     wallet = _active_wallet_from_static_code(raw_value, business=business)
     if wallet is not None:
         return wallet
@@ -169,7 +236,7 @@ def resolve_payment_qr(raw_value, *, business=None, max_age=None):
 
 
 def resolve_identity_qr(raw_value, *, business):
-    """Resolve either a rotating app QR or a static Apple Wallet/member QR."""
+    """Resolve either a current/legacy app QR or a static Apple Wallet/member QR."""
 
     try:
         return resolve_payment_qr(raw_value, business=business)
