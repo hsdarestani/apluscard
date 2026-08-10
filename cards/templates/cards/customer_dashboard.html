@@ -15,7 +15,7 @@
 </section>
 
 {% if profile and not profile.email_verified %}
-<section class="platform-alert warning">
+<section class="platform-alert warning" id="email-verification-alert" data-verification-status-url="{% url 'email_verification_status' %}">
   <div><strong>E-Mail-Adresse noch nicht bestätigt</strong><span>Dein Guthabenkonto ist erstellt. Zahlungen werden nach der Bestätigung deiner E-Mail-Adresse freigeschaltet.</span></div>
   <form method="post" action="{% url 'resend_verification' %}">{% csrf_token %}<button class="button secondary small">Link erneut senden</button></form>
 </section>
@@ -33,14 +33,9 @@
     <span class="status-pill pending">{{ payment.location.name }}</span>
   </div>
   <p>{{ payment.description|default:"SAMS Zahlung" }}{% if payment.order_reference %} · {{ payment.order_reference }}{% endif %}</p>
-  <p class="muted">Wähle 10 Cent, 1 Euro oder gib einen eigenen Trinkgeldbetrag ein.</p>
-  <form method="post" action="{% url 'customer_confirm_payment' payment.id %}" class="tip-custom-form" data-tip-form>{% csrf_token %}
-    <div class="tip-quick-actions">
-      <button type="button" data-tip-value="0.10">0,10 €</button>
-      <button type="button" data-tip-value="1.00">1,00 €</button>
-      <button type="button" data-tip-value="0.00">Kein Trinkgeld</button>
-    </div>
-    <label class="custom-tip-input"><span>Eigener Betrag (€)</span><input type="number" name="tip_amount" min="0" max="100" step="0.01" inputmode="decimal" value="0.00" required></label>
+  <p class="muted">Gib deinen gewünschten Trinkgeldbetrag selbst ein. Für kein Trinkgeld einfach 0,00 € eingeben.</p>
+  <form method="post" action="{% url 'customer_confirm_payment' payment.id %}" class="tip-custom-form">{% csrf_token %}
+    <label class="custom-tip-input"><span>Trinkgeldbetrag (€)</span><input type="number" name="tip_amount" min="0" max="100" step="0.01" inputmode="decimal" placeholder="0,00" required></label>
     <button class="button primary full" type="submit">Zahlung bestätigen</button>
   </form>
 </section>
@@ -107,19 +102,35 @@
 </section>
 <script>
 (() => {
-  document.querySelectorAll('[data-tip-form]').forEach(form => {
-    const input = form.querySelector('input[name="tip_amount"]');
-    form.querySelectorAll('[data-tip-value]').forEach(button => {
-      button.addEventListener('click', () => {
-        input.value = button.dataset.tipValue;
-        input.focus();
+  const verificationAlert = document.getElementById('email-verification-alert');
+  let verificationCheckInFlight = false;
+  const checkVerificationStatus = async () => {
+    if (!verificationAlert || verificationCheckInFlight) return;
+    verificationCheckInFlight = true;
+    try {
+      const response = await fetch(verificationAlert.dataset.verificationStatusUrl, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {'Accept': 'application/json'}
       });
-    });
-  });
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload.email_verified) window.location.reload();
+    } catch (_) {
+      // Keep the warning visible until the next foreground/status check.
+    } finally {
+      verificationCheckInFlight = false;
+    }
+  };
+
+  if (verificationAlert) {
+    window.addEventListener('focus', checkVerificationStatus);
+    window.setInterval(checkVerificationStatus, 15000);
+  }
 
   const image = document.getElementById('wallet-payment-qr');
-  if (!image) return;
   const refresh = async () => {
+    if (!image) return;
     try {
       const response = await fetch(image.dataset.refreshUrl, {
         credentials: 'same-origin',
@@ -133,10 +144,15 @@
       // Keep the current QR visible; the cashier can request a page refresh.
     }
   };
-  const seconds = Math.max(15, Number(image.dataset.refreshSeconds || 45));
-  window.setInterval(refresh, seconds * 1000);
+  if (image) {
+    const seconds = Math.max(15, Number(image.dataset.refreshSeconds || 45));
+    window.setInterval(refresh, seconds * 1000);
+  }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') refresh();
+    if (document.visibilityState === 'visible') {
+      refresh();
+      checkVerificationStatus();
+    }
   });
 })();
 </script>
