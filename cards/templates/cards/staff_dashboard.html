@@ -41,7 +41,7 @@
 
       <details class="manual-code-fallback">
         <summary>QR-Code konnte nicht gescannt werden</summary>
-        <label><span>Kartencode manuell einfügen</span><input id="wallet-token-manual" type="text" autocomplete="off" placeholder="Code aus App oder Apple Wallet"></label>
+        <label><span>Mitgliedsnummer oder Kartencode eingeben</span><input id="wallet-token-manual" type="text" inputmode="numeric" autocomplete="off" placeholder="z. B. 101"></label>
       </details>
     </form>
   </article>
@@ -71,7 +71,7 @@
   form?.addEventListener('submit',event=>{
     if(!input.value.trim()){
       event.preventDefault();
-      status.textContent='Bitte zuerst den QR-Code scannen oder den Kartencode einfügen.';
+      status.textContent='Bitte zuerst den QR-Code scannen oder die Mitgliedsnummer eingeben.';
       button?.focus();
     }
   });
@@ -88,7 +88,7 @@
       return;
     }
     status.textContent='Kamera wird geöffnet …';
-    if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Kartencode bitte manuell einfügen.';button.disabled=false;return;}
+    if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Mitgliedsnummer bitte manuell eingeben.';button.disabled=false;return;}
     try{
       scanner=new Html5Qrcode('reader');
       await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:230,height:230},aspectRatio:1},async text=>{
@@ -104,7 +104,7 @@
     }catch(e){
       console.error('SAMS scanner error',e);
       const denied=String(e?.name||e).toLowerCase().includes('notallowed')||String(e).toLowerCase().includes('permission');
-      status.textContent=denied?'Kameraberechtigung wurde nicht erteilt.':'Kamera konnte nicht gestartet werden. Kartencode bitte manuell einfügen.';
+      status.textContent=denied?'Kameraberechtigung wurde nicht erteilt.':'Kamera konnte nicht gestartet werden. Mitgliedsnummer bitte manuell eingeben.';
       await stop();
     }
   });
