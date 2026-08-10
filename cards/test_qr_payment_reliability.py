@@ -3,9 +3,11 @@ from django.test import TestCase
 
 from .compliance_qr import (
     QR_PREFIX,
+    QR_SHORT_SIGNING_SALT,
     QR_SIGNING_SALT,
     issue_wallet_qr,
     resolve_payment_qr,
+    wallet_qr_payload,
 )
 from .tests import PlatformMixin
 
@@ -22,14 +24,34 @@ class PaymentQrReliabilityTests(PlatformMixin, TestCase):
         }
         return f"{QR_PREFIX}{signing.dumps(payload, salt=QR_SIGNING_SALT, compress=True)}"
 
-    def test_new_rotating_token_is_compact_and_resolves(self):
+    def _previous_compact_token(self):
+        signed = signing.TimestampSigner(salt=QR_SHORT_SIGNING_SALT).sign(str(self.wallet.qr_token))
+        return f"{QR_PREFIX}{signed}"
+
+    def test_new_rotating_token_is_very_compact_and_resolves(self):
         token = issue_wallet_qr(self.wallet)
         legacy = self._legacy_token()
 
         self.assertTrue(token.startswith(QR_PREFIX))
         self.assertLess(len(token), len(legacy))
-        self.assertLess(len(token), 120)
+        self.assertLess(len(token), 64)
+        self.assertNotEqual(token, str(self.wallet.qr_token))
         self.assertEqual(resolve_payment_qr(token, business=self.business), self.wallet)
+
+    def test_customer_qr_payload_uses_crisp_vector_image_and_slow_refresh(self):
+        payload = wallet_qr_payload(self.wallet)
+
+        self.assertTrue(payload["data_uri"].startswith("data:image/svg+xml;base64,"))
+        self.assertLess(len(payload["token"]), 64)
+        self.assertGreaterEqual(payload["expires_in"], 600)
+        self.assertGreaterEqual(payload["refresh_in"], 60)
+        self.assertLess(payload["refresh_in"], payload["expires_in"])
+
+    def test_previous_compact_rotating_token_remains_compatible(self):
+        self.assertEqual(
+            resolve_payment_qr(self._previous_compact_token(), business=self.business),
+            self.wallet,
+        )
 
     def test_legacy_rotating_token_remains_compatible(self):
         self.assertEqual(
@@ -47,7 +69,7 @@ class PaymentQrReliabilityTests(PlatformMixin, TestCase):
         with self.assertRaises(signing.BadSignature):
             resolve_payment_qr(self.wallet.member_number)
 
-    def test_expired_compact_token_cannot_fall_back_to_embedded_uuid(self):
+    def test_expired_current_token_cannot_fall_back_to_embedded_card_id(self):
         token = issue_wallet_qr(self.wallet)
         with self.assertRaises(signing.BadSignature):
             resolve_payment_qr(token, business=self.business, max_age=-1)
