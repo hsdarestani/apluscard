@@ -22,7 +22,13 @@
     <div id="reader" class="scanner-box"><div class="scanner-placeholder"><strong>⌁</strong>QR-Code aus der App oder Apple Wallet scannen</div></div>
     <p class="form-note" id="scanner-status">Die Kamera wird ausschließlich für den Scan geöffnet.</p>
 
-    <form method="post" action="{% url 'staff_charge' %}" class="stack-form staff-charge-form" id="charge-form">{% csrf_token %}
+    <div class="scan-confirmation" id="charge-result" hidden aria-live="assertive">
+      <strong id="charge-result-title"></strong>
+      <span id="charge-result-text"></span>
+      <button class="button secondary small" type="button" id="next-charge" hidden>Neue Zahlung starten</button>
+    </div>
+
+    <form method="post" action="{% url 'staff_charge' %}" data-api-url="{% url 'api_staff_charge' %}" class="stack-form staff-charge-form" id="charge-form">{% csrf_token %}
       <input type="hidden" name="location_id" value="{{ active_location.id }}">
       <input id="wallet-token" type="hidden" name="wallet_token" required>
 
@@ -30,14 +36,14 @@
         <strong>QR-Code erkannt</strong><span>Es werden keine persönlichen Kundendaten angezeigt.</span>
       </div>
 
-      <label class="staff-amount-field"><span>Rechnungsbetrag (€)</span><input type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required></label>
+      <label class="staff-amount-field"><span>Rechnungsbetrag (€)</span><input id="charge-amount" type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required></label>
 
       <div class="platform-alert">
         <strong>Trinkgeld gibt der Kunde selbst ein</strong>
         <span>Nach dem Senden trägt der Kunde seinen gewünschten Trinkgeldbetrag frei ein und bestätigt anschließend die Zahlung.</span>
       </div>
 
-      <button class="button primary full" type="submit">Zahlung an Kunden senden</button>
+      <button class="button primary full" id="send-charge" type="submit">Zahlung an Kunden senden</button>
 
       <details class="manual-code-fallback">
         <summary>QR-Code konnte nicht gescannt werden</summary>
@@ -55,10 +61,16 @@
   const button=document.getElementById('start-scanner');
   const input=document.getElementById('wallet-token');
   const manual=document.getElementById('wallet-token-manual');
+  const amount=document.getElementById('charge-amount');
   const status=document.getElementById('scanner-status');
   const confirmation=document.getElementById('scan-confirmation');
   const form=document.getElementById('charge-form');
-  let scanner=null,handled=false;
+  const submitButton=document.getElementById('send-charge');
+  const result=document.getElementById('charge-result');
+  const resultTitle=document.getElementById('charge-result-title');
+  const resultText=document.getElementById('charge-result-text');
+  const nextCharge=document.getElementById('next-charge');
+  let scanner=null,handled=false,sending=false,completed=false;
 
   const setToken=value=>{
     const token=String(value||'').trim();
@@ -68,16 +80,123 @@
   };
   manual?.addEventListener('input',()=>setToken(manual.value));
 
-  form?.addEventListener('submit',event=>{
+  const showResult=(kind,title,text)=>{
+    if(!result)return;
+    result.className=kind==='error'?'platform-alert warning':'scan-confirmation';
+    result.hidden=false;
+    resultTitle.textContent=title;
+    resultText.textContent=text;
+    nextCharge.hidden=kind!=='success';
+    result.scrollIntoView({behavior:'smooth',block:'nearest'});
+  };
+
+  const errorText=payload=>{
+    if(!payload)return 'Die Zahlungsanfrage konnte nicht gesendet werden. Bitte erneut versuchen.';
+    const detail=payload.detail;
+    if(typeof detail==='string')return detail;
+    if(Array.isArray(detail))return detail.join(' ');
+    if(detail&&typeof detail==='object')return Object.values(detail).flat().join(' ');
+    if(typeof payload==='object'){
+      const values=Object.values(payload).flat().filter(value=>typeof value==='string');
+      if(values.length)return values.join(' ');
+    }
+    return 'Die Zahlungsanfrage konnte nicht gesendet werden. Bitte erneut versuchen.';
+  };
+
+  const stop=async()=>{
+    try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}
+    scanner=null;handled=false;
+    button.disabled=sending||completed;
+  };
+
+  form?.addEventListener('submit',async event=>{
     if(!input.value.trim()){
       event.preventDefault();
       status.textContent='Bitte zuerst den QR-Code scannen oder die Mitgliedsnummer eingeben.';
       button?.focus();
+      return;
+    }
+    if(!form.dataset.apiUrl||!window.fetch)return;
+    event.preventDefault();
+    if(sending||completed)return;
+
+    if(!amount?.value||Number(amount.value)<=0){
+      status.textContent='Bitte einen gültigen Rechnungsbetrag eingeben.';
+      amount?.focus();
+      return;
+    }
+
+    sending=true;
+    button.disabled=true;
+    submitButton.disabled=true;
+    submitButton.textContent='Wird an Kunden gesendet …';
+    status.textContent='Zahlungsanfrage wird gesendet …';
+    result.hidden=true;
+
+    try{
+      const csrf=form.querySelector('input[name="csrfmiddlewaretoken"]')?.value||'';
+      const response=await fetch(form.dataset.apiUrl,{
+        method:'POST',
+        body:new FormData(form),
+        credentials:'same-origin',
+        cache:'no-store',
+        headers:{'Accept':'application/json','X-CSRFToken':csrf}
+      });
+      const contentType=response.headers.get('content-type')||'';
+      const payload=contentType.includes('application/json')?await response.json():null;
+
+      if(!response.ok){
+        const message=errorText(payload);
+        showResult('error','Zahlung nicht gesendet',message);
+        status.textContent=message;
+        if(/QR-Code|Kartencode|ungültig|abgelaufen/i.test(message)){
+          setToken('');
+          status.textContent=message+' Bitte neu scannen.';
+        }
+        return;
+      }
+
+      completed=true;
+      const sentAmount=String(payload?.base_amount||amount.value||'').replace('.',',');
+      showResult(
+        'success',
+        'Zahlungsanfrage gesendet ✓',
+        `${sentAmount} € wurden an den Kunden gesendet. Die Zahlungsfreigabe erscheint automatisch auf seinem Gerät.`
+      );
+      status.textContent='Erfolgreich gesendet. Jetzt bestätigt der Kunde die Zahlung auf seinem Gerät.';
+      confirmation.hidden=true;
+      manual.disabled=true;
+      amount.disabled=true;
+      if(navigator.vibrate)navigator.vibrate(80);
+    }catch(error){
+      console.error('SAMS charge submit error',error);
+      showResult('error','Verbindungsfehler','Die Verbindung zum Server ist fehlgeschlagen. Die Zahlung wurde nicht erneut ausgelöst. Bitte Verbindung prüfen und erneut senden.');
+      status.textContent='Verbindungsfehler. Bitte erneut versuchen.';
+    }finally{
+      sending=false;
+      if(!completed){
+        submitButton.disabled=false;
+        submitButton.textContent='Zahlung an Kunden senden';
+        button.disabled=false;
+      }
     }
   });
 
-  const stop=async()=>{try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}scanner=null;handled=false;button.disabled=false;};
+  nextCharge?.addEventListener('click',()=>{
+    completed=false;
+    setToken('');
+    if(amount){amount.disabled=false;amount.value='';}
+    if(manual){manual.disabled=false;manual.value='';}
+    submitButton.disabled=false;
+    submitButton.textContent='Zahlung an Kunden senden';
+    result.hidden=true;
+    status.textContent='Bereit für die nächste Zahlung.';
+    button.disabled=false;
+    button.focus();
+  });
+
   button?.addEventListener('click',async()=>{
+    if(sending||completed)return;
     button.disabled=true;status.textContent='Kameraberechtigung wird geprüft …';
     const permission=await window.SamsCameraPermissions?.prepareForScanner?.();
     if(permission && !permission.allowed){
@@ -90,15 +209,19 @@
     status.textContent='Kamera wird geöffnet …';
     if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Mitgliedsnummer bitte manuell eingeben.';button.disabled=false;return;}
     try{
-      scanner=new Html5Qrcode('reader');
-      await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:230,height:230},aspectRatio:1},async text=>{
+      const options=window.Html5QrcodeSupportedFormats
+        ? {formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE],verbose:false}
+        : {verbose:false};
+      scanner=new Html5Qrcode('reader',options);
+      await scanner.start({facingMode:'environment'},{fps:12,qrbox:{width:250,height:250}},async text=>{
         if(handled)return;handled=true;
         const token=String(text||'').trim();
         if(!token){handled=false;status.textContent='Kein gültiger QR-Code erkannt.';return;}
         setToken(token);
         status.textContent='QR-Code erkannt. Rechnungsbetrag eingeben und an den Kunden senden.';
+        if(navigator.vibrate)navigator.vibrate(45);
         await stop();
-        form.querySelector('input[name="amount"]')?.focus();
+        amount?.focus();
       },()=>{});
       status.textContent='QR-Code in den Rahmen halten.';
     }catch(e){

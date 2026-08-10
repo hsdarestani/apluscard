@@ -28,7 +28,7 @@ class PaymentQrReliabilityTests(PlatformMixin, TestCase):
         signed = signing.TimestampSigner(salt=QR_SHORT_SIGNING_SALT).sign(str(self.wallet.qr_token))
         return f"{QR_PREFIX}{signed}"
 
-    def test_new_rotating_token_is_very_compact_and_resolves(self):
+    def test_previous_rotating_token_remains_compact_and_resolves(self):
         token = issue_wallet_qr(self.wallet)
         legacy = self._legacy_token()
 
@@ -38,14 +38,15 @@ class PaymentQrReliabilityTests(PlatformMixin, TestCase):
         self.assertNotEqual(token, str(self.wallet.qr_token))
         self.assertEqual(resolve_payment_qr(token, business=self.business), self.wallet)
 
-    def test_customer_qr_payload_uses_crisp_vector_image_and_slow_refresh(self):
+    def test_customer_display_qr_exactly_matches_apple_wallet_code(self):
         payload = wallet_qr_payload(self.wallet)
 
+        self.assertEqual(payload["token"], str(self.wallet.qr_token))
         self.assertTrue(payload["data_uri"].startswith("data:image/svg+xml;base64,"))
-        self.assertLess(len(payload["token"]), 64)
-        self.assertGreaterEqual(payload["expires_in"], 600)
-        self.assertGreaterEqual(payload["refresh_in"], 60)
-        self.assertLess(payload["refresh_in"], payload["expires_in"])
+        self.assertTrue(payload["static"])
+        self.assertIsNone(payload["expires_in"])
+        self.assertEqual(payload["refresh_in"], 0)
+        self.assertEqual(resolve_payment_qr(payload["token"], business=self.business), self.wallet)
 
     def test_previous_compact_rotating_token_remains_compatible(self):
         self.assertEqual(
@@ -69,7 +70,7 @@ class PaymentQrReliabilityTests(PlatformMixin, TestCase):
         with self.assertRaises(signing.BadSignature):
             resolve_payment_qr(self.wallet.member_number)
 
-    def test_expired_current_token_cannot_fall_back_to_embedded_card_id(self):
+    def test_expired_previous_rotating_token_cannot_fall_back_to_embedded_card_id(self):
         token = issue_wallet_qr(self.wallet)
         with self.assertRaises(signing.BadSignature):
             resolve_payment_qr(token, business=self.business, max_age=-1)

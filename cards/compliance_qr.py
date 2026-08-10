@@ -29,8 +29,6 @@ MEMBER_NUMBER_PATTERN = re.compile(r"\d{3,12}")
 def _effective_qr_max_age(max_age=None):
     if max_age is not None:
         return max_age
-    # Give real-world cashier scans enough time even when a WebView throttles its
-    # refresh timer or the customer needs a moment to open the card.
     return max(int(settings.WALLET_QR_MAX_AGE_SECONDS), 10 * 60)
 
 
@@ -60,13 +58,12 @@ def _binary_signature(payload):
 
 
 def issue_wallet_qr(wallet):
-    """Issue a very compact, expiring payment token optimized for phone screens.
+    """Issue the previous compact rotating token for backwards compatibility.
 
-    Previous signed formats were secure but still substantially denser than the
-    QR rendered by Apple Wallet. This format stores the 16-byte card UUID and a
-    4-byte timestamp directly, then authenticates them with a truncated 96-bit
-    HMAC. The public prefix stays unchanged so existing scanner clients continue
-    to pass the raw value to the same backend endpoint.
+    Existing screenshots or older clients may still submit this format, so the
+    resolver continues to accept it. The customer-facing QR no longer uses it:
+    the app now displays the same static card UUID as Apple Wallet because that
+    symbol has proven materially easier to scan phone-to-phone.
     """
 
     timestamp = int(time.time())
@@ -76,15 +73,21 @@ def issue_wallet_qr(wallet):
 
 
 def wallet_qr_payload(wallet):
-    token = issue_wallet_qr(wallet)
+    """Render exactly the same card code used by Apple Wallet.
+
+    Apple Wallet already exposes this UUID and the payment flow still requires an
+    authenticated SAMS staff account plus explicit customer confirmation. Keeping
+    the on-screen symbol static also prevents redraws while the cashier camera is
+    trying to focus on another phone display.
+    """
+
+    token = str(wallet.qr_token)
     return {
         "token": token,
         "data_uri": qr_svg_data_uri(token),
-        "expires_in": _effective_qr_max_age(),
-        # Refresh far less often than before. The current token remains valid for
-        # ten minutes, so a four-minute refresh avoids visible redraws while a
-        # cashier camera is trying to lock onto the screen.
-        "refresh_in": min(4 * 60, max(60, _effective_qr_max_age() // 2)),
+        "expires_in": None,
+        "refresh_in": 0,
+        "static": True,
     }
 
 
@@ -113,11 +116,7 @@ def _active_wallet_from_static_code(raw_value, *, business=None):
 
 
 def _active_wallet_from_member_number(raw_value, *, business=None):
-    """Allow the visible member number as the cashier's manual fallback.
-
-    Member numbers are scoped to a business. We deliberately do not resolve a
-    bare member number without business context to avoid ambiguity across tenants.
-    """
+    """Allow the visible member number as the cashier's manual fallback."""
 
     if business is None:
         return None
@@ -157,8 +156,6 @@ def _resolve_binary_signed_token(signed_value, *, business=None, max_age=None):
 
 
 def _resolve_compact_signed_token(signed_value, *, business=None, max_age=None):
-    """Resolve the previous Django TimestampSigner-based compact format."""
-
     raw_card_id = signing.TimestampSigner(salt=QR_SHORT_SIGNING_SALT).unsign(
         signed_value,
         max_age=_effective_qr_max_age(max_age),
@@ -201,7 +198,7 @@ def _resolve_legacy_signed_token(signed_value, *, business=None, max_age=None):
 
 
 def resolve_payment_qr(raw_value, *, business=None, max_age=None):
-    """Resolve current/legacy app QR, Apple Wallet code or member number."""
+    """Resolve app/Wallet UUID, current/legacy signed QR or member number."""
 
     signed_error = None
     try:
@@ -224,9 +221,6 @@ def resolve_payment_qr(raw_value, *, business=None, max_age=None):
         except signing.BadSignature:
             pass
 
-    # Static Apple Wallet codes are accepted only when the complete value is a
-    # UUID. This prevents an expired signed token containing a UUID from bypassing
-    # its timestamp check.
     wallet = _active_wallet_from_static_code(raw_value, business=business)
     if wallet is not None:
         return wallet
@@ -239,8 +233,6 @@ def resolve_payment_qr(raw_value, *, business=None, max_age=None):
 
 
 def resolve_identity_qr(raw_value, *, business):
-    """Resolve either a current/legacy app QR or a static Apple Wallet/member QR."""
-
     try:
         return resolve_payment_qr(raw_value, business=business)
     except signing.BadSignature:
