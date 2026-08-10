@@ -71,7 +71,7 @@ class LocationSelectionTests(MemberExperienceMixin, TestCase):
     def test_customer_qr_is_rendered_server_side_without_qrcode_library(self):
         self.select_customer_location()
         response = self.client.get(reverse("customer_dashboard"))
-        self.assertContains(response, "data:image/png;base64,")
+        self.assertContains(response, "data:image/svg+xml;base64,")
         self.assertNotContains(response, "qrcode.min.js")
         self.assertNotContains(response, "new QRCode")
 
