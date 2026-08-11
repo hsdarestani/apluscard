@@ -1,9 +1,11 @@
+from allauth.account.models import EmailAddress
 from django.test import TestCase
 from django.urls import reverse
 
 from .models import LedgerEntry
 from .services import create_payment_request, post_wallet_entry
 from .tests import PlatformMixin
+from .views import _verification_token
 
 
 class CustomTipUiTests(PlatformMixin, TestCase):
@@ -61,3 +63,35 @@ class EmailVerificationStatusTests(PlatformMixin, TestCase):
 
         response = self.client.get(reverse("email_verification_status"))
         self.assertEqual(response.json(), {"email_verified": True})
+
+    def test_member_profile_creation_is_visible_in_allauth_admin_state(self):
+        address = EmailAddress.objects.get(
+            user=self.customer,
+            email__iexact=self.customer.email,
+        )
+        self.assertTrue(address.verified)
+        self.assertTrue(address.primary)
+
+    def test_verification_link_updates_member_and_allauth_state(self):
+        EmailAddress.objects.filter(user=self.customer).delete()
+        profile = self.customer.member_profile
+        profile.email_verified = False
+        profile.email_verified_at = None
+        profile.save(update_fields=["email_verified", "email_verified_at"])
+
+        address = EmailAddress.objects.get(
+            user=self.customer,
+            email__iexact=self.customer.email,
+        )
+        self.assertFalse(address.verified)
+
+        response = self.client.get(
+            reverse("verify_email", args=[_verification_token(self.customer)])
+        )
+        self.assertEqual(response.status_code, 302)
+
+        profile.refresh_from_db()
+        address.refresh_from_db()
+        self.assertTrue(profile.email_verified)
+        self.assertIsNotNone(profile.email_verified_at)
+        self.assertTrue(address.verified)
