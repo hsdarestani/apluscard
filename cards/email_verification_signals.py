@@ -1,10 +1,11 @@
-"""Keep django-allauth EmailAddress rows aligned with SAMS member verification."""
+"""Keep django-allauth and SAMS member email verification aligned."""
 
 import logging
 
 from allauth.account.models import EmailAddress
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from .models import MemberProfile
 
@@ -52,4 +53,36 @@ def sync_allauth_email_address(user, *, verified):
 
 @receiver(post_save, sender=MemberProfile, dispatch_uid="sams_sync_member_email_to_allauth")
 def sync_member_email_to_allauth(sender, instance, **kwargs):
+    """Propagate SAMS verification to django-allauth."""
     sync_allauth_email_address(instance.user, verified=instance.email_verified)
+
+
+@receiver(post_save, sender=EmailAddress, dispatch_uid="sams_sync_allauth_email_to_member")
+def sync_allauth_email_to_member(sender, instance, **kwargs):
+    """Propagate a verified allauth address back to the SAMS member profile.
+
+    This also makes manual verification in Django admin immediately visible to
+    the customer app. Verification is intentionally one-way: unchecking an
+    allauth row must not silently revoke a member that was already verified.
+    """
+    if not instance.verified:
+        return
+
+    profile = MemberProfile.objects.filter(user_id=instance.user_id).first()
+    if profile is None:
+        return
+
+    current_email = (profile.user.email or "").strip().lower()
+    if current_email and current_email != (instance.email or "").strip().lower():
+        return
+
+    update_fields = []
+    if not profile.email_verified:
+        profile.email_verified = True
+        update_fields.append("email_verified")
+    if profile.email_verified_at is None:
+        profile.email_verified_at = timezone.now()
+        update_fields.append("email_verified_at")
+
+    if update_fields:
+        profile.save(update_fields=update_fields)
