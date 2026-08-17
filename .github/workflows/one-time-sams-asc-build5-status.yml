@@ -1,0 +1,81 @@
+name: One-time Sams ASC Build 5 status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-sams-asc-build5-status.yml
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+      IOS_BUNDLE_ID: de.aplussolution.samscard
+      IOS_VERSION_NAME: "1.0.0"
+      IOS_BUILD_NUMBER: "5"
+    steps:
+      - name: Install API client dependencies
+        run: python3 -m pip install --disable-pip-version-check --quiet PyJWT cryptography requests
+
+      - name: Query Sams Club Lounge only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from datetime import datetime, timedelta, timezone
+          from urllib.parse import quote
+          import jwt, requests
+
+          base='https://api.appstoreconnect.apple.com/v1'
+          key_id=os.environ['ASC_KEY_ID'].strip()
+          issuer=os.environ['ASC_ISSUER_ID'].strip()
+          private=base64.b64decode(os.environ['ASC_PRIVATE_KEY_BASE64']).decode()
+          bundle=os.environ['IOS_BUNDLE_ID']
+          version_name=os.environ['IOS_VERSION_NAME']
+          build_number=os.environ['IOS_BUILD_NUMBER']
+          assert bundle == 'de.aplussolution.samscard'
+
+          def tok():
+              now=datetime.now(timezone.utc)
+              return jwt.encode({'iss':issuer,'iat':int(now.timestamp()),'exp':int((now+timedelta(minutes=15)).timestamp()),'aud':'appstoreconnect-v1'}, private, algorithm='ES256', headers={'kid':key_id,'typ':'JWT'})
+          def get(path):
+              r=requests.get(base+path,headers={'Authorization':'Bearer '+tok()},timeout=60)
+              print('HTTP',r.status_code,path)
+              if not r.ok:
+                  print(r.text[:2000])
+                  r.raise_for_status()
+              return r.json()
+
+          apps=get(f'/apps?filter[bundleId]={quote(bundle)}&limit=10').get('data',[])
+          if len(apps)!=1:
+              raise SystemExit(f'Expected exactly one Sams app for {bundle}, got {len(apps)}')
+          app=apps[0]
+          print('SAMS_APP', json.dumps({'id':app['id'],'bundleId':app.get('attributes',{}).get('bundleId'),'name':app.get('attributes',{}).get('name')},ensure_ascii=False))
+
+          versions=get(f"/apps/{app['id']}/appStoreVersions?filter[platform]=IOS&filter[versionString]={quote(version_name)}&limit=10").get('data',[])
+          for v in versions:
+              print('SAMS_VERSION',json.dumps({'id':v['id'],**v.get('attributes',{})},ensure_ascii=False,default=str))
+
+          builds=get(f"/builds?filter[app]={app['id']}&filter[version]={quote(build_number)}&sort=-uploadedDate&limit=20").get('data',[])
+          print('SAMS_BUILD5_COUNT',len(builds))
+          for b in builds:
+              a=b.get('attributes',{})
+              print('SAMS_BUILD5',json.dumps({'id':b['id'],'version':a.get('version'),'processingState':a.get('processingState'),'uploadedDate':a.get('uploadedDate'),'expired':a.get('expired'),'usesNonExemptEncryption':a.get('usesNonExemptEncryption')},ensure_ascii=False))
+
+          for state in ['READY_FOR_REVIEW','WAITING_FOR_REVIEW','IN_REVIEW','UNRESOLVED_ISSUES']:
+              try:
+                  subs=get(f"/apps/{app['id']}/reviewSubmissions?filter[state]={state}&limit=50").get('data',[])
+                  print('SAMS_REVIEW_STATE',state,'COUNT',len(subs))
+                  for s in subs:
+                      print('SAMS_REVIEW',json.dumps({'id':s['id'],**s.get('attributes',{})},ensure_ascii=False,default=str))
+              except requests.HTTPError as e:
+                  print('SAMS_REVIEW_QUERY_UNAVAILABLE',state,str(e))
+          PY
