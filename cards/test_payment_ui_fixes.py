@@ -94,4 +94,4 @@ class EmailDeliveryTests(PlatformMixin, TestCase):
         self.assertEqual(mail.outbox[0].from_email, "A+ Card <app@aplus-solution.de>")
         self.assertEqual(mail.outbox[0].reply_to, ["app@aplus-solution.de"])
         self.assertIn("A+Solution GmbH", mail.outbox[0].body)
-        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
+        self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)

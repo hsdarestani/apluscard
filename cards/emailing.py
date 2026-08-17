@@ -13,6 +13,11 @@ from .email_verification_models import EmailVerificationAttempt
 logger = logging.getLogger(__name__)
 
 EMAIL_VERIFICATION_VALID_DAYS = 30
+# The currently installed iOS binary claims app.samsclublounge.de as a
+# Universal Link but does not yet forward the incoming deep-link path to the
+# remote WebView. Until that native handler ships, verification links must use
+# the server-side compatibility host so the GET always reaches Django first.
+IOS_SAFE_VERIFICATION_BASE_URL = "https://cards.smarbiz.sbs"
 
 
 def verification_token_hash(token):
@@ -31,6 +36,11 @@ def _trigger_for_request(request):
 def _verification_url(request, token, attempt_id):
     path = reverse("verify_email", args=[token])
     public_base_url = getattr(settings, "APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    # Production iOS currently intercepts the canonical host before Django can
+    # consume the verification token. The legacy compatibility host reaches the
+    # exact same production backend but is not claimed by the current binary.
+    if public_base_url == "https://app.samsclublounge.de":
+        public_base_url = IOS_SAFE_VERIFICATION_BASE_URL
     if public_base_url:
         return f"{public_base_url}{path}?attempt={attempt_id}"
     return f"{request.build_absolute_uri(path)}?attempt={attempt_id}"

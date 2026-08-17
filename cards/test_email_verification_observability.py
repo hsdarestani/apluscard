@@ -51,7 +51,7 @@ class EmailVerificationObservabilityTests(TestCase):
         self.assertIsNotNone(match)
         return match.group(1)
 
-    def test_send_uses_canonical_public_host_and_records_backend_acceptance(self):
+    def test_send_uses_ios_safe_public_host_and_records_backend_acceptance(self):
         request = self.factory.post(
             "/accounts/register/",
             HTTP_HOST="legacy.example.test",
@@ -66,10 +66,20 @@ class EmailVerificationObservabilityTests(TestCase):
         self.assertEqual(attempt.request_host, "legacy.example.test")
         self.assertEqual(attempt.token_hash, verification_token_hash(token))
         self.assertIsNotNone(attempt.accepted_at)
-        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
+        self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)
+        self.assertNotIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
         self.assertNotIn("legacy.example.test/accounts/verify/", mail.outbox[0].body)
         self.assertIn(f"attempt={attempt.pk}", mail.outbox[0].body)
         self.assertIn("30 Tage gültig", mail.outbox[0].body)
+
+    @override_settings(APP_PUBLIC_BASE_URL="https://custom.example.test")
+    def test_non_production_public_host_is_preserved(self):
+        request = self.factory.post("/accounts/register/", HTTP_HOST="legacy.example.test")
+
+        self.assertTrue(send_verification_email(request, self.user))
+
+        self.assertIn("https://custom.example.test/accounts/verify/", mail.outbox[0].body)
+        self.assertNotIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)
 
     def test_successful_click_confirms_member_logs_in_and_goes_to_dashboard(self):
         request = self.factory.post("/accounts/register/", HTTP_HOST="testserver")
@@ -151,7 +161,7 @@ class EmailVerificationObservabilityTests(TestCase):
         fresh_attempt = EmailVerificationAttempt.objects.exclude(pk=attempt.pk).get(user=self.user)
         self.assertEqual(fresh_attempt.trigger, EmailVerificationAttempt.Trigger.RESEND)
         self.assertEqual(fresh_attempt.status, EmailVerificationAttempt.Status.ACCEPTED)
-        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[-1].body)
+        self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[-1].body)
 
     def test_legacy_signed_link_without_attempt_still_confirms_member(self):
         legacy_token = _verification_token(self.user)

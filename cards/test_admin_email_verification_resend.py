@@ -55,7 +55,7 @@ class MemberProfileAdminVerificationResendTests(TestCase):
         attempt = EmailVerificationAttempt.objects.get(user=self.member)
         self.assertEqual(attempt.trigger, EmailVerificationAttempt.Trigger.RESEND)
         self.assertEqual(attempt.status, EmailVerificationAttempt.Status.ACCEPTED)
-        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
+        self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)
 
     def test_bulk_resend_only_sends_to_unverified_members(self):
         user_model = get_user_model()
