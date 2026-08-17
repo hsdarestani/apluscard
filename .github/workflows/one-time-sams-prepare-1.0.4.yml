@@ -1,0 +1,116 @@
+name: One-time Sams prepare App Store 1.0.4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-sams-prepare-1.0.4.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-version:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+      IOS_BUNDLE_ID: de.aplussolution.samscard
+      SOURCE_VERSION: "1.0.3"
+      TARGET_VERSION: "1.0.4"
+    steps:
+      - name: Install API client dependencies
+        run: python3 -m pip install --disable-pip-version-check --quiet PyJWT cryptography requests
+
+      - name: Create Sams 1.0.4 and carry forward version metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import base64, json, os
+          from datetime import datetime, timedelta, timezone
+          from urllib.parse import quote
+          import jwt, requests
+
+          BASE='https://api.appstoreconnect.apple.com/v1'
+          KEY=os.environ['ASC_KEY_ID'].strip(); ISSUER=os.environ['ASC_ISSUER_ID'].strip()
+          PRIVATE=base64.b64decode(os.environ['ASC_PRIVATE_KEY_BASE64']).decode()
+          BUNDLE=os.environ['IOS_BUNDLE_ID']; SOURCE=os.environ['SOURCE_VERSION']; TARGET=os.environ['TARGET_VERSION']
+          assert BUNDLE == 'de.aplussolution.samscard'
+          assert SOURCE == '1.0.3' and TARGET == '1.0.4'
+
+          def token():
+              now=datetime.now(timezone.utc)
+              return jwt.encode({'iss':ISSUER,'iat':int(now.timestamp()),'exp':int((now+timedelta(minutes=15)).timestamp()),'aud':'appstoreconnect-v1'}, PRIVATE, algorithm='ES256', headers={'kid':KEY,'typ':'JWT'})
+          def req(method,path,body=None,ok=(200,201,204)):
+              r=requests.request(method,BASE+path,headers={'Authorization':'Bearer '+token(),'Content-Type':'application/json'},json=body,timeout=90)
+              print('ASC',method,r.status_code,path)
+              if r.status_code not in ok:
+                  print(r.text[:5000]); r.raise_for_status()
+              return {} if not r.content else r.json()
+          def versions(app_id, version):
+              return req('GET',f'/apps/{app_id}/appStoreVersions?filter[platform]=IOS&filter[versionString]={quote(version)}&limit=10').get('data',[])
+
+          apps=req('GET',f'/apps?filter[bundleId]={quote(BUNDLE)}&limit=10').get('data',[])
+          if len(apps)!=1: raise SystemExit(f'Expected exactly one Sams app, got {len(apps)}')
+          app=apps[0]; app_id=app['id']
+          if app.get('attributes',{}).get('name')!='Sams Club Lounge': raise SystemExit('Wrong App Store app resolved')
+          print('SAMS_APP',app_id,BUNDLE)
+
+          srcs=versions(app_id,SOURCE)
+          if len(srcs)!=1: raise SystemExit(f'Expected one source {SOURCE}, got {len(srcs)}')
+          src=srcs[0]
+
+          targets=versions(app_id,TARGET)
+          if targets:
+              target=targets[0]
+              print('TARGET_VERSION_EXISTS',target['id'])
+          else:
+              body={'data':{'type':'appStoreVersions','attributes':{'platform':'IOS','versionString':TARGET},'relationships':{'app':{'data':{'type':'apps','id':app_id}}}}}
+              target=req('POST','/appStoreVersions',body)['data']
+              print('TARGET_VERSION_CREATED',target['id'])
+          target_id=target['id']
+
+          def get_locs(version_id):
+              return req('GET',f'/appStoreVersions/{version_id}/appStoreVersionLocalizations?include=appScreenshotSets&limit=200').get('data',[])
+
+          source_locs=get_locs(src['id'])
+          target_locs=get_locs(target_id)
+          target_by_locale={x.get('attributes',{}).get('locale'):x for x in target_locs}
+          print('SOURCE_LOCALES',[x.get('attributes',{}).get('locale') for x in source_locs])
+          print('TARGET_LOCALES_BEFORE',list(target_by_locale))
+
+          copy_fields=('description','keywords','marketingUrl','promotionalText','supportUrl')
+          for source_loc in source_locs:
+              attrs=source_loc.get('attributes',{})
+              locale=attrs.get('locale')
+              if not locale: continue
+              whats_new = (
+                  'Verbesserte E-Mail-Bestätigung und zuverlässigeres Öffnen von Bestätigungslinks in der iOS-App.'
+                  if locale.lower().startswith('de') else
+                  'Improved email verification and more reliable handling of verification links in the iOS app.'
+              )
+              carried={'locale':locale,'whatsNew':whats_new}
+              for key in copy_fields:
+                  value=attrs.get(key)
+                  if value not in (None,''): carried[key]=value
+              existing=target_by_locale.get(locale)
+              if existing:
+                  patch_attrs={k:v for k,v in carried.items() if k!='locale'}
+                  req('PATCH',f"/appStoreVersionLocalizations/{existing['id']}",{'data':{'type':'appStoreVersionLocalizations','id':existing['id'],'attributes':patch_attrs}})
+                  print('LOCALIZATION_UPDATED',locale,existing['id'])
+              else:
+                  body={'data':{'type':'appStoreVersionLocalizations','attributes':carried,'relationships':{'appStoreVersion':{'data':{'type':'appStoreVersions','id':target_id}}}}}
+                  created=req('POST','/appStoreVersionLocalizations',body)['data']
+                  print('LOCALIZATION_CREATED',locale,created['id'])
+
+          final_locs=get_locs(target_id)
+          print('TARGET_LOCALES_AFTER',[x.get('attributes',{}).get('locale') for x in final_locs])
+          for loc in final_locs:
+              locale=loc.get('attributes',{}).get('locale')
+              rel=req('GET',f"/appStoreVersionLocalizations/{loc['id']}/appScreenshotSets?limit=50").get('data',[])
+              print('TARGET_SCREENSHOT_SETS',locale,len(rel),[s.get('attributes',{}).get('screenshotDisplayType') for s in rel])
+          print('PREPARED_SAMS_VERSION',TARGET,target_id)
+          PY
