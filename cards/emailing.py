@@ -33,7 +33,7 @@ def _verification_url(request, token, attempt_id):
     return f"{request.build_absolute_uri(path)}?attempt={attempt_id}"
 
 
-def send_verification_email(request, user):
+def send_verification_email(request, user, *, trigger=None):
     # Keep the token format compatible with verification links that were already
     # issued before delivery auditing was added.
     from .views import _verification_token
@@ -42,7 +42,7 @@ def send_verification_email(request, user):
     attempt = EmailVerificationAttempt.objects.create(
         user=user,
         email=(user.email or "").strip().lower(),
-        trigger=_trigger_for_request(request),
+        trigger=trigger or _trigger_for_request(request),
         status=EmailVerificationAttempt.Status.PENDING,
         token_hash=verification_token_hash(token),
         backend=settings.EMAIL_BACKEND[:255],

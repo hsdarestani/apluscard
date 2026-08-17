@@ -1,10 +1,13 @@
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils.html import format_html
 
+from .email_verification_models import EmailVerificationAttempt
+from .emailing import send_verification_email
 from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
 from .legal_models import AccountDeletionRequest, LegalAcceptance, LegalConfiguration, PrivacyPreference
 from .models import AppNotification, AuditEvent, Business, BusinessSettings, LedgerEntry, Location, MemberProfile, Membership, Offer, PaymentRequest, PushDevice, ReviewStatus, Wallet
@@ -86,9 +89,111 @@ class MembershipAdmin(admin.ModelAdmin):
 
 @admin.register(MemberProfile)
 class MemberProfileAdmin(admin.ModelAdmin):
-    list_display = ("user", "birth_date", "age_confirmed", "email_verified", "email_verified_at")
+    list_display = ("user", "birth_date", "age_confirmed", "email_verified", "email_verified_at", "resend_verification_button")
     list_filter = ("age_confirmed", "email_verified")
     search_fields = ("user__username", "user__email")
+    actions = ("resend_verification_selected",)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<int:profile_id>/resend-verification/",
+                self.admin_site.admin_view(self.resend_verification_view),
+                name="cards_memberprofile_resend_verification",
+            )
+        ]
+        return custom + urls
+
+    @admin.display(description="E-Mail-Bestätigung")
+    def resend_verification_button(self, obj):
+        if obj.email_verified:
+            return "Bestätigt"
+        if not (obj.user.email or "").strip():
+            return "Keine E-Mail"
+        url = reverse("admin:cards_memberprofile_resend_verification", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Erneut senden</a>', url)
+
+    @admin.action(description="Bestätigungs-E-Mail erneut senden")
+    def resend_verification_selected(self, request, queryset):
+        sent_count = 0
+        failed_count = 0
+        skipped_count = 0
+        for profile in queryset.select_related("user"):
+            email = (profile.user.email or "").strip()
+            if profile.email_verified or not email:
+                skipped_count += 1
+                continue
+            try:
+                send_verification_email(
+                    request,
+                    profile.user,
+                    trigger=EmailVerificationAttempt.Trigger.RESEND,
+                )
+            except Exception:
+                failed_count += 1
+            else:
+                sent_count += 1
+
+        if sent_count:
+            self.message_user(
+                request,
+                f"{sent_count} Bestätigungs-E-Mail(s) wurden erneut versendet.",
+                level=messages.SUCCESS,
+            )
+        if failed_count:
+            self.message_user(
+                request,
+                f"{failed_count} Versandversuch(e) sind fehlgeschlagen. Details stehen unter E-Mail-Bestätigungsversuche.",
+                level=messages.ERROR,
+            )
+        if skipped_count:
+            self.message_user(
+                request,
+                f"{skipped_count} Profil(e) wurden übersprungen, weil sie bereits bestätigt sind oder keine E-Mail-Adresse haben.",
+                level=messages.WARNING,
+            )
+
+    def resend_verification_view(self, request, profile_id):
+        profile = get_object_or_404(MemberProfile.objects.select_related("user"), pk=profile_id)
+        if not self.has_change_permission(request, profile):
+            raise PermissionDenied
+
+        email = (profile.user.email or "").strip()
+        if request.method == "POST":
+            if profile.email_verified:
+                messages.info(request, "Diese E-Mail-Adresse ist bereits bestätigt.")
+            elif not email:
+                messages.error(request, "Für dieses Mitglied ist keine E-Mail-Adresse hinterlegt.")
+            else:
+                try:
+                    send_verification_email(
+                        request,
+                        profile.user,
+                        trigger=EmailVerificationAttempt.Trigger.RESEND,
+                    )
+                except Exception:
+                    messages.error(
+                        request,
+                        "Die Bestätigungs-E-Mail konnte nicht versendet werden. Details stehen unter E-Mail-Bestätigungsversuche.",
+                    )
+                else:
+                    messages.success(request, f"Bestätigungs-E-Mail wurde erneut an {email} gesendet.")
+            return redirect(reverse("admin:cards_memberprofile_changelist"))
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Bestätigungs-E-Mail erneut senden",
+            "opts": self.model._meta,
+            "profile": profile,
+            "email": email,
+            "changelist_url": reverse("admin:cards_memberprofile_changelist"),
+        }
+        return TemplateResponse(
+            request,
+            "admin/cards/memberprofile/resend_verification.html",
+            context,
+        )
 
 
 @admin.register(Wallet)
