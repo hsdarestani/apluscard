@@ -9,7 +9,7 @@ class CardsConfig(AppConfig):
     def import_models(self):
         super().import_models()
         # Zusätzliche Modellgruppen gehören weiterhin zur Django-App `cards`.
-        from . import compliance_models, experience_models, legal_models, push_models, security_models  # noqa: F401
+        from . import compliance_models, email_verification_models, experience_models, legal_models, push_models, security_models  # noqa: F401
 
     def ready(self):
         # Register HEIC/HEIF with Pillow before Django validates uploaded images.
@@ -17,8 +17,9 @@ class CardsConfig(AppConfig):
 
         register_heif_opener(thumbnails=False)
 
-        from . import compliance_admin, compliance_signals, email_verification_signals, experience_signals, registration_signals, security_admin, security_signals  # noqa: F401
+        from . import compliance_admin, compliance_signals, email_verification_admin, email_verification_signals, experience_signals, registration_signals, security_admin, security_signals  # noqa: F401
         from .notification_bootstrap import install_notification_queueing
+        from .email_verification_models import EmailVerificationAttempt
         from .experience_models import LocationVisual, MemberNumberSequence, TransactionCase
         from .models import (
             AppNotification,
@@ -75,6 +76,7 @@ class CardsConfig(AppConfig):
             AppNotification: ("Mitteilung", "Mitteilungen"),
             PushDevice: ("Gerät für Mitteilungen", "Geräte für Mitteilungen"),
             PushDelivery: ("Push-Zustellung", "Push-Zustellungen"),
+            EmailVerificationAttempt: ("E-Mail-Bestätigungsversuch", "E-Mail-Bestätigungsversuche"),
             AuditEvent: ("Prüfprotokoll", "Prüfprotokolle"),
             PrivilegedMfaDevice: ("Zwei-Faktor-Gerät", "Zwei-Faktor-Geräte"),
             AuditChainSeal: ("Audit-Integritätssiegel", "Audit-Integritätssiegel"),
