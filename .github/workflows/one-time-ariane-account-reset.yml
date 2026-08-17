@@ -1,0 +1,120 @@
+name: One-time Ariane account reset
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-ariane-account-reset.yml
+
+permissions:
+  contents: read
+
+jobs:
+  reset:
+    name: Reset Ariane test account on production
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Validate production target
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71" || { echo "Unexpected production host: $SSH_HOST"; exit 1; }
+          test -n "$SSH_PRIVATE_KEY" || { echo "SSH key missing"; exit 1; }
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -t ed25519 -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Reset exact test account
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test -s .env
+
+          # Deployment may briefly restart the web container on the same push.
+          for attempt in $(seq 1 30); do
+            if docker compose ps --status running web | grep -q web; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker compose exec -T web python manage.py shell -c '
+          from django.contrib.auth import get_user_model
+          from django.db import transaction
+          from cards.models import Wallet
+          from cards.legal_models import AccountDeletionRequest
+          from cards.email_verification_models import EmailVerificationAttempt
+          import cards.account_deletion as account_deletion
+
+          email = "ariane_r@hotmail.de"
+          User = get_user_model()
+          users = list(User.objects.filter(email__iexact=email).order_by("pk"))
+          if len(users) != 1:
+              raise RuntimeError(f"Expected exactly one production user for {email}, found {len(users)}")
+
+          user = users[0]
+          wallets = list(Wallet.objects.filter(owner=user).select_related("business").order_by("created_at"))
+          if not wallets:
+              raise RuntimeError(f"No wallet found for {email}")
+
+          primary_wallet = wallets[0]
+          print(
+              "BEFORE_RESET",
+              {
+                  "user_id": user.pk,
+                  "email": user.email,
+                  "wallets": len(wallets),
+                  "member_number": primary_wallet.member_number,
+                  "balance": str(primary_wallet.balance),
+                  "verification_attempts": EmailVerificationAttempt.objects.filter(email__iexact=email).count(),
+              },
+          )
+
+          deletion_request = AccountDeletionRequest.objects.create(
+              user=user,
+              business=primary_wallet.business,
+              wallet=primary_wallet,
+              email=email,
+              member_number=primary_wallet.member_number,
+              reason="Operator-requested reset of test account for a clean end-to-end email verification retest.",
+              status=AccountDeletionRequest.Status.PROCESSING,
+              internal_note="One-time production test-account reset; suppress completion email to avoid confusing the retest.",
+          )
+
+          # This is a deliberate operator reset for a test account, not a user-facing deletion request.
+          account_deletion.send_deletion_completed_email = lambda **kwargs: True
+          result = account_deletion.complete_account_deletion(deletion_request)
+          deleted_attempts = EmailVerificationAttempt.objects.filter(email__iexact=email).delete()[0]
+
+          if User.objects.filter(email__iexact=email).exists():
+              raise RuntimeError("Reset failed: login email still exists")
+          if Wallet.objects.filter(email__iexact=email).exists():
+              raise RuntimeError("Reset failed: wallet still contains the test email")
+          if Wallet.objects.filter(owner__email__iexact=email).exists():
+              raise RuntimeError("Reset failed: wallet still belongs to the test email")
+          if EmailVerificationAttempt.objects.filter(email__iexact=email).exists():
+              raise RuntimeError("Reset failed: old verification attempts still exist")
+
+          print("RESET_OK", {"result": result, "deleted_verification_attempts": deleted_attempts})
+          ' </dev/null
+          REMOTE
