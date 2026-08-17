@@ -1,4 +1,4 @@
-name: One-time Sams ASC Build 5 status
+name: One-time Sams ASC version status
 
 on:
   push:
@@ -18,13 +18,11 @@ jobs:
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
       IOS_BUNDLE_ID: de.aplussolution.samscard
-      IOS_VERSION_NAME: "1.0.0"
-      IOS_BUILD_NUMBER: "5"
     steps:
       - name: Install API client dependencies
         run: python3 -m pip install --disable-pip-version-check --quiet PyJWT cryptography requests
 
-      - name: Query Sams Club Lounge only
+      - name: Query Sams Club Lounge versions and recent builds
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -39,8 +37,6 @@ jobs:
           issuer=os.environ['ASC_ISSUER_ID'].strip()
           private=base64.b64decode(os.environ['ASC_PRIVATE_KEY_BASE64']).decode()
           bundle=os.environ['IOS_BUNDLE_ID']
-          version_name=os.environ['IOS_VERSION_NAME']
-          build_number=os.environ['IOS_BUILD_NUMBER']
           assert bundle == 'de.aplussolution.samscard'
 
           def tok():
@@ -50,7 +46,7 @@ jobs:
               r=requests.get(base+path,headers={'Authorization':'Bearer '+tok()},timeout=60)
               print('HTTP',r.status_code,path)
               if not r.ok:
-                  print(r.text[:2000])
+                  print(r.text[:3000])
                   r.raise_for_status()
               return r.json()
 
@@ -58,24 +54,28 @@ jobs:
           if len(apps)!=1:
               raise SystemExit(f'Expected exactly one Sams app for {bundle}, got {len(apps)}')
           app=apps[0]
-          print('SAMS_APP', json.dumps({'id':app['id'],'bundleId':app.get('attributes',{}).get('bundleId'),'name':app.get('attributes',{}).get('name')},ensure_ascii=False))
+          app_id=app['id']
+          print('SAMS_APP', json.dumps({'id':app_id,'bundleId':app.get('attributes',{}).get('bundleId'),'name':app.get('attributes',{}).get('name')},ensure_ascii=False))
 
-          versions=get(f"/apps/{app['id']}/appStoreVersions?filter[platform]=IOS&filter[versionString]={quote(version_name)}&limit=10").get('data',[])
+          versions=get(f'/apps/{app_id}/appStoreVersions?filter[platform]=IOS&limit=50').get('data',[])
+          print('SAMS_VERSION_COUNT',len(versions))
           for v in versions:
-              print('SAMS_VERSION',json.dumps({'id':v['id'],**v.get('attributes',{})},ensure_ascii=False,default=str))
+              a=v.get('attributes',{})
+              print('SAMS_VERSION',json.dumps({'id':v['id'],'versionString':a.get('versionString'),'appStoreState':a.get('appStoreState'),'appVersionState':a.get('appVersionState'),'createdDate':a.get('createdDate')},ensure_ascii=False))
 
-          builds=get(f"/builds?filter[app]={app['id']}&filter[version]={quote(build_number)}&sort=-uploadedDate&limit=20").get('data',[])
-          print('SAMS_BUILD5_COUNT',len(builds))
-          for b in builds:
+          prereleases=get(f'/apps/{app_id}/preReleaseVersions?filter[platform]=IOS&limit=50').get('data',[])
+          print('SAMS_PRERELEASE_COUNT',len(prereleases))
+          for p in prereleases:
+              print('SAMS_PRERELEASE',json.dumps({'id':p['id'],**p.get('attributes',{})},ensure_ascii=False,default=str))
+
+          builds=get(f'/builds?filter[app]={app_id}&sort=-uploadedDate&limit=50').get('data',[])
+          print('SAMS_RECENT_BUILD_COUNT',len(builds))
+          for b in builds[:20]:
               a=b.get('attributes',{})
-              print('SAMS_BUILD5',json.dumps({'id':b['id'],'version':a.get('version'),'processingState':a.get('processingState'),'uploadedDate':a.get('uploadedDate'),'expired':a.get('expired'),'usesNonExemptEncryption':a.get('usesNonExemptEncryption')},ensure_ascii=False))
+              print('SAMS_BUILD',json.dumps({'id':b['id'],'version':a.get('version'),'processingState':a.get('processingState'),'uploadedDate':a.get('uploadedDate'),'expired':a.get('expired')},ensure_ascii=False))
 
-          for state in ['READY_FOR_REVIEW','WAITING_FOR_REVIEW','IN_REVIEW','UNRESOLVED_ISSUES']:
-              try:
-                  subs=get(f"/apps/{app['id']}/reviewSubmissions?filter[state]={state}&limit=50").get('data',[])
-                  print('SAMS_REVIEW_STATE',state,'COUNT',len(subs))
-                  for s in subs:
-                      print('SAMS_REVIEW',json.dumps({'id':s['id'],**s.get('attributes',{})},ensure_ascii=False,default=str))
-              except requests.HTTPError as e:
-                  print('SAMS_REVIEW_QUERY_UNAVAILABLE',state,str(e))
+          submissions=get(f'/apps/{app_id}/reviewSubmissions?limit=50').get('data',[])
+          print('SAMS_REVIEW_COUNT',len(submissions))
+          for s in submissions:
+              print('SAMS_REVIEW',json.dumps({'id':s['id'],**s.get('attributes',{})},ensure_ascii=False,default=str))
           PY
