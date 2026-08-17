@@ -1,3 +1,4 @@
+import time
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -58,8 +59,9 @@ class EmailVerificationObservabilityTests(TestCase):
         self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
         self.assertNotIn("legacy.example.test/accounts/verify/", mail.outbox[0].body)
         self.assertIn(f"attempt={attempt.pk}", mail.outbox[0].body)
+        self.assertIn("30 Tage gültig", mail.outbox[0].body)
 
-    def test_successful_click_is_recorded_and_confirms_member(self):
+    def test_successful_click_confirms_member_logs_in_and_goes_to_dashboard(self):
         request = self.factory.post("/accounts/register/", HTTP_HOST="testserver")
         send_verification_email(request, self.user)
         attempt = EmailVerificationAttempt.objects.get(user=self.user)
@@ -71,6 +73,7 @@ class EmailVerificationObservabilityTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("dashboard"))
         self.profile.refresh_from_db()
         attempt.refresh_from_db()
         self.assertTrue(self.profile.email_verified)
@@ -79,8 +82,26 @@ class EmailVerificationObservabilityTests(TestCase):
         self.assertEqual(attempt.click_count, 1)
         self.assertIsNotNone(attempt.clicked_at)
         self.assertIsNotNone(attempt.confirmed_at)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.user.pk)
 
-    def test_invalid_clicked_link_is_visible_in_admin_data(self):
+    def test_bad_attempt_parameter_cannot_break_a_valid_signed_token(self):
+        request = self.factory.post("/accounts/register/", HTTP_HOST="testserver")
+        send_verification_email(request, self.user)
+        attempt = EmailVerificationAttempt.objects.get(user=self.user)
+        token = _verification_token(self.user)
+
+        response = self.client.get(
+            reverse("verify_email", args=[token]),
+            {"attempt": "00000000-0000-4000-8000-000000000001"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.profile.refresh_from_db()
+        attempt.refresh_from_db()
+        self.assertTrue(self.profile.email_verified)
+        self.assertEqual(attempt.status, EmailVerificationAttempt.Status.CONFIRMED)
+
+    def test_invalid_token_does_not_corrupt_an_unrelated_attempt(self):
         request = self.factory.post("/accounts/register/", HTTP_HOST="testserver")
         send_verification_email(request, self.user)
         attempt = EmailVerificationAttempt.objects.get(user=self.user)
@@ -94,10 +115,38 @@ class EmailVerificationObservabilityTests(TestCase):
         attempt.refresh_from_db()
         self.profile.refresh_from_db()
         self.assertFalse(self.profile.email_verified)
-        self.assertEqual(attempt.status, EmailVerificationAttempt.Status.INVALID)
-        self.assertEqual(attempt.click_count, 1)
-        self.assertIsNotNone(attempt.clicked_at)
-        self.assertTrue(attempt.error_class)
+        self.assertEqual(attempt.status, EmailVerificationAttempt.Status.ACCEPTED)
+        self.assertEqual(attempt.click_count, 0)
+
+    def test_expired_but_genuinely_signed_link_automatically_sends_a_fresh_link(self):
+        old_timestamp = time.time() - (31 * 24 * 60 * 60)
+        with patch("django.core.signing.time.time", return_value=old_timestamp):
+            expired_token = _verification_token(self.user)
+
+        response = self.client.get(reverse("verify_email", args=[expired_token]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("login"))
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.email_verified)
+        self.assertEqual(len(mail.outbox), 1)
+        attempt = EmailVerificationAttempt.objects.get(user=self.user)
+        self.assertEqual(attempt.trigger, EmailVerificationAttempt.Trigger.RESEND)
+        self.assertEqual(attempt.status, EmailVerificationAttempt.Status.ACCEPTED)
+        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
+
+    def test_repeated_click_is_idempotent_and_still_opens_member_session(self):
+        self.profile.email_verified = True
+        self.profile.save(update_fields=["email_verified"])
+        token = _verification_token(self.user)
+
+        response = self.client.get(reverse("verify_email", args=[token]))
+
+        self.assertEqual(response.status_code, 302)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.email_verified)
+        self.assertIsNotNone(self.profile.email_verified_at)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.user.pk)
 
     def test_send_failure_is_persisted_with_error_details(self):
         request = self.factory.post("/accounts/resend-verification/", HTTP_HOST="testserver")
