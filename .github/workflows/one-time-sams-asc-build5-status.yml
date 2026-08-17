@@ -1,4 +1,4 @@
-name: One-time Sams ASC version status
+name: One-time Sams ASC build-number status
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
       - name: Install API client dependencies
         run: python3 -m pip install --disable-pip-version-check --quiet PyJWT cryptography requests
 
-      - name: Query Sams Club Lounge versions and recent builds
+      - name: Query Sams Club Lounge build numbers
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -33,49 +33,30 @@ jobs:
           import jwt, requests
 
           base='https://api.appstoreconnect.apple.com/v1'
-          key_id=os.environ['ASC_KEY_ID'].strip()
-          issuer=os.environ['ASC_ISSUER_ID'].strip()
+          key_id=os.environ['ASC_KEY_ID'].strip(); issuer=os.environ['ASC_ISSUER_ID'].strip()
           private=base64.b64decode(os.environ['ASC_PRIVATE_KEY_BASE64']).decode()
-          bundle=os.environ['IOS_BUNDLE_ID']
-          assert bundle == 'de.aplussolution.samscard'
-
+          bundle=os.environ['IOS_BUNDLE_ID']; assert bundle == 'de.aplussolution.samscard'
           def tok():
               now=datetime.now(timezone.utc)
               return jwt.encode({'iss':issuer,'iat':int(now.timestamp()),'exp':int((now+timedelta(minutes=15)).timestamp()),'aud':'appstoreconnect-v1'}, private, algorithm='ES256', headers={'kid':key_id,'typ':'JWT'})
           def get(path):
               r=requests.get(base+path,headers={'Authorization':'Bearer '+tok()},timeout=60)
               print('HTTP',r.status_code,path)
-              if not r.ok:
-                  print(r.text[:3000])
-                  r.raise_for_status()
+              if not r.ok: print(r.text[:3000]); r.raise_for_status()
               return r.json()
-
           apps=get(f'/apps?filter[bundleId]={quote(bundle)}&limit=10').get('data',[])
-          if len(apps)!=1:
-              raise SystemExit(f'Expected exactly one Sams app for {bundle}, got {len(apps)}')
-          app=apps[0]
-          app_id=app['id']
-          print('SAMS_APP', json.dumps({'id':app_id,'bundleId':app.get('attributes',{}).get('bundleId'),'name':app.get('attributes',{}).get('name')},ensure_ascii=False))
-
+          if len(apps)!=1: raise SystemExit(f'Expected one Sams app, got {len(apps)}')
+          app=apps[0]; app_id=app['id']
+          print('SAMS_APP',json.dumps({'id':app_id,'name':app.get('attributes',{}).get('name'),'bundleId':bundle}))
           versions=get(f'/apps/{app_id}/appStoreVersions?filter[platform]=IOS&limit=50').get('data',[])
-          print('SAMS_VERSION_COUNT',len(versions))
           for v in versions:
-              a=v.get('attributes',{})
-              print('SAMS_VERSION',json.dumps({'id':v['id'],'versionString':a.get('versionString'),'appStoreState':a.get('appStoreState'),'appVersionState':a.get('appVersionState'),'createdDate':a.get('createdDate')},ensure_ascii=False))
-
-          prereleases=get(f'/apps/{app_id}/preReleaseVersions?filter[platform]=IOS&limit=50').get('data',[])
-          print('SAMS_PRERELEASE_COUNT',len(prereleases))
-          for p in prereleases:
-              print('SAMS_PRERELEASE',json.dumps({'id':p['id'],**p.get('attributes',{})},ensure_ascii=False,default=str))
-
+              a=v.get('attributes',{}); print('SAMS_VERSION',json.dumps({'id':v['id'],'versionString':a.get('versionString'),'appStoreState':a.get('appStoreState'),'appVersionState':a.get('appVersionState')}))
           builds=get(f'/builds?filter[app]={app_id}&sort=-uploadedDate&limit=50').get('data',[])
           print('SAMS_RECENT_BUILD_COUNT',len(builds))
-          for b in builds[:20]:
-              a=b.get('attributes',{})
-              print('SAMS_BUILD',json.dumps({'id':b['id'],'version':a.get('version'),'processingState':a.get('processingState'),'uploadedDate':a.get('uploadedDate'),'expired':a.get('expired')},ensure_ascii=False))
-
+          for b in builds[:30]:
+              a=b.get('attributes',{}); print('SAMS_BUILD',json.dumps({'id':b['id'],'version':a.get('version'),'processingState':a.get('processingState'),'uploadedDate':a.get('uploadedDate'),'expired':a.get('expired')}))
           submissions=get(f'/apps/{app_id}/reviewSubmissions?limit=50').get('data',[])
           print('SAMS_REVIEW_COUNT',len(submissions))
           for s in submissions:
-              print('SAMS_REVIEW',json.dumps({'id':s['id'],**s.get('attributes',{})},ensure_ascii=False,default=str))
+              print('SAMS_REVIEW',json.dumps({'id':s['id'],**s.get('attributes',{})},default=str))
           PY
