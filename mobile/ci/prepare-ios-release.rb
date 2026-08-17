@@ -23,7 +23,6 @@ app_dir = File.join(ios_root, 'App')
 info_plist_path = File.join(app_dir, 'Info.plist')
 entitlements_path = File.join(app_dir, 'App.entitlements')
 app_delegate_path = File.join(app_dir, 'AppDelegate.swift')
-scene_delegate_path = File.join(app_dir, 'SceneDelegate.swift')
 launch_storyboard_path = File.join(app_dir, 'Base.lproj', 'LaunchScreen.storyboard')
 privacy_manifest_source = File.join(mobile_root, 'ci', 'PrivacyInfo.xcprivacy')
 privacy_manifest_path = File.join(app_dir, 'PrivacyInfo.xcprivacy')
@@ -31,7 +30,6 @@ privacy_manifest_path = File.join(app_dir, 'PrivacyInfo.xcprivacy')
 abort("Xcode-Projekt fehlt: #{project_path}") unless File.directory?(project_path)
 abort("Info.plist fehlt: #{info_plist_path}") unless File.file?(info_plist_path)
 abort("AppDelegate.swift fehlt: #{app_delegate_path}") unless File.file?(app_delegate_path)
-abort("SceneDelegate.swift fehlt: #{scene_delegate_path}") unless File.file?(scene_delegate_path)
 abort("LaunchScreen.storyboard fehlt: #{launch_storyboard_path}") unless File.file?(launch_storyboard_path)
 abort("Privacy Manifest fehlt: #{privacy_manifest_source}") unless File.file?(privacy_manifest_source)
 
@@ -78,37 +76,47 @@ info_plist['NSFaceIDUsageDescription'] = 'Face ID wird verwendet, um den geschü
 info_plist['ITSAppUsesNonExemptEncryption'] = false
 Xcodeproj::Plist.write_to_path(info_plist, info_plist_path)
 
-app_delegate = File.read(app_delegate_path)
-unless app_delegate.include?('capacitorDidRegisterForRemoteNotifications')
-  File.open(app_delegate_path, 'a') do |file|
-    file.write <<~SWIFT
-
-      // Bridge APNs callbacks to @capacitor/push-notifications.
-      extension AppDelegate {
-          func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-              NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
-          }
-
-          func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-              NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
-          }
-      }
-    SWIFT
-  end
-end
-
-# Capacitor 8 receives Universal Links through SceneDelegate. The default proxy
-# exposes the URL to the App plugin, but this shell intentionally has no JS app
-# router: it loads the production Django site directly via server.url. Therefore
-# an email verification Universal Link could launch the binary while leaving the
-# WKWebView on its old page, so Django never received the verification GET.
-# Route only our canonical verification URLs directly into the existing WebView.
-# The bounded retry also covers a cold launch where WKWebView is created shortly
-# after SceneDelegate receives the initial NSUserActivity.
-File.write(scene_delegate_path, <<~'SWIFT')
+# Capacitor 8.4.2 uses UIApplicationDelegate (not SceneDelegate) for Universal
+# Links. The default proxy reports the URL to Capacitor plugins, but this app is a
+# remote Django shell and has no JavaScript router that navigates WKWebView to the
+# verification path. Route only canonical verification URLs into the existing
+# Capacitor web view, while preserving the proxy call for all normal app links.
+# The bounded retry covers a cold launch while the storyboard/bridge initializes.
+File.write(app_delegate_path, <<~'SWIFT')
   import UIKit
   import WebKit
   import Capacitor
+
+  @UIApplicationMain
+  class AppDelegate: UIResponder, UIApplicationDelegate {
+      var window: UIWindow?
+
+      func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+          return true
+      }
+
+      func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+          return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+      }
+
+      func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+          let proxyResult = ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+          if let url = SamsVerificationUniversalLinkRouter.verificationURL(from: userActivity) {
+              SamsVerificationUniversalLinkRouter.route(url, in: window)
+              return true
+          }
+          return proxyResult
+      }
+
+      // Bridge APNs callbacks to @capacitor/push-notifications.
+      func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+          NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+      }
+
+      func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+          NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+      }
+  }
 
   private enum SamsVerificationUniversalLinkRouter {
       static func verificationURL(from userActivity: NSUserActivity) -> URL? {
@@ -129,7 +137,7 @@ File.write(scene_delegate_path, <<~'SWIFT')
               guard let bridgeViewController = window?.rootViewController as? CAPBridgeViewController,
                     let webView = bridgeViewController.webView else {
                   DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                      route(url, in: window, attempt: attempt + 1)
+                      SamsVerificationUniversalLinkRouter.route(url, in: window, attempt: attempt + 1)
                   }
                   return
               }
@@ -137,38 +145,6 @@ File.write(scene_delegate_path, <<~'SWIFT')
               if webView.url != url {
                   webView.load(URLRequest(url: url))
               }
-          }
-      }
-  }
-
-  class SceneDelegate: UIResponder, UIWindowSceneDelegate {
-      var window: UIWindow?
-
-      func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
-          guard let windowScene = scene as? UIWindowScene else { return }
-
-          window = UIWindow(windowScene: windowScene)
-          window?.rootViewController = CAPBridgeViewController()
-          window?.makeKeyAndVisible()
-
-          SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
-
-          if let url = connectionOptions.userActivities
-              .compactMap({ SamsVerificationUniversalLinkRouter.verificationURL(from: $0) })
-              .first {
-              SamsVerificationUniversalLinkRouter.route(url, in: window)
-          }
-      }
-
-      func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-          SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
-      }
-
-      func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
-          SceneDelegateProxy.shared.scene(scene, continue: userActivity)
-
-          if let url = SamsVerificationUniversalLinkRouter.verificationURL(from: userActivity) {
-              SamsVerificationUniversalLinkRouter.route(url, in: window)
           }
       }
   }
