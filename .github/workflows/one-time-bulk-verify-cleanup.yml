@@ -1,0 +1,165 @@
+name: One-time bulk verify and cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-bulk-verify-cleanup.yml
+
+permissions:
+  contents: read
+
+jobs:
+  mutate-production:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+
+    steps:
+      - name: Validate production target
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71"
+          test -n "$SSH_PRIVATE_KEY"
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -t ed25519 -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify all current member accounts and remove named test accounts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "cd '$APP_DIR' && docker compose exec -T web python manage.py shell" <<'PY'
+          from allauth.account.models import EmailAddress
+          from allauth.socialaccount.models import SocialAccount
+          from django.contrib.auth import get_user_model
+          from django.db import transaction
+          from django.db.models.deletion import ProtectedError
+          from django.utils import timezone
+
+          from cards.account_deletion import _anonymize_protected_user
+          from cards.email_verification_models import EmailVerificationAttempt
+          from cards.models import AppNotification, MemberProfile, PushDevice, ReviewStatus, Wallet
+          from cards.operations_views import _delete_wallet_transactions
+
+          User = get_user_model()
+          TEST_EMAILS = (
+              "info@a-pluspromotion.de",
+              "ariane_r@hotmaul.de",
+          )
+          APPLE_USERNAME = "apple_a49f744b21b5f372f21191e8"
+
+          def remove_test_account(email):
+              users = list(User.objects.filter(email__iexact=email).order_by("pk"))
+              print(f"TEST_TARGET email={email} matches={len(users)}")
+              for user in users:
+                  if user.is_superuser:
+                      raise RuntimeError(f"Refusing to delete superuser matching {email}")
+
+                  user_id = user.pk
+                  username = user.username
+                  wallets = list(Wallet.objects.filter(owner=user).order_by("pk"))
+                  print(f"TEST_USER email={email} user_id={user_id} username={username} wallets={len(wallets)}")
+
+                  for wallet in wallets:
+                      with transaction.atomic():
+                          _delete_wallet_transactions(wallet)
+                          ReviewStatus.objects.filter(wallet=wallet).delete()
+                          AppNotification.objects.filter(recipient=user).delete()
+                          PushDevice.objects.filter(user=user).delete()
+                          wallet.delete()
+
+                  EmailVerificationAttempt.objects.filter(email__iexact=email).delete()
+                  EmailAddress.objects.filter(user=user).delete()
+
+                  try:
+                      with transaction.atomic():
+                          User.objects.get(pk=user_id).delete()
+                      mode = "deleted"
+                  except ProtectedError:
+                      with transaction.atomic():
+                          protected_user = User.objects.get(pk=user_id)
+                          _anonymize_protected_user(protected_user)
+                          EmailAddress.objects.filter(user=protected_user).delete()
+                      mode = "anonymized_due_to_protected_history"
+                  print(f"TEST_USER_RESULT email={email} user_id={user_id} mode={mode}")
+
+          for target_email in TEST_EMAILS:
+              remove_test_account(target_email)
+
+          now = timezone.now()
+
+          # Legacy/current customer wallets must all have a profile so the UI has one
+          # authoritative verification flag.
+          missing_profile_user_ids = list(
+              Wallet.objects.filter(owner__isnull=False, owner__member_profile__isnull=True)
+              .values_list("owner_id", flat=True)
+              .distinct()
+          )
+          for user_id in missing_profile_user_ids:
+              MemberProfile.objects.get_or_create(
+                  user_id=user_id,
+                  defaults={"email_verified": True, "email_verified_at": now},
+              )
+
+          unverified_before = MemberProfile.objects.filter(email_verified=False).count()
+          profiles_updated = MemberProfile.objects.filter(email_verified=False).update(
+              email_verified=True,
+              email_verified_at=now,
+          )
+          allauth_updated = EmailAddress.objects.filter(verified=False).update(verified=True)
+          unverified_after = MemberProfile.objects.filter(email_verified=False).count()
+
+          remaining_test_users = User.objects.filter(email__in=TEST_EMAILS).count()
+          remaining_test_attempts = EmailVerificationAttempt.objects.filter(email__in=TEST_EMAILS).count()
+
+          print(
+              "VERIFY_RESULT "
+              f"missing_profiles_created={len(missing_profile_user_ids)} "
+              f"unverified_before={unverified_before} "
+              f"profiles_updated={profiles_updated} "
+              f"allauth_email_rows_updated={allauth_updated} "
+              f"unverified_after={unverified_after}"
+          )
+          print(
+              "CLEANUP_RESULT "
+              f"remaining_test_users={remaining_test_users} "
+              f"remaining_test_attempts={remaining_test_attempts}"
+          )
+
+          apple_user = User.objects.filter(username=APPLE_USERNAME).first()
+          if apple_user is None:
+              print("APPLE_DIAGNOSTIC exists=0")
+          else:
+              print(
+                  "APPLE_DIAGNOSTIC "
+                  f"exists=1 user_id={apple_user.pk} "
+                  f"email={apple_user.email!r} "
+                  f"date_joined={apple_user.date_joined.isoformat()} "
+                  f"apple_social={SocialAccount.objects.filter(user=apple_user, provider='apple').exists()} "
+                  f"wallets={Wallet.objects.filter(owner=apple_user).count()}"
+              )
+
+          if unverified_after != 0:
+              raise RuntimeError(f"Verification sweep incomplete: {unverified_after} profiles remain unverified")
+          if remaining_test_users != 0 or remaining_test_attempts != 0:
+              raise RuntimeError(
+                  "Named test-account cleanup incomplete: "
+                  f"users={remaining_test_users}, attempts={remaining_test_attempts}"
+              )
+          PY
