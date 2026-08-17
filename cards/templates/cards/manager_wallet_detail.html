@@ -1,5 +1,5 @@
 {% extends 'cards/base.html' %}
-{% load sams_de experience_tags compliance_tags %}
+{% load sams_de experience_tags compliance_tags email_verification_tags %}
 {% block title %}{{ wallet.display_name }} · SAMS Club Lounge{% endblock %}
 {% block content %}
 <a class="back-link" href="{% url 'manager_dashboard' %}">← Zurück zur Verwaltungszentrale</a>
@@ -15,6 +15,19 @@
     <div class="qr-frame small-frame"><div class="qr-box small-qr"><img src="{{ wallet.qr_token|qr_data_uri }}" width="140" height="140" alt="Statischer Mitgliedscode für Mitglied {{ wallet.member_number }}"></div></div>
     <div class="wallet-code">Mitgliedsnummer {{ wallet.member_number }}</div>
     <div class="member-line"><span>{% if wallet.owner.member_profile.email_verified %}E-Mail-Adresse bestätigt{% else %}E-Mail-Bestätigung offen{% endif %}</span><span>{% if wallet.owner.member_profile.birth_date %}{{ wallet.owner.member_profile.birth_date|date:"d.m.Y" }}{% else %}Geburtsdatum fehlt{% endif %}</span></div>
+    {% if wallet.owner and not wallet.owner.member_profile.email_verified %}
+      {% latest_email_verification_attempt wallet.owner as verification_attempt %}
+      <div class="platform-alert warning" style="margin-top:14px">
+        <strong>E-Mail-Bestätigung offen</strong>
+        {% if verification_attempt %}
+          <span>Letzter Versuch: {{ verification_attempt.get_status_display }} · {{ verification_attempt.created_at|date:"d.m.Y H:i" }}{% if verification_attempt.clicked_at %} · Klick {{ verification_attempt.clicked_at|date:"d.m.Y H:i" }}{% endif %}{% if verification_attempt.confirmed_at %} · Bestätigt {{ verification_attempt.confirmed_at|date:"d.m.Y H:i" }}{% endif %}</span>
+          {% if verification_attempt.status == 'CONFIRMED' %}<span><strong>Achtung:</strong> Der Versandversuch ist als bestätigt protokolliert, das Mitgliederprofil steht aber noch offen. Bitte Support prüfen.</span>{% endif %}
+        {% else %}
+          <span>Noch kein protokollierter Bestätigungsversand vorhanden.</span>
+        {% endif %}
+      </div>
+      <form method="post" action="{% url 'manager_resend_verification' wallet.id %}" style="margin-top:10px">{% csrf_token %}<button class="button secondary full" type="submit">Bestätigungs-E-Mail erneut senden</button></form>
+    {% endif %}
   </article>
   <article class="panel action-panel">
     {% if is_owner %}
