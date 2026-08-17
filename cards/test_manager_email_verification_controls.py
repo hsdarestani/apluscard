@@ -58,7 +58,7 @@ class ManagerEmailVerificationControlsTests(TestCase):
         attempt = EmailVerificationAttempt.objects.get(user=self.member)
         self.assertEqual(attempt.trigger, EmailVerificationAttempt.Trigger.RESEND)
         self.assertEqual(attempt.status, EmailVerificationAttempt.Status.ACCEPTED)
-        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
+        self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)
 
     def test_wallet_page_shows_latest_verification_status_and_resend_button(self):
         self.client.post(
