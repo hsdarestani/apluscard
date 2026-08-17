@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
 
+# Retry after aligning Universal Link routing with Capacitor 8.4.2 AppDelegate.
 jobs:
   release:
     uses: ./.github/workflows/build-ios-testflight.yml
