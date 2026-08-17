@@ -35,7 +35,7 @@ class MemberProfileAdminVerificationResendTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Erneut senden")
-        self.assertContains(response, self.member.email)
+        self.assertContains(response, self.member.username)
 
     def test_single_resend_sends_mail_and_records_resend_attempt(self):
         url = reverse(
