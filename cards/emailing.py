@@ -1,18 +1,45 @@
+import hashlib
 import logging
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import escape
+
+from .email_verification_models import EmailVerificationAttempt
 
 logger = logging.getLogger(__name__)
 
 
+def verification_token_hash(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _trigger_for_request(request):
+    path = getattr(request, "path", "") or ""
+    if "resend-verification" in path:
+        return EmailVerificationAttempt.Trigger.RESEND
+    if "register" in path:
+        return EmailVerificationAttempt.Trigger.REGISTRATION
+    return EmailVerificationAttempt.Trigger.OTHER
+
+
+def _verification_url(request, token):
+    path = reverse("verify_email", args=[token])
+    public_base_url = getattr(settings, "APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if public_base_url:
+        return f"{public_base_url}{path}"
+    return request.build_absolute_uri(path)
+
+
 def send_verification_email(request, user):
+    # Keep the token format compatible with verification links that were already
+    # issued before delivery auditing was added.
     from .views import _verification_token
 
     token = _verification_token(user)
-    url = request.build_absolute_uri(reverse("verify_email", args=[token]))
+    url = _verification_url(request, token)
     wallet = user.wallets.select_related("business").first()
     partner_name = wallet.business.name if wallet else "deinen A+ Partner"
     display_name = user.first_name or "A+ Member"
@@ -38,6 +65,17 @@ def send_verification_email(request, user):
       <p style="font-size:13px;color:#665d6c"><strong>{escape(settings.APP_NAME)}</strong> · {escape(settings.APP_PUBLISHER)}</p>
     </div>
     """
+
+    attempt = EmailVerificationAttempt.objects.create(
+        user=user,
+        email=(user.email or "").strip().lower(),
+        trigger=_trigger_for_request(request),
+        status=EmailVerificationAttempt.Status.PENDING,
+        token_hash=verification_token_hash(token),
+        backend=settings.EMAIL_BACKEND[:255],
+        request_host=request.get_host()[:255],
+    )
+
     message = EmailMultiAlternatives(
         subject=subject,
         body=text_body,
@@ -46,8 +84,39 @@ def send_verification_email(request, user):
         reply_to=[settings.EMAIL_REPLY_TO],
     )
     message.attach_alternative(html_body, "text/html")
-    sent = message.send(fail_silently=False)
-    if sent != 1:
-        raise RuntimeError("Der Mailserver hat die Bestätigungsnachricht nicht angenommen.")
-    logger.info("Verification email accepted for user_id=%s", user.pk)
+
+    try:
+        sent = message.send(fail_silently=False)
+        if sent != 1:
+            raise RuntimeError("Der Mailserver hat die Bestätigungsnachricht nicht angenommen.")
+    except Exception as exc:
+        attempt.status = EmailVerificationAttempt.Status.FAILED
+        attempt.error_class = exc.__class__.__name__[:120]
+        attempt.error_detail = str(exc)[:4000]
+        attempt.save(update_fields=["status", "error_class", "error_detail", "updated_at"])
+        logger.exception(
+            "Verification email failed attempt_id=%s user_id=%s",
+            attempt.pk,
+            user.pk,
+        )
+        raise
+
+    attempt.status = EmailVerificationAttempt.Status.ACCEPTED
+    attempt.accepted_at = timezone.now()
+    attempt.error_class = ""
+    attempt.error_detail = ""
+    attempt.save(
+        update_fields=[
+            "status",
+            "accepted_at",
+            "error_class",
+            "error_detail",
+            "updated_at",
+        ]
+    )
+    logger.info(
+        "Verification email accepted attempt_id=%s user_id=%s",
+        attempt.pk,
+        user.pk,
+    )
     return True
