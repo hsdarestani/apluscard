@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import secrets
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -36,11 +37,10 @@ def _verification_url(request, token, attempt_id):
 
 
 def send_verification_email(request, user, *, trigger=None):
-    # Keep the token format compatible with verification links that were already
-    # issued before delivery auditing was added.
-    from .views import _verification_token
-
-    token = _verification_token(user)
+    # Each message gets its own high-entropy opaque secret. Only the SHA-256 hash
+    # is stored, so clicking the mailed link is enough to identify the exact
+    # verification attempt without depending on session state or Django signing.
+    token = secrets.token_urlsafe(32)
     attempt = EmailVerificationAttempt.objects.create(
         user=user,
         email=(user.email or "").strip().lower(),

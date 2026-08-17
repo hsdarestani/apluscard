@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from uuid import UUID
 
 from django.contrib import messages
@@ -22,7 +23,7 @@ EMAIL_VERIFICATION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 
 
 def _find_attempt(request, token):
-    """Find tracking metadata without ever letting tracking decide validity."""
+    """Resolve the exact persisted attempt from the opaque link secret."""
     token_hash = verification_token_hash(token)
     attempt_ref = (request.GET.get("attempt") or "").strip()
     if attempt_ref:
@@ -71,6 +72,23 @@ def _record_failure(attempt, status, error_class, error_detail):
     attempt.save(update_fields=["status", "error_class", "error_detail", "updated_at"])
 
 
+def _profile_from_attempt(attempt):
+    if attempt is None or attempt.user_id is None:
+        return None
+    email = (attempt.email or "").strip()
+    if not email:
+        return None
+    return (
+        MemberProfile.objects.select_related("user")
+        .filter(
+            user_id=attempt.user_id,
+            user__email__iexact=email,
+            user__is_active=True,
+        )
+        .first()
+    )
+
+
 def _profile_from_payload(payload):
     if not isinstance(payload, dict):
         return None
@@ -90,7 +108,6 @@ def _profile_from_payload(payload):
 
 
 def _login_verified_member(request, profile):
-    """Turn a valid confirmation link into a seamless member session."""
     if not request.user.is_authenticated:
         auth_login(
             request,
@@ -127,30 +144,14 @@ def _confirm_profile(profile, attempt):
     return locked_profile
 
 
-def _recover_expired_link(request, token, attempt):
-    """A genuinely signed old link automatically sends a fresh confirmation link."""
-    try:
-        payload = signing.loads(token, salt=EMAIL_VERIFICATION_SALT)
-    except signing.BadSignature as exc:
+def _send_recovery_link(request, profile, attempt):
+    if attempt is not None:
         _record_failure(
             attempt,
-            EmailVerificationAttempt.Status.INVALID,
-            exc.__class__.__name__,
-            str(exc) or "Verification token signature is invalid.",
+            EmailVerificationAttempt.Status.EXPIRED,
+            "VerificationExpired",
+            "Verification attempt exceeded the configured validity window.",
         )
-        messages.error(request, "Der Bestätigungslink ist ungültig.")
-        return redirect("login")
-
-    profile = _profile_from_payload(payload)
-    if profile is None:
-        _record_failure(
-            attempt,
-            EmailVerificationAttempt.Status.INVALID,
-            "ProfileMismatch",
-            "The signed user/email no longer matches an active member profile.",
-        )
-        messages.error(request, "Der Bestätigungslink passt nicht mehr zu diesem Konto.")
-        return redirect("login")
 
     if profile.email_verified:
         _login_verified_member(request, profile)
@@ -164,14 +165,8 @@ def _recover_expired_link(request, token, attempt):
             trigger=EmailVerificationAttempt.Trigger.RESEND,
         )
     except Exception:
-        logger.exception(
-            "Expired verification link recovery failed user_id=%s",
-            profile.user_id,
-        )
-        messages.error(
-            request,
-            "Der alte Link ist abgelaufen und der neue Link konnte gerade nicht versendet werden. Bitte versuche es erneut.",
-        )
+        logger.exception("Expired verification recovery failed user_id=%s", profile.user_id)
+        messages.error(request, "Der alte Link ist abgelaufen. Bitte versuche es erneut.")
     else:
         messages.info(
             request,
@@ -183,62 +178,70 @@ def _recover_expired_link(request, token, attempt):
     return redirect("login")
 
 
-def verify_email(request, token):
-    attempt = _find_attempt(request, token)
-    _record_click(attempt)
+def _verify_persisted_attempt(request, attempt):
+    profile = _profile_from_attempt(attempt)
+    if profile is None:
+        _record_failure(
+            attempt,
+            EmailVerificationAttempt.Status.INVALID,
+            "ProfileMismatch",
+            "The verification attempt no longer matches an active user and email address.",
+        )
+        messages.error(request, "Der Bestätigungslink passt nicht mehr zu diesem Konto.")
+        return redirect("login")
 
+    expires_at = attempt.created_at + timedelta(seconds=EMAIL_VERIFICATION_MAX_AGE_SECONDS)
+    if timezone.now() > expires_at:
+        return _send_recovery_link(request, profile, attempt)
+
+    _record_click(attempt)
+    profile = _confirm_profile(profile, attempt)
+    _login_verified_member(request, profile)
+    logger.info("Email verified attempt_id=%s user_id=%s", attempt.pk, profile.user_id)
+    messages.success(request, "E-Mail bestätigt – deine Member Card ist jetzt freigeschaltet.")
+    return redirect("dashboard")
+
+
+def _verify_legacy_signed_token(request, token):
+    """Keep pre-audit verification links working while new links are DB-backed."""
     try:
         payload = signing.loads(
             token,
             salt=EMAIL_VERIFICATION_SALT,
             max_age=EMAIL_VERIFICATION_MAX_AGE_SECONDS,
         )
-    except signing.SignatureExpired as exc:
-        _record_failure(
-            attempt,
-            EmailVerificationAttempt.Status.EXPIRED,
-            exc.__class__.__name__,
-            str(exc) or "Verification token expired.",
-        )
-        logger.info("Verification link expired attempt_id=%s", getattr(attempt, "pk", None))
-        return _recover_expired_link(request, token, attempt)
-    except signing.BadSignature as exc:
-        _record_failure(
-            attempt,
-            EmailVerificationAttempt.Status.INVALID,
-            exc.__class__.__name__,
-            str(exc) or "Verification token signature is invalid.",
-        )
-        logger.warning("Verification link invalid attempt_id=%s", getattr(attempt, "pk", None))
+    except signing.SignatureExpired:
+        try:
+            payload = signing.loads(token, salt=EMAIL_VERIFICATION_SALT)
+        except signing.BadSignature:
+            messages.error(request, "Der Bestätigungslink ist ungültig.")
+            return redirect("login")
+        profile = _profile_from_payload(payload)
+        if profile is None:
+            messages.error(request, "Der Bestätigungslink passt nicht mehr zu diesem Konto.")
+            return redirect("login")
+        return _send_recovery_link(request, profile, None)
+    except signing.BadSignature:
         messages.error(request, "Der Bestätigungslink ist ungültig.")
         return redirect("login")
 
     profile = _profile_from_payload(payload)
     if profile is None:
-        _record_failure(
-            attempt,
-            EmailVerificationAttempt.Status.INVALID,
-            "ProfileMismatch",
-            "The signed user/email no longer matches an active member profile.",
-        )
-        logger.warning(
-            "Verification profile mismatch attempt_id=%s user_id=%s",
-            getattr(attempt, "pk", None),
-            payload.get("uid") if isinstance(payload, dict) else None,
-        )
         messages.error(request, "Der Bestätigungslink passt nicht mehr zu diesem Konto.")
         return redirect("login")
 
-    profile = _confirm_profile(profile, attempt)
+    profile = _confirm_profile(profile, None)
     _login_verified_member(request, profile)
-
-    logger.info(
-        "Email verified attempt_id=%s user_id=%s",
-        getattr(attempt, "pk", None),
-        profile.user_id,
-    )
+    logger.info("Legacy email verification succeeded user_id=%s", profile.user_id)
     messages.success(request, "E-Mail bestätigt – deine Member Card ist jetzt freigeschaltet.")
     return redirect("dashboard")
+
+
+def verify_email(request, token):
+    attempt = _find_attempt(request, token)
+    if attempt is not None:
+        return _verify_persisted_attempt(request, attempt)
+    return _verify_legacy_signed_token(request, token)
 
 
 @login_required
@@ -255,10 +258,7 @@ def resend_verification(request):
         send_verification_email(request, request.user)
     except Exception:
         logger.exception("Verification resend failed user_id=%s", request.user.pk)
-        messages.error(
-            request,
-            "Die E-Mail konnte nicht versendet werden. Bitte versuche es erneut.",
-        )
+        messages.error(request, "Die E-Mail konnte nicht versendet werden. Bitte versuche es erneut.")
     else:
         messages.success(request, "Ein neuer Bestätigungslink wurde an deine E-Mail-Adresse versendet.")
     return redirect("customer_dashboard")
