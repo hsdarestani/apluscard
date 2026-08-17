@@ -1,0 +1,84 @@
+name: One-time verification diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diag-info-email.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "217.160.50.71"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/strato_sams
+          chmod 600 ~/.ssh/strato_sams
+          ssh-keygen -y -f ~/.ssh/strato_sams >/dev/null
+          ssh-keyscan -t ed25519 -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Read verification state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/strato_sams -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE' > "$RUNNER_TEMP/verification-diagnostic.json"
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose exec -T web python manage.py shell -c '
+          import json
+          from django.contrib.auth import get_user_model
+          from cards.email_verification_models import EmailVerificationAttempt
+          from cards.models import MemberProfile
+
+          email = "info@a-pluspromotion.de"
+          User = get_user_model()
+          users = list(User.objects.filter(email__iexact=email).order_by("pk"))
+          data = {"email": email, "user_count": len(users), "users": []}
+          for user in users:
+              profile = MemberProfile.objects.filter(user=user).first()
+              attempts = list(
+                  EmailVerificationAttempt.objects.filter(user=user)
+                  .order_by("created_at")
+                  .values("id", "email", "trigger", "status", "click_count", "accepted_at", "clicked_at", "confirmed_at", "created_at", "error_class", "error_detail")
+              )
+              for attempt in attempts:
+                  for key, value in list(attempt.items()):
+                      if hasattr(value, "isoformat"):
+                          attempt[key] = value.isoformat()
+                      elif value is not None and not isinstance(value, (str, int, float, bool)):
+                          attempt[key] = str(value)
+              data["users"].append({
+                  "id": user.pk,
+                  "is_active": user.is_active,
+                  "profile_exists": profile is not None,
+                  "email_verified": bool(profile and profile.email_verified),
+                  "email_verified_at": profile.email_verified_at.isoformat() if profile and profile.email_verified_at else None,
+                  "attempts": attempts,
+              })
+          print(json.dumps(data, ensure_ascii=False))
+          ' </dev/null
+          REMOTE
+          python -m json.tool "$RUNNER_TEMP/verification-diagnostic.json"
+
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-diagnostic-info-email
+          path: ${{ runner.temp }}/verification-diagnostic.json
+          retention-days: 1
