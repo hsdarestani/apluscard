@@ -18,6 +18,26 @@ on:
         required: true
         default: true
         type: boolean
+      submit_for_review:
+        description: Nach Apple-Verarbeitung Build anhängen und zur App Review einreichen
+        required: true
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      version_name:
+        required: true
+        type: string
+      build_number:
+        required: true
+        type: string
+      upload_to_testflight:
+        required: true
+        type: boolean
+      submit_for_review:
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -43,6 +63,7 @@ jobs:
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
       UPLOAD_TO_TESTFLIGHT: ${{ inputs.upload_to_testflight }}
+      SUBMIT_FOR_REVIEW: ${{ inputs.submit_for_review }}
 
     steps:
       - name: Repository auschecken
@@ -79,7 +100,11 @@ jobs:
           test -n "$IOS_PROVISIONING_PROFILE_BASE64" || (echo "IOS_PROVISIONING_PROFILE_BASE64 fehlt." && exit 1)
           printf '%s' "$IOS_BUILD_NUMBER" | grep -Eq '^[1-9][0-9]*$' || (echo "build_number muss eine positive Ganzzahl sein." && exit 1)
           printf '%s' "$IOS_VERSION_NAME" | grep -Eq '^[0-9]+([.][0-9]+){1,2}$' || (echo "version_name ist ungültig." && exit 1)
-          if [ "$UPLOAD_TO_TESTFLIGHT" = "true" ]; then
+          if [ "$SUBMIT_FOR_REVIEW" = "true" ] && [ "$UPLOAD_TO_TESTFLIGHT" != "true" ]; then
+            echo "submit_for_review benötigt upload_to_testflight=true."
+            exit 1
+          fi
+          if [ "$UPLOAD_TO_TESTFLIGHT" = "true" ] || [ "$SUBMIT_FOR_REVIEW" = "true" ]; then
             test -n "$ASC_KEY_ID" || (echo "ASC_KEY_ID fehlt." && exit 1)
             test -n "$ASC_ISSUER_ID" || (echo "ASC_ISSUER_ID fehlt." && exit 1)
             test -n "$ASC_PRIVATE_KEY_BASE64" || (echo "ASC_PRIVATE_KEY_BASE64 fehlt." && exit 1)
@@ -310,3 +335,18 @@ jobs:
           IPA_PATH="${{ steps.ios-output.outputs.ipa_path }}"
           xcrun altool --validate-app -f "$IPA_PATH" -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
           xcrun altool --upload-app -f "$IPA_PATH" -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: App-Store-Review-Client vorbereiten
+        if: ${{ inputs.submit_for_review }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m venv "$RUNNER_TEMP/asc-review-venv"
+          "$RUNNER_TEMP/asc-review-venv/bin/python" -m pip install --disable-pip-version-check --quiet PyJWT cryptography requests
+
+      - name: Build verarbeiten lassen und zur App Review einreichen
+        if: ${{ inputs.submit_for_review }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "$RUNNER_TEMP/asc-review-venv/bin/python" mobile/ci/submit-ios-review.py

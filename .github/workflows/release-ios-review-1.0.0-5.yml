@@ -1,0 +1,20 @@
+name: Release iOS 1.0.0 (5) for review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release-ios-review-1.0.0-5.yml
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: ./.github/workflows/build-ios-testflight.yml
+    with:
+      version_name: "1.0.0"
+      build_number: "5"
+      upload_to_testflight: true
+      submit_for_review: true
+    secrets: inherit

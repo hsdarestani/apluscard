@@ -23,6 +23,7 @@ app_dir = File.join(ios_root, 'App')
 info_plist_path = File.join(app_dir, 'Info.plist')
 entitlements_path = File.join(app_dir, 'App.entitlements')
 app_delegate_path = File.join(app_dir, 'AppDelegate.swift')
+scene_delegate_path = File.join(app_dir, 'SceneDelegate.swift')
 launch_storyboard_path = File.join(app_dir, 'Base.lproj', 'LaunchScreen.storyboard')
 privacy_manifest_source = File.join(mobile_root, 'ci', 'PrivacyInfo.xcprivacy')
 privacy_manifest_path = File.join(app_dir, 'PrivacyInfo.xcprivacy')
@@ -30,6 +31,7 @@ privacy_manifest_path = File.join(app_dir, 'PrivacyInfo.xcprivacy')
 abort("Xcode-Projekt fehlt: #{project_path}") unless File.directory?(project_path)
 abort("Info.plist fehlt: #{info_plist_path}") unless File.file?(info_plist_path)
 abort("AppDelegate.swift fehlt: #{app_delegate_path}") unless File.file?(app_delegate_path)
+abort("SceneDelegate.swift fehlt: #{scene_delegate_path}") unless File.file?(scene_delegate_path)
 abort("LaunchScreen.storyboard fehlt: #{launch_storyboard_path}") unless File.file?(launch_storyboard_path)
 abort("Privacy Manifest fehlt: #{privacy_manifest_source}") unless File.file?(privacy_manifest_source)
 
@@ -94,6 +96,83 @@ unless app_delegate.include?('capacitorDidRegisterForRemoteNotifications')
     SWIFT
   end
 end
+
+# Capacitor 8 receives Universal Links through SceneDelegate. The default proxy
+# exposes the URL to the App plugin, but this shell intentionally has no JS app
+# router: it loads the production Django site directly via server.url. Therefore
+# an email verification Universal Link could launch the binary while leaving the
+# WKWebView on its old page, so Django never received the verification GET.
+# Route only our canonical verification URLs directly into the existing WebView.
+# The bounded retry also covers a cold launch where WKWebView is created shortly
+# after SceneDelegate receives the initial NSUserActivity.
+File.write(scene_delegate_path, <<~'SWIFT')
+  import UIKit
+  import WebKit
+  import Capacitor
+
+  private enum SamsVerificationUniversalLinkRouter {
+      static func verificationURL(from userActivity: NSUserActivity) -> URL? {
+          guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+                let url = userActivity.webpageURL,
+                url.scheme?.lowercased() == "https",
+                url.host?.lowercased() == "app.samsclublounge.de",
+                url.path.hasPrefix("/accounts/verify/") else {
+              return nil
+          }
+          return url
+      }
+
+      static func route(_ url: URL, in window: UIWindow?, attempt: Int = 0) {
+          guard attempt < 40 else { return }
+
+          DispatchQueue.main.async {
+              guard let bridgeViewController = window?.rootViewController as? CAPBridgeViewController,
+                    let webView = bridgeViewController.webView else {
+                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                      route(url, in: window, attempt: attempt + 1)
+                  }
+                  return
+              }
+
+              if webView.url != url {
+                  webView.load(URLRequest(url: url))
+              }
+          }
+      }
+  }
+
+  class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+      var window: UIWindow?
+
+      func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+          guard let windowScene = scene as? UIWindowScene else { return }
+
+          window = UIWindow(windowScene: windowScene)
+          window?.rootViewController = CAPBridgeViewController()
+          window?.makeKeyAndVisible()
+
+          SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
+
+          if let url = connectionOptions.userActivities
+              .compactMap({ SamsVerificationUniversalLinkRouter.verificationURL(from: $0) })
+              .first {
+              SamsVerificationUniversalLinkRouter.route(url, in: window)
+          }
+      }
+
+      func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+          SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+      }
+
+      func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+          SceneDelegateProxy.shared.scene(scene, continue: userActivity)
+
+          if let url = SamsVerificationUniversalLinkRouter.verificationURL(from: userActivity) {
+              SamsVerificationUniversalLinkRouter.route(url, in: window)
+          }
+      }
+  }
+SWIFT
 
 project = Xcodeproj::Project.open(project_path)
 target = project.targets.find { |candidate| candidate.name == 'App' }
