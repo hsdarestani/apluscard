@@ -1,0 +1,27 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main">
+  <h1>Bestätigungs-E-Mail erneut senden</h1>
+
+  {% if profile.email_verified %}
+    <p>Die E-Mail-Adresse <strong>{{ email }}</strong> ist bereits bestätigt.</p>
+  {% elif not email %}
+    <p>Für dieses Mitglied ist keine E-Mail-Adresse hinterlegt.</p>
+  {% else %}
+    <p>
+      Soll eine neue Bestätigungs-E-Mail an
+      <strong>{{ email }}</strong> gesendet werden?
+    </p>
+    <p>Der neue Link ist 48 Stunden gültig und der Versand wird im E-Mail-Bestätigungsprotokoll gespeichert.</p>
+  {% endif %}
+
+  <form method="post">
+    {% csrf_token %}
+    {% if email and not profile.email_verified %}
+      <input type="submit" value="Jetzt erneut senden" class="default">
+    {% endif %}
+    <a href="{{ changelist_url }}" class="button cancel-link">Zurück</a>
+  </form>
+</div>
+{% endblock %}
