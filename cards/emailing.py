@@ -25,12 +25,12 @@ def _trigger_for_request(request):
     return EmailVerificationAttempt.Trigger.OTHER
 
 
-def _verification_url(request, token):
+def _verification_url(request, token, attempt_id):
     path = reverse("verify_email", args=[token])
     public_base_url = getattr(settings, "APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
     if public_base_url:
-        return f"{public_base_url}{path}"
-    return request.build_absolute_uri(path)
+        return f"{public_base_url}{path}?attempt={attempt_id}"
+    return f"{request.build_absolute_uri(path)}?attempt={attempt_id}"
 
 
 def send_verification_email(request, user):
@@ -39,7 +39,17 @@ def send_verification_email(request, user):
     from .views import _verification_token
 
     token = _verification_token(user)
-    url = _verification_url(request, token)
+    attempt = EmailVerificationAttempt.objects.create(
+        user=user,
+        email=(user.email or "").strip().lower(),
+        trigger=_trigger_for_request(request),
+        status=EmailVerificationAttempt.Status.PENDING,
+        token_hash=verification_token_hash(token),
+        backend=settings.EMAIL_BACKEND[:255],
+        request_host=request.get_host()[:255],
+    )
+    url = _verification_url(request, token, attempt.pk)
+
     wallet = user.wallets.select_related("business").first()
     partner_name = wallet.business.name if wallet else "deinen A+ Partner"
     display_name = user.first_name or "A+ Member"
@@ -65,16 +75,6 @@ def send_verification_email(request, user):
       <p style="font-size:13px;color:#665d6c"><strong>{escape(settings.APP_NAME)}</strong> · {escape(settings.APP_PUBLISHER)}</p>
     </div>
     """
-
-    attempt = EmailVerificationAttempt.objects.create(
-        user=user,
-        email=(user.email or "").strip().lower(),
-        trigger=_trigger_for_request(request),
-        status=EmailVerificationAttempt.Status.PENDING,
-        token_hash=verification_token_hash(token),
-        backend=settings.EMAIL_BACKEND[:255],
-        request_host=request.get_host()[:255],
-    )
 
     message = EmailMultiAlternatives(
         subject=subject,
