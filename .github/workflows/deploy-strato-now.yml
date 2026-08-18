@@ -34,7 +34,7 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/apluscard_prod
           chmod 600 ~/.ssh/apluscard_prod
           ssh-keygen -y -f ~/.ssh/apluscard_prod >/dev/null
-          ssh-keyscan -H "$SSH_HOST" > ~/.ssh/known_hosts
+          ssh-keyscan -t ed25519 -H "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy latest main to STRATO
