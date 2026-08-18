@@ -1,0 +1,106 @@
+name: Deploy STRATO Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-strato-now.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: apluscard-strato-direct-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+      SITE_DOMAIN: app.samsclublounge.de
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSH_HOST" || { echo "NEWHOST is missing"; exit 1; }
+          test -n "$SSH_PRIVATE_KEY" || { echo "HETZNER_SSH_PRIVATE_KEY is missing"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/apluscard_prod
+          chmod 600 ~/.ssh/apluscard_prod
+          ssh-keygen -y -f ~/.ssh/apluscard_prod >/dev/null
+          ssh-keyscan -H "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy latest main to STRATO
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -o BatchMode=yes -o ConnectTimeout=20 -i ~/.ssh/apluscard_prod root@"$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          test -d .git
+          test -s .env
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+          TARGET_SHA="$(git rev-parse HEAD)"
+          docker compose up -d --build --remove-orphans
+          docker compose exec -T web python manage.py migrate --noinput </dev/null
+          docker compose exec -T web python manage.py check </dev/null
+          healthy=0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8010/health/ >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$healthy" -ne 1 ]; then
+            docker compose ps
+            docker compose logs --tail=250 web
+            exit 1
+          fi
+          printf '%s\n' "$TARGET_SHA" > .deployed_sha
+          docker compose ps
+          echo "DEPLOYED_SHA=$TARGET_SHA"
+          REMOTE
+
+      - name: Verify public production
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 20 "https://$SITE_DOMAIN/health/" >/dev/null; then
+              echo "Production health check passed."
+              exit 0
+            fi
+            sleep 4
+          done
+          echo "Production public health check failed."
+          exit 1
+
+      - name: Report deployment result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          JOB_STATUS: ${{ job.status }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [ "$JOB_STATUS" = "success" ]; then
+            icon='✅'
+          else
+            icon='❌'
+          fi
+          body="$icon STRATO direct deployment **$JOB_STATUS**\n\n- Commit: \`$SOURCE_SHA\`\n- Run: https://github.com/$REPOSITORY/actions/runs/$RUN_ID\n- Site: https://$SITE_DOMAIN"
+          gh api "repos/$REPOSITORY/issues/2/comments" -f body="$body" >/dev/null
