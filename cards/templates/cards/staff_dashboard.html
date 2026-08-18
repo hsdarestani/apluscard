@@ -60,7 +60,7 @@
 
       <details class="manual-code-fallback">
         <summary>QR-Code konnte nicht gescannt werden</summary>
-        <label><span>Sicheren Kartencode eingeben</span><input id="wallet-token-manual" type="text" autocomplete="off" placeholder="Kartencode einfügen"></label>
+        <label><span>Mitgliedsnummer oder Kartencode eingeben</span><input id="wallet-token-manual" type="text" autocomplete="off" placeholder="z. B. 101"></label>
       </details>
     </form>
   </article>
@@ -114,7 +114,7 @@
   const setToken=value=>{
     const token=String(value||'').trim();
     input.value=token;
-    if(manual && manual.value!==token)manual.value=token;
+    if(manual&&manual.value!==token)manual.value=token;
     confirmation.hidden=!token;
   };
   manual?.addEventListener('input',()=>setToken(manual.value));
@@ -185,7 +185,7 @@
   form?.addEventListener('submit',async event=>{
     if(!input.value.trim()){
       event.preventDefault();
-      status.textContent='Bitte zuerst den QR-Code scannen oder den sicheren Kartencode eingeben.';
+      status.textContent='Bitte zuerst den QR-Code scannen oder die Mitgliedsnummer / den Kartencode eingeben.';
       button?.focus();
       return;
     }
@@ -285,7 +285,7 @@
       return;
     }
     status.textContent='Kamera wird geöffnet …';
-    if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Sicheren Kartencode bitte manuell eingeben.';button.disabled=false;return;}
+    if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Mitgliedsnummer oder Kartencode bitte manuell eingeben.';button.disabled=false;return;}
     try{
       const options=window.Html5QrcodeSupportedFormats
         ? {formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE],verbose:false}
@@ -305,7 +305,7 @@
     }catch(e){
       console.error('SAMS scanner error',e);
       const denied=String(e?.name||e).toLowerCase().includes('notallowed')||String(e).toLowerCase().includes('permission');
-      status.textContent=denied?'Kameraberechtigung wurde nicht erteilt.':'Kamera konnte nicht gestartet werden. Sicheren Kartencode bitte manuell eingeben.';
+      status.textContent=denied?'Kameraberechtigung wurde nicht erteilt.':'Kamera konnte nicht gestartet werden. Mitgliedsnummer oder Kartencode bitte manuell eingeben.';
       await stop();
     }
   });
