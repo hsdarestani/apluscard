@@ -49,8 +49,11 @@ jobs:
           test -s .env
           git config --global --add safe.directory "$APP_DIR"
           git fetch --prune origin main
+          git reset --hard HEAD
+          git clean -fd
           git checkout -B main origin/main
           git reset --hard origin/main
+          git clean -fd
           TARGET_SHA="$(git rev-parse HEAD)"
           docker compose up -d --build --remove-orphans
           docker compose exec -T web python manage.py migrate --noinput </dev/null
