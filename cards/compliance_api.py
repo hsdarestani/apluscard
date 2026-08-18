@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .compliance_qr import issue_wallet_qr, resolve_payment_qr
-from .models import LedgerEntry, Location, Membership, Wallet
+from .models import LedgerEntry, Location, Membership, PaymentRequest, Wallet
 from .serializers import LedgerEntrySerializer, MoneyActionSerializer, PaymentRequestSerializer, WalletSerializer
 from .services import OWNER_ROLES, STAFF_ROLES, create_payment_request, get_active_membership, post_wallet_entry, require_role
 
@@ -124,6 +124,25 @@ class SecureStaffChargeView(APIView):
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         return Response(PaymentRequestSerializer(payment).data, status=status.HTTP_202_ACCEPTED)
+
+
+class SecureStaffPaymentStatusView(APIView):
+    """Expose a payment result only to the staff member who started it."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, payment_id):
+        membership = get_active_membership(request.user)
+        if not membership or membership.role not in STAFF_ROLES:
+            raise PermissionDenied
+
+        payment = get_object_or_404(
+            PaymentRequest.objects.select_related("wallet", "location"),
+            pk=payment_id,
+            business=membership.business,
+            created_by=request.user,
+        )
+        return Response(PaymentRequestSerializer(payment).data)
 
 
 class SecureOwnerMoneyActionView(APIView):

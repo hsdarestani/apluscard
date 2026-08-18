@@ -9,7 +9,7 @@ from django.urls import reverse
 from .emailing import send_verification_email
 from .forms import OfferForm
 from .models import BusinessSettings, LedgerEntry, PaymentRequest
-from .services import post_wallet_entry
+from .services import create_payment_request, finalize_payment_request, post_wallet_entry
 from .tests import PlatformMixin
 
 
@@ -48,6 +48,46 @@ class PaymentAndOwnerFlowTests(PlatformMixin, TestCase):
         self.assertContains(response, "Zahlung abbuchen")
         self.assertContains(response, "Prepaid-Guthaben")
         self.assertContains(response, "Betrag zurückgeben")
+
+
+class StaffTransactionSuccessPopupTests(PlatformMixin, TestCase):
+    def setUp(self):
+        self.create_platform()
+        post_wallet_entry(wallet=self.wallet, entry_type=LedgerEntry.Type.TOPUP, amount="100", actor=self.owner)
+
+    def test_staff_dashboard_contains_confirmed_transaction_popup_and_status_watch(self):
+        self.client.force_login(self.staff)
+        response = self.client.get(reverse("staff_dashboard"))
+        self.assertContains(response, 'id="transaction-success-popover"', html=False)
+        self.assertContains(response, "api/v1/staff/payments/", html=False)
+        self.assertContains(response, "payload.status==='CONFIRMED'", html=False)
+        self.assertContains(response, "Transaktion abgeschlossen")
+
+    def test_payment_status_is_only_visible_to_staff_member_who_created_it(self):
+        payment = create_payment_request(
+            wallet=self.wallet,
+            location=self.location_1,
+            actor=self.staff,
+            amount="12.50",
+            customer_tip_required=True,
+        )
+        status_url = reverse("api_staff_payment_status", args=[payment.pk])
+
+        self.client.force_login(self.staff)
+        response = self.client.get(status_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], PaymentRequest.Status.PENDING)
+
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(status_url).status_code, 404)
+
+        finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_amount="2.50")
+        self.client.force_login(self.staff)
+        response = self.client.get(status_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], PaymentRequest.Status.CONFIRMED)
+        self.assertEqual(Decimal(response.json()["tip_amount"]), Decimal("2.50"))
+        self.assertEqual(Decimal(response.json()["total_amount"]), Decimal("15.00"))
 
 
 class OfferAndMobileUiTests(PlatformMixin, TestCase):
