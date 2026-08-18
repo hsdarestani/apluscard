@@ -225,4 +225,4 @@ jobs:
           curl --fail --silent --show-error --max-time 20 "https://$FINAL_DOMAIN/health/" >/dev/null
           echo "Public production route is live on STRATO."
 
-# Manual production activation trigger — 2026-08-18
+# Production activation retrigger after repository visibility change — 2026-08-18
