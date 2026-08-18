@@ -47,6 +47,7 @@ jobs:
           cd "$APP_DIR"
           test -d .git
           test -s .env
+          git config --global --add safe.directory "$APP_DIR"
           git fetch --prune origin main
           git checkout -B main origin/main
           git reset --hard origin/main
