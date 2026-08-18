@@ -81,6 +81,7 @@ urlpatterns = [
     path("api/v1/transaction-cases/<uuid:case_id>/review/", api.TransactionCaseReviewView.as_view(), name="api_transaction_case_review"),
     path("api/v1/push-devices/", api.PushDeviceView.as_view(), name="api_push_devices"),
     path("api/v1/staff/charge/", compliance_api.SecureStaffChargeView.as_view(), name="api_staff_charge"),
+    path("api/v1/staff/payments/<uuid:payment_id>/status/", compliance_api.SecureStaffPaymentStatusView.as_view(), name="api_staff_payment_status"),
     path("api/v1/manager/topup/", compliance_api.SecureManagerTopupView.as_view(), name="api_manager_topup"),
     path("api/v1/manager/refund/", compliance_api.SecureManagerRefundView.as_view(), name="api_manager_refund"),
 ]

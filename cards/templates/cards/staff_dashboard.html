@@ -1,6 +1,19 @@
 {% extends 'cards/base.html' %}
 {% load static sams_de %}
 {% block title %}Zahlungskasse · SAMS Club Lounge{% endblock %}
+{% block head %}
+<style>
+  .transaction-success-popover[hidden]{display:none!important;}
+  .transaction-success-popover{position:fixed;inset:0;z-index:5000;display:grid;place-items:center;padding:24px max(20px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));background:rgba(5,3,11,.84);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
+  .transaction-success-card{width:min(100%,430px);margin:0;text-align:center;box-shadow:0 28px 80px rgba(0,0,0,.48);}
+  .transaction-success-icon{width:76px;height:76px;margin:0 auto 18px;border-radius:50%;display:grid;place-items:center;font-size:38px;font-weight:800;color:#b9ffd8;background:rgba(38,196,112,.14);border:1px solid rgba(83,255,167,.34);box-shadow:0 0 34px rgba(83,255,167,.12);}
+  .transaction-success-card h2{margin:.45rem 0 .65rem;}
+  .transaction-success-card>p{margin:0 auto 20px;max-width:34ch;}
+  .transaction-success-summary{display:grid;gap:9px;margin:18px 0 22px;padding:15px 16px;border-radius:16px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);text-align:left;}
+  .transaction-success-summary span{display:flex;align-items:center;justify-content:space-between;gap:16px;color:var(--muted,#b8b3c3);}
+  .transaction-success-summary strong{color:var(--text,#fff);white-space:nowrap;}
+</style>
+{% endblock %}
 {% block content %}
 <section class="dashboard-head staff-private-head">
   <div>
@@ -52,6 +65,21 @@
     </form>
   </article>
 </section>
+
+<div class="transaction-success-popover" id="transaction-success-popover" hidden role="dialog" aria-modal="true" aria-labelledby="transaction-success-title">
+  <article class="panel transaction-success-card">
+    <div class="transaction-success-icon" aria-hidden="true">✓</div>
+    <span class="eyebrow">Zahlung erfolgreich</span>
+    <h2 id="transaction-success-title">Transaktion abgeschlossen</h2>
+    <p class="muted" id="transaction-success-text">Die Zahlung wurde erfolgreich bestätigt und gebucht.</p>
+    <div class="transaction-success-summary" aria-label="Zahlungsübersicht">
+      <span>Rechnungsbetrag <strong id="transaction-success-base">0,00 €</strong></span>
+      <span>Trinkgeld <strong id="transaction-success-tip">0,00 €</strong></span>
+      <span>Gesamt <strong id="transaction-success-total">0,00 €</strong></span>
+    </div>
+    <button class="button primary full" type="button" id="success-next-charge">Neue Zahlung starten</button>
+  </article>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="{% static 'cards/camera-permissions.js' %}"></script>
@@ -70,7 +98,22 @@
   const resultTitle=document.getElementById('charge-result-title');
   const resultText=document.getElementById('charge-result-text');
   const nextCharge=document.getElementById('next-charge');
-  let scanner=null,handled=false,sending=false,completed=false;
+  const successPopover=document.getElementById('transaction-success-popover');
+  const successText=document.getElementById('transaction-success-text');
+  const successBase=document.getElementById('transaction-success-base');
+  const successTip=document.getElementById('transaction-success-tip');
+  const successTotal=document.getElementById('transaction-success-total');
+  const successNextCharge=document.getElementById('success-next-charge');
+  const paymentStatusSentinel='00000000-0000-0000-0000-000000000000';
+  const paymentStatusUrlTemplate="{% url 'api_staff_payment_status' payment_id='00000000-0000-0000-0000-000000000000' %}";
+  const activePaymentStorageKey='apluscard:staff-active-payment:{{ user.pk }}';
+  let scanner=null,handled=false,sending=false,completed=false,paymentPollTimer=null,activePaymentId=null;
+
+  const formatMoney=value=>{
+    const numeric=Number(String(value??'0').replace(',','.'));
+    if(!Number.isFinite(numeric))return `${value||'0,00'} €`;
+    return new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:2}).format(numeric);
+  };
 
   const setToken=value=>{
     const token=String(value||'').trim();
@@ -107,6 +150,127 @@
     try{if(scanner){await scanner.stop();await scanner.clear();}}catch(e){}
     scanner=null;handled=false;
     button.disabled=sending||completed;
+  };
+
+  const stopPaymentTimer=()=>{
+    if(paymentPollTimer)window.clearInterval(paymentPollTimer);
+    paymentPollTimer=null;
+  };
+
+  const clearActivePayment=()=>{
+    stopPaymentTimer();
+    activePaymentId=null;
+    try{window.localStorage.removeItem(activePaymentStorageKey);}catch(error){}
+  };
+
+  const paymentStatusUrl=paymentId=>paymentStatusUrlTemplate.replace(paymentStatusSentinel,encodeURIComponent(paymentId));
+
+  const unlockCheckout=(message,title='Zahlung nicht abgeschlossen')=>{
+    clearActivePayment();
+    completed=false;
+    sending=false;
+    setToken('');
+    if(amount){amount.disabled=false;amount.value='';}
+    if(manual){manual.disabled=false;manual.value='';}
+    submitButton.disabled=false;
+    submitButton.textContent='Zahlung an Kunden senden';
+    button.disabled=false;
+    showResult('error',title,message);
+    status.textContent=message;
+  };
+
+  const showConfirmedPayment=payload=>{
+    clearActivePayment();
+    completed=true;
+    const base=formatMoney(payload?.base_amount);
+    const tip=formatMoney(payload?.tip_amount);
+    const total=formatMoney(payload?.total_amount);
+    const member=payload?.member_number?` für Mitglied ${payload.member_number}`:'';
+    showResult('success','Zahlung abgeschlossen ✓',`${total} wurden erfolgreich gebucht.`);
+    status.textContent='Transaktion erfolgreich abgeschlossen.';
+    successText.textContent=`Die Zahlung${member} wurde erfolgreich bestätigt und gebucht.`;
+    successBase.textContent=base;
+    successTip.textContent=tip;
+    successTotal.textContent=total;
+    successPopover.hidden=false;
+    if(navigator.vibrate)navigator.vibrate([80,45,120]);
+    window.setTimeout(()=>successNextCharge?.focus(),60);
+  };
+
+  const pollPaymentStatus=async()=>{
+    if(!activePaymentId)return;
+    try{
+      const response=await fetch(paymentStatusUrl(activePaymentId),{
+        method:'GET',
+        credentials:'same-origin',
+        cache:'no-store',
+        headers:{'Accept':'application/json'}
+      });
+      if(response.status===403||response.status===404){
+        clearActivePayment();
+        completed=false;
+        if(amount)amount.disabled=false;
+        if(manual)manual.disabled=false;
+        submitButton.disabled=false;
+        submitButton.textContent='Zahlung an Kunden senden';
+        button.disabled=false;
+        result.hidden=true;
+        status.textContent='Bereit für eine neue Zahlung.';
+        return;
+      }
+      if(!response.ok)throw new Error(`Payment status HTTP ${response.status}`);
+      const payload=await response.json();
+      if(payload.status==='CONFIRMED'){
+        showConfirmedPayment(payload);
+        return;
+      }
+      if(payload.status==='CANCELLED'){
+        unlockCheckout('Der Kunde hat die Zahlungsanfrage nicht abgeschlossen. Bitte bei Bedarf eine neue Zahlung starten.','Zahlung abgebrochen');
+        return;
+      }
+      if(payload.status==='EXPIRED'||(payload.expires_at&&Date.parse(payload.expires_at)<=Date.now())){
+        unlockCheckout('Die Zahlungsanfrage ist abgelaufen. Bitte den QR-Code erneut scannen und eine neue Zahlung starten.','Zahlungsanfrage abgelaufen');
+        return;
+      }
+      completed=true;
+      button.disabled=true;
+      submitButton.disabled=true;
+      submitButton.textContent='Warte auf Bestätigung …';
+      if(amount)amount.disabled=true;
+      if(manual)manual.disabled=true;
+      showResult('pending','Zahlungsanfrage gesendet',`${formatMoney(payload.base_amount)} wurden an den Kunden gesendet. Warte auf seine Bestätigung.`);
+      status.textContent='Warte auf Bestätigung des Kunden …';
+    }catch(error){
+      console.error('SAMS payment status error',error);
+      status.textContent='Warte auf Kundenbestätigung … Verbindung wird erneut geprüft.';
+    }
+  };
+
+  const startPaymentWatch=paymentId=>{
+    const id=String(paymentId||'').trim();
+    if(!id)return;
+    stopPaymentTimer();
+    activePaymentId=id;
+    completed=true;
+    try{window.localStorage.setItem(activePaymentStorageKey,id);}catch(error){}
+    pollPaymentStatus();
+    paymentPollTimer=window.setInterval(pollPaymentStatus,1500);
+  };
+
+  const resetCharge=()=>{
+    clearActivePayment();
+    completed=false;
+    sending=false;
+    setToken('');
+    if(amount){amount.disabled=false;amount.value='';}
+    if(manual){manual.disabled=false;manual.value='';}
+    submitButton.disabled=false;
+    submitButton.textContent='Zahlung an Kunden senden';
+    result.hidden=true;
+    successPopover.hidden=true;
+    status.textContent='Bereit für die nächste Zahlung.';
+    button.disabled=false;
+    button.focus();
   };
 
   form?.addEventListener('submit',async event=>{
@@ -156,18 +320,16 @@
         return;
       }
 
+      if(!payload?.id)throw new Error('Payment request response did not contain an id');
       completed=true;
-      const sentAmount=String(payload?.base_amount||amount.value||'').replace('.',',');
-      showResult(
-        'success',
-        'Zahlungsanfrage gesendet ✓',
-        `${sentAmount} € wurden an den Kunden gesendet. Die Zahlungsfreigabe erscheint automatisch auf seinem Gerät.`
-      );
-      status.textContent='Erfolgreich gesendet. Jetzt bestätigt der Kunde die Zahlung auf seinem Gerät.';
       confirmation.hidden=true;
       manual.disabled=true;
       amount.disabled=true;
-      if(navigator.vibrate)navigator.vibrate(80);
+      showResult('pending','Zahlungsanfrage gesendet',`${formatMoney(payload.base_amount||amount.value)} wurden an den Kunden gesendet. Warte auf seine Bestätigung.`);
+      status.textContent='Zahlungsanfrage gesendet. Warte auf Bestätigung des Kunden …';
+      submitButton.textContent='Warte auf Bestätigung …';
+      if(navigator.vibrate)navigator.vibrate(45);
+      startPaymentWatch(payload.id);
     }catch(error){
       console.error('SAMS charge submit error',error);
       showResult('error','Verbindungsfehler','Die Verbindung zum Server ist fehlgeschlagen. Die Zahlung wurde nicht erneut ausgelöst. Bitte Verbindung prüfen und erneut senden.');
@@ -182,18 +344,8 @@
     }
   });
 
-  nextCharge?.addEventListener('click',()=>{
-    completed=false;
-    setToken('');
-    if(amount){amount.disabled=false;amount.value='';}
-    if(manual){manual.disabled=false;manual.value='';}
-    submitButton.disabled=false;
-    submitButton.textContent='Zahlung an Kunden senden';
-    result.hidden=true;
-    status.textContent='Bereit für die nächste Zahlung.';
-    button.disabled=false;
-    button.focus();
-  });
+  nextCharge?.addEventListener('click',resetCharge);
+  successNextCharge?.addEventListener('click',resetCharge);
 
   button?.addEventListener('click',async()=>{
     if(sending||completed)return;
@@ -231,7 +383,26 @@
       await stop();
     }
   });
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
+
+  try{
+    const savedPaymentId=window.localStorage.getItem(activePaymentStorageKey);
+    if(savedPaymentId){
+      completed=true;
+      button.disabled=true;
+      submitButton.disabled=true;
+      submitButton.textContent='Warte auf Bestätigung …';
+      if(amount)amount.disabled=true;
+      if(manual)manual.disabled=true;
+      showResult('pending','Zahlungsanfrage wird geprüft','Der aktuelle Zahlungsstatus wird geladen …');
+      status.textContent='Aktuelle Zahlung wird geprüft …';
+      startPaymentWatch(savedPaymentId);
+    }
+  }catch(error){}
+
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){stop();return;}
+    if(activePaymentId)pollPaymentStatus();
+  });
   window.addEventListener('pagehide',stop);
 })();
 </script>
