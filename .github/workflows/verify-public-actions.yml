@@ -1,0 +1,32 @@
+name: Verify Public Actions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-public-actions.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write verification marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          workdir="$RUNNER_TEMP/public-actions-check"
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" "$workdir"
+          cd "$workdir"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          printf 'runner=ok\nsource_sha=%s\n' "$SOURCE_SHA" > .public-actions-ok
+          git add .public-actions-ok
+          git commit -m "Verify public GitHub Actions runner"
+          git push origin HEAD:main
