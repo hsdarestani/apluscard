@@ -116,14 +116,24 @@ class SecureStaffChargeView(APIView):
                 actor=request.user,
                 amount=data["amount"],
                 tip_amount="0.00",
-                customer_tip_required=True,
+                customer_tip_required=False,
+                force_immediate=True,
                 description=data.get("description", ""),
                 order_reference=data.get("order_reference", ""),
                 ip_address=_client_ip(request),
             )
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(PaymentRequestSerializer(payment).data, status=status.HTTP_202_ACCEPTED)
+
+        if payment.status != PaymentRequest.Status.CONFIRMED:
+            return Response(
+                {
+                    "detail": "Die Zahlung konnte nicht direkt abgeschlossen werden. Bitte nicht erneut buchen und die Verwaltung informieren.",
+                    "payment": PaymentRequestSerializer(payment).data,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(PaymentRequestSerializer(payment).data, status=status.HTTP_201_CREATED)
 
 
 class SecureStaffPaymentStatusView(APIView):
