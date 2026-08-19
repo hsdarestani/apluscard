@@ -114,36 +114,26 @@ def _logo_image(width, height):
     outer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     outer_draw = ImageDraw.Draw(outer)
     outer_draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(180, 45, 255, 180))
-    outer_draw.text(
-        (3, round(height * 0.69)),
-        "SAMS CLUB LOUNGE",
-        font=small_font,
-        fill=(160, 55, 255, 140),
-    )
+    outer_draw.text((3, round(height * 0.69)), "SAMS CLUB LOUNGE", font=small_font, fill=(160, 55, 255, 140))
     outer = outer.filter(ImageFilter.GaussianBlur(max(4, height // 12)))
     image = Image.alpha_composite(image, outer)
 
     inner = Image.new("RGBA", image.size, (0, 0, 0, 0))
     inner_draw = ImageDraw.Draw(inner)
     inner_draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(218, 105, 255, 220))
-    inner_draw.text(
-        (3, round(height * 0.69)),
-        "SAMS CLUB LOUNGE",
-        font=small_font,
-        fill=(184, 86, 255, 170),
-    )
+    inner_draw.text((3, round(height * 0.69)), "SAMS CLUB LOUNGE", font=small_font, fill=(184, 86, 255, 170))
     inner = inner.filter(ImageFilter.GaussianBlur(max(2, height // 26)))
     image = Image.alpha_composite(image, inner)
 
     draw = ImageDraw.Draw(image)
     draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(238, 180, 255, 255))
-    draw.text(
-        (3, round(height * 0.69)),
-        "SAMS CLUB LOUNGE",
-        font=small_font,
-        fill=(195, 112, 255, 255),
-    )
+    draw.text((3, round(height * 0.69)), "SAMS CLUB LOUNGE", font=small_font, fill=(195, 112, 255, 255))
     return image
+
+
+def _smoothstep(value):
+    value = max(0.0, min(1.0, value))
+    return value * value * (3.0 - 2.0 * value)
 
 
 def _reference_wave_ratio(ratio):
@@ -153,12 +143,12 @@ def _reference_wave_ratio(ratio):
         -0.00635156 * (r ** 3)
         - 1.72150440 * (r ** 2)
         + 2.15854271 * r
-        + 0.13743077
+        + 0.06743077
     )
 
 
 def _strip_image(width, height):
-    """Near-black strip with the measured asymmetric reference neon curve."""
+    """Near-black strip with measured curve, left fade and strong right-side bloom."""
     image = _vertical_gradient(width, height, MIDNIGHT, DARK)
 
     points = []
@@ -176,75 +166,92 @@ def _strip_image(width, height):
     segment_count = max(len(points) - 1, 1)
     for index in range(segment_count):
         p = index / segment_count
-        visible = max(0.0, min(1.0, (p - 0.05) / 0.95))
-        right_ramp = visible ** 1.25
-        center_support = math.exp(-((p - 0.62) / 0.34) ** 2)
-        strength = min(1.0, 0.18 + 0.60 * right_ramp + 0.20 * center_support)
+        base = _smoothstep((p - 0.08) / 0.50)
+        right = _smoothstep((p - 0.58) / 0.36)
+        strength = min(1.0, 0.03 + 0.68 * base + 0.29 * right)
         p0 = points[index]
         p1 = points[index + 1]
 
         outer_draw.line(
             (p0, p1),
-            fill=(91, 20, 230, round(30 + 100 * strength)),
-            width=max(14, height // 8),
+            fill=(94, 20, 230, round(8 + 150 * strength)),
+            width=max(15, height // 8),
         )
         middle_draw.line(
             (p0, p1),
-            fill=(148, 48, 255, round(48 + 125 * strength)),
-            width=max(7, height // 18),
+            fill=(154, 48, 255, round(10 + 185 * strength)),
+            width=max(8, height // 18),
         )
         inner_draw.line(
             (p0, p1),
-            fill=(205, 100, 255, round(65 + 150 * strength)),
-            width=max(3, height // 32),
+            fill=(210, 100, 255, round(12 + 220 * strength)),
+            width=max(4, height // 32),
         )
 
-    outer = outer.filter(ImageFilter.GaussianBlur(max(14, height // 8)))
+    outer = outer.filter(ImageFilter.GaussianBlur(max(15, height // 8)))
     image = Image.alpha_composite(image, outer)
-    middle = middle.filter(ImageFilter.GaussianBlur(max(7, height // 18)))
+    middle = middle.filter(ImageFilter.GaussianBlur(max(8, height // 18)))
     image = Image.alpha_composite(image, middle)
-    inner = inner.filter(ImageFilter.GaussianBlur(max(3, height // 34)))
+    inner = inner.filter(ImageFilter.GaussianBlur(max(4, height // 34)))
     image = Image.alpha_composite(image, inner)
 
     draw = ImageDraw.Draw(image)
     for index in range(segment_count):
         p = index / segment_count
-        visible = max(0.0, min(1.0, (p - 0.05) / 0.95))
-        right_ramp = visible ** 1.15
+        base = _smoothstep((p - 0.08) / 0.50)
+        right = _smoothstep((p - 0.55) / 0.40)
+        strength = min(1.0, 0.02 + 0.70 * base + 0.28 * right)
         p0 = points[index]
         p1 = points[index + 1]
         core = (
-            round(125 + 110 * right_ramp),
-            round(55 + 115 * right_ramp),
+            round(110 + 130 * strength),
+            round(42 + 135 * strength),
             255,
-            round(105 + 150 * right_ramp),
+            round(15 + 240 * strength),
         )
-        draw.line((p0, p1), fill=core, width=max(1, height // 90))
+        draw.line((p0, p1), fill=core, width=max(2, height // 72))
+
+    # Crisp luminous edge on the right third, matching the supplied reference.
+    for index in range(segment_count):
+        p = index / segment_count
+        hot_edge = _smoothstep((p - 0.55) / 0.40)
+        if hot_edge <= 0:
+            continue
+        draw.line(
+            (points[index], points[index + 1]),
+            fill=(245, 165, 255, round(210 * hot_edge)),
+            width=1,
+        )
 
     hot = Image.new("RGBA", image.size, (0, 0, 0, 0))
     hot_draw = ImageDraw.Draw(hot)
     for index in range(segment_count):
         p = index / segment_count
-        if p < 0.65:
+        bloom = _smoothstep((p - 0.58) / 0.37)
+        if bloom <= 0:
             continue
-        q = (p - 0.65) / 0.35
         hot_draw.line(
             (points[index], points[index + 1]),
-            fill=(235, 150, 255, round(25 + 170 * (q ** 1.4))),
-            width=max(2, height // 48),
+            fill=(240, 150, 255, round(200 * bloom)),
+            width=max(3, height // 44),
         )
-    hot = hot.filter(ImageFilter.GaussianBlur(max(3, height // 38)))
+    hot = hot.filter(ImageFilter.GaussianBlur(max(4, height // 36)))
     image = Image.alpha_composite(image, hot)
 
     shadow_points = [(x, y + max(4, height // 30)) for x, y in points]
     shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     shadow_draw = ImageDraw.Draw(shadow)
-    shadow_draw.line(
-        shadow_points,
-        fill=(82, 20, 155, 42),
-        width=max(5, height // 22),
-    )
-    shadow = shadow.filter(ImageFilter.GaussianBlur(max(8, height // 15)))
+    for index in range(segment_count):
+        p = index / segment_count
+        base = _smoothstep((p - 0.12) / 0.50)
+        right = _smoothstep((p - 0.60) / 0.35)
+        alpha = round(5 + 55 * base + 35 * right)
+        shadow_draw.line(
+            (shadow_points[index], shadow_points[index + 1]),
+            fill=(75, 14, 150, alpha),
+            width=max(6, height // 20),
+        )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(max(9, height // 14)))
     image = Image.alpha_composite(image, shadow)
 
     return image
