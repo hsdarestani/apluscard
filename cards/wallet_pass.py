@@ -1,7 +1,6 @@
 import base64
 import hashlib
 import json
-import math
 import zipfile
 from io import BytesIO
 
@@ -11,20 +10,15 @@ from cryptography.hazmat.primitives.serialization import pkcs12, pkcs7
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.urls import reverse
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw
 
 from .branding import load_brand_icon
+from .wallet_reference_assets import REFERENCE_LOGO_JPEG_BASE64, REFERENCE_STRIP_JPEG_BASE64
 
 
 DARK = (1, 1, 5, 255)
-MIDNIGHT = (4, 3, 10, 255)
-PURPLE = (154, 58, 255, 255)
-PURPLE_CORE = (236, 165, 255, 255)
-PURPLE_HOT = (205, 110, 255, 255)
-PURPLE_GLOW = (118, 28, 255, 255)
 VIOLET = (196, 104, 255, 255)
 WHITE = (255, 255, 255, 255)
-SOFT_WHITE = (245, 243, 250, 255)
 
 
 def _decode_secret(value):
@@ -55,19 +49,6 @@ def _load_signing_identity():
     if private_key is None or certificate is None:
         raise ImproperlyConfigured("Apple-Wallet-P12 enthält kein gültiges Zertifikat mit privatem Schlüssel.")
     return private_key, certificate, list(chain or [])
-
-
-def _font(size, *, bold=True):
-    candidates = (
-        "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
-        "Arial Bold.ttf" if bold else "Arial.ttf",
-    )
-    for candidate in candidates:
-        try:
-            return ImageFont.truetype(candidate, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
 
 
 def _vertical_gradient(width, height, top, bottom):
@@ -101,160 +82,30 @@ def _icon_image(size):
         fill=VIOLET,
         width=max(2, round(size * 0.045)),
     )
-    draw.text((size / 2, size / 2), "SCL", font=_font(max(9, round(size * 0.29))), fill=WHITE, anchor="mm")
     return image
+
+
+def _decode_reference(encoded):
+    return Image.open(BytesIO(base64.b64decode(encoded))).convert("RGBA")
 
 
 def _logo_image(width, height):
-    """Neon wordmark proportioned to the supplied reference screenshot."""
-    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    big_font = _font(max(26, round(height * 0.70)), bold=False)
-    small_font = _font(max(7, round(height * 0.15)), bold=False)
+    """Use the approved SCL neon wordmark directly from the supplied reference."""
+    source = _decode_reference(REFERENCE_LOGO_JPEG_BASE64)
+    scale = min(width / source.width, height / source.height)
+    target_w = max(1, round(source.width * scale))
+    target_h = max(1, round(source.height * scale))
+    source = source.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
-    outer = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    outer_draw = ImageDraw.Draw(outer)
-    outer_draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(180, 45, 255, 180))
-    outer_draw.text((3, round(height * 0.69)), "SAMS CLUB LOUNGE", font=small_font, fill=(160, 55, 255, 140))
-    outer = outer.filter(ImageFilter.GaussianBlur(max(4, height // 12)))
-    image = Image.alpha_composite(image, outer)
-
-    inner = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    inner_draw = ImageDraw.Draw(inner)
-    inner_draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(218, 105, 255, 220))
-    inner_draw.text((3, round(height * 0.69)), "SAMS CLUB LOUNGE", font=small_font, fill=(184, 86, 255, 170))
-    inner = inner.filter(ImageFilter.GaussianBlur(max(2, height // 26)))
-    image = Image.alpha_composite(image, inner)
-
-    draw = ImageDraw.Draw(image)
-    draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(238, 180, 255, 255))
-    draw.text((3, round(height * 0.69)), "SAMS CLUB LOUNGE", font=small_font, fill=(195, 112, 255, 255))
+    image = Image.new("RGBA", (width, height), DARK)
+    image.alpha_composite(source, (0, max(0, (height - target_h) // 2)))
     return image
-
-
-def _smoothstep(value):
-    value = max(0.0, min(1.0, value))
-    return value * value * (3.0 - 2.0 * value)
-
-
-def _reference_wave_ratio(ratio):
-    """Cubic fit measured from the supplied Neon Lounge reference image."""
-    r = max(0.0, min(1.0, ratio))
-    return (
-        -0.00635156 * (r ** 3)
-        - 1.72150440 * (r ** 2)
-        + 2.15854271 * r
-        + 0.06743077
-    )
 
 
 def _strip_image(width, height):
-    """Near-black strip with measured curve, left fade and strong right-side bloom."""
-    image = _vertical_gradient(width, height, MIDNIGHT, DARK)
-
-    points = []
-    for x in range(-12, width + 13, 2):
-        r = max(0.0, min(1.0, x / max(width, 1)))
-        points.append((x, round(height * _reference_wave_ratio(r))))
-
-    outer = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    outer_draw = ImageDraw.Draw(outer)
-    middle = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    middle_draw = ImageDraw.Draw(middle)
-    inner = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    inner_draw = ImageDraw.Draw(inner)
-
-    segment_count = max(len(points) - 1, 1)
-    for index in range(segment_count):
-        p = index / segment_count
-        base = _smoothstep((p - 0.08) / 0.50)
-        right = _smoothstep((p - 0.58) / 0.36)
-        strength = min(1.0, 0.03 + 0.68 * base + 0.29 * right)
-        p0 = points[index]
-        p1 = points[index + 1]
-
-        outer_draw.line(
-            (p0, p1),
-            fill=(94, 20, 230, round(8 + 150 * strength)),
-            width=max(15, height // 8),
-        )
-        middle_draw.line(
-            (p0, p1),
-            fill=(154, 48, 255, round(10 + 185 * strength)),
-            width=max(8, height // 18),
-        )
-        inner_draw.line(
-            (p0, p1),
-            fill=(210, 100, 255, round(12 + 220 * strength)),
-            width=max(4, height // 32),
-        )
-
-    outer = outer.filter(ImageFilter.GaussianBlur(max(15, height // 8)))
-    image = Image.alpha_composite(image, outer)
-    middle = middle.filter(ImageFilter.GaussianBlur(max(8, height // 18)))
-    image = Image.alpha_composite(image, middle)
-    inner = inner.filter(ImageFilter.GaussianBlur(max(4, height // 34)))
-    image = Image.alpha_composite(image, inner)
-
-    draw = ImageDraw.Draw(image)
-    for index in range(segment_count):
-        p = index / segment_count
-        base = _smoothstep((p - 0.08) / 0.50)
-        right = _smoothstep((p - 0.55) / 0.40)
-        strength = min(1.0, 0.02 + 0.70 * base + 0.28 * right)
-        p0 = points[index]
-        p1 = points[index + 1]
-        core = (
-            round(110 + 130 * strength),
-            round(42 + 135 * strength),
-            255,
-            round(15 + 240 * strength),
-        )
-        draw.line((p0, p1), fill=core, width=max(2, height // 72))
-
-    # Crisp luminous edge on the right third, matching the supplied reference.
-    for index in range(segment_count):
-        p = index / segment_count
-        hot_edge = _smoothstep((p - 0.55) / 0.40)
-        if hot_edge <= 0:
-            continue
-        draw.line(
-            (points[index], points[index + 1]),
-            fill=(245, 165, 255, round(210 * hot_edge)),
-            width=1,
-        )
-
-    hot = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    hot_draw = ImageDraw.Draw(hot)
-    for index in range(segment_count):
-        p = index / segment_count
-        bloom = _smoothstep((p - 0.58) / 0.37)
-        if bloom <= 0:
-            continue
-        hot_draw.line(
-            (points[index], points[index + 1]),
-            fill=(240, 150, 255, round(200 * bloom)),
-            width=max(3, height // 44),
-        )
-    hot = hot.filter(ImageFilter.GaussianBlur(max(4, height // 36)))
-    image = Image.alpha_composite(image, hot)
-
-    shadow_points = [(x, y + max(4, height // 30)) for x, y in points]
-    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow)
-    for index in range(segment_count):
-        p = index / segment_count
-        base = _smoothstep((p - 0.12) / 0.50)
-        right = _smoothstep((p - 0.60) / 0.35)
-        alpha = round(5 + 55 * base + 35 * right)
-        shadow_draw.line(
-            (shadow_points[index], shadow_points[index + 1]),
-            fill=(75, 14, 150, alpha),
-            width=max(6, height // 20),
-        )
-    shadow = shadow.filter(ImageFilter.GaussianBlur(max(9, height // 14)))
-    image = Image.alpha_composite(image, shadow)
-
-    return image
+    """Use the exact approved neon curve, glow and shadow artwork from the reference."""
+    source = _decode_reference(REFERENCE_STRIP_JPEG_BASE64)
+    return source.resize((width, height), Image.Resampling.LANCZOS)
 
 
 def _png_bytes(image):
@@ -314,8 +165,8 @@ def _pass_files(wallet, request):
         "icon.png": _png_bytes(_icon_image(29)),
         "icon@2x.png": _png_bytes(_icon_image(58)),
         "icon@3x.png": _png_bytes(_icon_image(87)),
-        "logo.png": _png_bytes(_logo_image(190, 54)),
-        "logo@2x.png": _png_bytes(_logo_image(380, 108)),
+        "logo.png": _png_bytes(_logo_image(160, 50)),
+        "logo@2x.png": _png_bytes(_logo_image(320, 100)),
         "strip.png": _png_bytes(_strip_image(375, 123)),
         "strip@2x.png": _png_bytes(_strip_image(750, 246)),
     }
