@@ -16,10 +16,12 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from .branding import load_brand_icon
 
 
-DARK = (2, 2, 7, 255)
-MIDNIGHT = (5, 4, 11, 255)
-PURPLE = (160, 64, 255, 255)
-PURPLE_CORE = (222, 150, 255, 255)
+DARK = (1, 1, 5, 255)
+MIDNIGHT = (4, 3, 10, 255)
+PURPLE = (154, 58, 255, 255)
+PURPLE_CORE = (236, 165, 255, 255)
+PURPLE_HOT = (205, 110, 255, 255)
+PURPLE_GLOW = (118, 28, 255, 255)
 VIOLET = (196, 104, 255, 255)
 WHITE = (255, 255, 255, 255)
 SOFT_WHITE = (245, 243, 250, 255)
@@ -104,57 +106,132 @@ def _icon_image(size):
 
 
 def _logo_image(width, height):
-    """Neon SCL wordmark used once in the Wallet header."""
+    """Reference-like neon SCL wordmark, used once in the Wallet header."""
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    big_font = _font(max(20, round(height * 0.50)), bold=False)
-    small_font = _font(max(6, round(height * 0.13)), bold=False)
+    big_font = _font(max(24, round(height * 0.58)), bold=False)
+    small_font = _font(max(7, round(height * 0.15)), bold=False)
 
-    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow)
-    glow_draw.text((3, -2), "SCL", font=big_font, fill=(173, 55, 255, 190))
-    glow_draw.text((4, round(height * 0.62)), "SAMS CLUB LOUNGE", font=small_font, fill=(153, 58, 255, 140))
-    glow = glow.filter(ImageFilter.GaussianBlur(max(2, height // 14)))
-    image = Image.alpha_composite(image, glow)
+    # Wide violet halo behind the wordmark.
+    outer_glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    outer_draw = ImageDraw.Draw(outer_glow)
+    outer_draw.text((2, -3), "SCL", font=big_font, fill=(158, 38, 255, 190))
+    outer_draw.text((4, round(height * 0.64)), "SAMS CLUB LOUNGE", font=small_font, fill=(140, 40, 255, 145))
+    outer_glow = outer_glow.filter(ImageFilter.GaussianBlur(max(4, height // 10)))
+    image = Image.alpha_composite(image, outer_glow)
+
+    # Tighter glow gives the reference its crisp neon edge.
+    inner_glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    inner_draw = ImageDraw.Draw(inner_glow)
+    inner_draw.text((2, -3), "SCL", font=big_font, fill=(205, 92, 255, 215))
+    inner_draw.text((4, round(height * 0.64)), "SAMS CLUB LOUNGE", font=small_font, fill=(169, 72, 255, 175))
+    inner_glow = inner_glow.filter(ImageFilter.GaussianBlur(max(2, height // 20)))
+    image = Image.alpha_composite(image, inner_glow)
 
     draw = ImageDraw.Draw(image)
-    draw.text((3, -2), "SCL", font=big_font, fill=(210, 126, 255, 255))
-    draw.text((4, round(height * 0.62)), "SAMS CLUB LOUNGE", font=small_font, fill=(171, 86, 255, 255))
+    draw.text((2, -3), "SCL", font=big_font, fill=(235, 171, 255, 255))
+    draw.text((4, round(height * 0.64)), "SAMS CLUB LOUNGE", font=small_font, fill=(188, 103, 255, 255))
     return image
 
 
 def _strip_image(width, height):
-    """Reference-style Neon Lounge artwork: almost black with one thin violet wave."""
+    """Reference-style Neon Lounge: near-black with a thin asymmetric neon arc."""
     image = _vertical_gradient(width, height, MIDNIGHT, DARK)
 
     points = []
     for x in range(-12, width + 13, 2):
         ratio = x / max(width, 1)
-        y = height * (
-            0.52
-            + 0.18 * math.sin(max(0.0, min(1.0, ratio)) * math.pi)
-            - 0.08 * max(0.0, min(1.0, ratio))
-        )
+        r = max(0.0, min(1.0, ratio))
+        # Matches the reference: gentle entry on the left, a shallow dip,
+        # then a stronger climb and brighter finish on the right.
+        y = height * (0.58 + 0.15 * math.sin(r * math.pi) - 0.13 * r)
         points.append((x, round(y)))
 
-    # Broad but restrained halo around the line; the rest stays nearly black.
+    # Very restrained ambient haze under the arc; the card itself stays black.
+    ambient = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ambient_draw = ImageDraw.Draw(ambient)
+    ambient_draw.ellipse(
+        (-round(width * 0.10), round(height * 0.48), round(width * 0.35), round(height * 1.12)),
+        fill=(85, 18, 210, 20),
+    )
+    ambient_draw.ellipse(
+        (round(width * 0.55), round(height * 0.34), round(width * 1.12), round(height * 1.08)),
+        fill=(125, 34, 255, 34),
+    )
+    ambient = ambient.filter(ImageFilter.GaussianBlur(max(16, height // 5)))
+    image = Image.alpha_composite(image, ambient)
+
+    # Bright right-side hotspot, visible in the reference.
+    hot_r = 0.87
+    hot_y = height * (0.58 + 0.15 * math.sin(hot_r * math.pi) - 0.13 * hot_r)
+    hotspot = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    hotspot_draw = ImageDraw.Draw(hotspot)
+    hotspot_draw.ellipse(
+        (
+            round(width * 0.70),
+            round(hot_y - height * 0.30),
+            round(width * 1.08),
+            round(hot_y + height * 0.30),
+        ),
+        fill=(147, 46, 255, 82),
+    )
+    hotspot = hotspot.filter(ImageFilter.GaussianBlur(max(18, height // 4)))
+    image = Image.alpha_composite(image, hotspot)
+
+    # Draw variable-strength glows so the arc is subtler on the left and hotter on the right.
     outer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     outer_draw = ImageDraw.Draw(outer)
-    outer_draw.line(points, fill=(116, 30, 255, 145), width=max(9, height // 12))
-    outer = outer.filter(ImageFilter.GaussianBlur(max(9, height // 9)))
-    image = Image.alpha_composite(image, outer)
-
     inner = Image.new("RGBA", image.size, (0, 0, 0, 0))
     inner_draw = ImageDraw.Draw(inner)
-    inner_draw.line(points, fill=(175, 72, 255, 195), width=max(4, height // 25))
-    inner = inner.filter(ImageFilter.GaussianBlur(max(4, height // 25)))
+    hot = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    hot_draw = ImageDraw.Draw(hot)
+
+    segment_count = max(len(points) - 1, 1)
+    for index in range(segment_count):
+        p = index / segment_count
+        p_hot = p ** 1.7
+        p0 = points[index]
+        p1 = points[index + 1]
+        outer_alpha = round(72 + 105 * p_hot)
+        inner_alpha = round(118 + 100 * p_hot)
+        hot_alpha = round(135 + 95 * p_hot)
+        outer_draw.line((p0, p1), fill=(96, 22, 255, outer_alpha), width=max(12, height // 9))
+        inner_draw.line((p0, p1), fill=(162, 58, 255, inner_alpha), width=max(6, height // 18))
+        hot_draw.line((p0, p1), fill=(211, 108, 255, hot_alpha), width=max(3, height // 30))
+
+    outer = outer.filter(ImageFilter.GaussianBlur(max(13, height // 7)))
+    image = Image.alpha_composite(image, outer)
+    inner = inner.filter(ImageFilter.GaussianBlur(max(7, height // 15)))
     image = Image.alpha_composite(image, inner)
+    hot = hot.filter(ImageFilter.GaussianBlur(max(3, height // 28)))
+    image = Image.alpha_composite(image, hot)
 
+    # Core neon and a soft highlight/shadow pair for dimensionality.
     draw = ImageDraw.Draw(image)
-    draw.line(points, fill=PURPLE_CORE, width=max(2, height // 60))
+    for index in range(segment_count):
+        p = index / segment_count
+        p_hot = p ** 1.55
+        p0 = points[index]
+        p1 = points[index + 1]
+        core = (
+            round(222 + 14 * p_hot),
+            round(143 + 22 * p_hot),
+            255,
+            255,
+        )
+        draw.line((p0, p1), fill=core, width=max(2, height // 64))
 
-    # A faint second trace makes the neon feel dimensional without filling the strip purple.
-    reflection = [(x, y + max(5, height // 22)) for x, y in points]
-    draw.line(reflection, fill=(112, 45, 210, 30), width=1)
+    highlight = [(x, y - 1) for x, y in points]
+    draw.line(highlight, fill=(255, 224, 255, 105), width=1)
+
+    reflection = [(x, y + max(5, height // 24)) for x, y in points]
+    draw.line(reflection, fill=(96, 24, 170, 34), width=1)
+
+    # A faint blurred shadow immediately below the arc keeps the glow soft rather than flat.
+    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.line(reflection, fill=(70, 12, 120, 70), width=max(5, height // 22))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(max(8, height // 14)))
+    image = Image.alpha_composite(image, shadow)
     return image
 
 
@@ -181,7 +258,7 @@ def _pass_files(wallet, request):
         "organizationName": settings.APP_PUBLISHER,
         "description": "Digitale Sams Club Lounge Mitgliedskarte",
         "foregroundColor": "rgb(245, 243, 250)",
-        "backgroundColor": "rgb(2, 2, 7)",
+        "backgroundColor": "rgb(1, 1, 5)",
         "labelColor": "rgb(186, 116, 255)",
         "sharingProhibited": True,
         "suppressStripShine": True,
@@ -215,8 +292,8 @@ def _pass_files(wallet, request):
         "icon.png": _png_bytes(_icon_image(29)),
         "icon@2x.png": _png_bytes(_icon_image(58)),
         "icon@3x.png": _png_bytes(_icon_image(87)),
-        "logo.png": _png_bytes(_logo_image(160, 50)),
-        "logo@2x.png": _png_bytes(_logo_image(320, 100)),
+        "logo.png": _png_bytes(_logo_image(190, 54)),
+        "logo@2x.png": _png_bytes(_logo_image(380, 108)),
         "strip.png": _png_bytes(_strip_image(375, 123)),
         "strip@2x.png": _png_bytes(_strip_image(750, 246)),
     }
