@@ -106,132 +106,147 @@ def _icon_image(size):
 
 
 def _logo_image(width, height):
-    """Reference-like neon SCL wordmark, used once in the Wallet header."""
+    """Neon wordmark proportioned to the supplied reference screenshot."""
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    big_font = _font(max(24, round(height * 0.58)), bold=False)
+    big_font = _font(max(26, round(height * 0.70)), bold=False)
     small_font = _font(max(7, round(height * 0.15)), bold=False)
 
-    # Wide violet halo behind the wordmark.
-    outer_glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    outer_draw = ImageDraw.Draw(outer_glow)
-    outer_draw.text((2, -3), "SCL", font=big_font, fill=(158, 38, 255, 190))
-    outer_draw.text((4, round(height * 0.64)), "SAMS CLUB LOUNGE", font=small_font, fill=(140, 40, 255, 145))
-    outer_glow = outer_glow.filter(ImageFilter.GaussianBlur(max(4, height // 10)))
-    image = Image.alpha_composite(image, outer_glow)
+    outer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    outer_draw = ImageDraw.Draw(outer)
+    outer_draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(180, 45, 255, 180))
+    outer_draw.text(
+        (3, round(height * 0.69)),
+        "SAMS CLUB LOUNGE",
+        font=small_font,
+        fill=(160, 55, 255, 140),
+    )
+    outer = outer.filter(ImageFilter.GaussianBlur(max(4, height // 12)))
+    image = Image.alpha_composite(image, outer)
 
-    # Tighter glow gives the reference its crisp neon edge.
-    inner_glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    inner_draw = ImageDraw.Draw(inner_glow)
-    inner_draw.text((2, -3), "SCL", font=big_font, fill=(205, 92, 255, 215))
-    inner_draw.text((4, round(height * 0.64)), "SAMS CLUB LOUNGE", font=small_font, fill=(169, 72, 255, 175))
-    inner_glow = inner_glow.filter(ImageFilter.GaussianBlur(max(2, height // 20)))
-    image = Image.alpha_composite(image, inner_glow)
+    inner = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    inner_draw = ImageDraw.Draw(inner)
+    inner_draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(218, 105, 255, 220))
+    inner_draw.text(
+        (3, round(height * 0.69)),
+        "SAMS CLUB LOUNGE",
+        font=small_font,
+        fill=(184, 86, 255, 170),
+    )
+    inner = inner.filter(ImageFilter.GaussianBlur(max(2, height // 26)))
+    image = Image.alpha_composite(image, inner)
 
     draw = ImageDraw.Draw(image)
-    draw.text((2, -3), "SCL", font=big_font, fill=(235, 171, 255, 255))
-    draw.text((4, round(height * 0.64)), "SAMS CLUB LOUNGE", font=small_font, fill=(188, 103, 255, 255))
+    draw.text((1, -round(height * 0.09)), "SCL", font=big_font, fill=(238, 180, 255, 255))
+    draw.text(
+        (3, round(height * 0.69)),
+        "SAMS CLUB LOUNGE",
+        font=small_font,
+        fill=(195, 112, 255, 255),
+    )
     return image
 
 
+def _reference_wave_ratio(ratio):
+    """Cubic fit measured from the supplied Neon Lounge reference image."""
+    r = max(0.0, min(1.0, ratio))
+    return (
+        -0.00635156 * (r ** 3)
+        - 1.72150440 * (r ** 2)
+        + 2.15854271 * r
+        + 0.13743077
+    )
+
+
 def _strip_image(width, height):
-    """Reference-style Neon Lounge: near-black with a thin asymmetric neon arc."""
+    """Near-black strip with the measured asymmetric reference neon curve."""
     image = _vertical_gradient(width, height, MIDNIGHT, DARK)
 
     points = []
     for x in range(-12, width + 13, 2):
-        ratio = x / max(width, 1)
-        r = max(0.0, min(1.0, ratio))
-        # Matches the reference: gentle entry on the left, a shallow dip,
-        # then a stronger climb and brighter finish on the right.
-        y = height * (0.58 + 0.15 * math.sin(r * math.pi) - 0.13 * r)
-        points.append((x, round(y)))
+        r = max(0.0, min(1.0, x / max(width, 1)))
+        points.append((x, round(height * _reference_wave_ratio(r))))
 
-    # Very restrained ambient haze under the arc; the card itself stays black.
-    ambient = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    ambient_draw = ImageDraw.Draw(ambient)
-    ambient_draw.ellipse(
-        (-round(width * 0.10), round(height * 0.48), round(width * 0.35), round(height * 1.12)),
-        fill=(85, 18, 210, 20),
-    )
-    ambient_draw.ellipse(
-        (round(width * 0.55), round(height * 0.34), round(width * 1.12), round(height * 1.08)),
-        fill=(125, 34, 255, 34),
-    )
-    ambient = ambient.filter(ImageFilter.GaussianBlur(max(16, height // 5)))
-    image = Image.alpha_composite(image, ambient)
-
-    # Bright right-side hotspot, visible in the reference.
-    hot_r = 0.87
-    hot_y = height * (0.58 + 0.15 * math.sin(hot_r * math.pi) - 0.13 * hot_r)
-    hotspot = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    hotspot_draw = ImageDraw.Draw(hotspot)
-    hotspot_draw.ellipse(
-        (
-            round(width * 0.70),
-            round(hot_y - height * 0.30),
-            round(width * 1.08),
-            round(hot_y + height * 0.30),
-        ),
-        fill=(147, 46, 255, 82),
-    )
-    hotspot = hotspot.filter(ImageFilter.GaussianBlur(max(18, height // 4)))
-    image = Image.alpha_composite(image, hotspot)
-
-    # Draw variable-strength glows so the arc is subtler on the left and hotter on the right.
     outer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     outer_draw = ImageDraw.Draw(outer)
+    middle = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    middle_draw = ImageDraw.Draw(middle)
     inner = Image.new("RGBA", image.size, (0, 0, 0, 0))
     inner_draw = ImageDraw.Draw(inner)
-    hot = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    hot_draw = ImageDraw.Draw(hot)
 
     segment_count = max(len(points) - 1, 1)
     for index in range(segment_count):
         p = index / segment_count
-        p_hot = p ** 1.7
+        visible = max(0.0, min(1.0, (p - 0.05) / 0.95))
+        right_ramp = visible ** 1.25
+        center_support = math.exp(-((p - 0.62) / 0.34) ** 2)
+        strength = min(1.0, 0.18 + 0.60 * right_ramp + 0.20 * center_support)
         p0 = points[index]
         p1 = points[index + 1]
-        outer_alpha = round(72 + 105 * p_hot)
-        inner_alpha = round(118 + 100 * p_hot)
-        hot_alpha = round(135 + 95 * p_hot)
-        outer_draw.line((p0, p1), fill=(96, 22, 255, outer_alpha), width=max(12, height // 9))
-        inner_draw.line((p0, p1), fill=(162, 58, 255, inner_alpha), width=max(6, height // 18))
-        hot_draw.line((p0, p1), fill=(211, 108, 255, hot_alpha), width=max(3, height // 30))
 
-    outer = outer.filter(ImageFilter.GaussianBlur(max(13, height // 7)))
+        outer_draw.line(
+            (p0, p1),
+            fill=(91, 20, 230, round(30 + 100 * strength)),
+            width=max(14, height // 8),
+        )
+        middle_draw.line(
+            (p0, p1),
+            fill=(148, 48, 255, round(48 + 125 * strength)),
+            width=max(7, height // 18),
+        )
+        inner_draw.line(
+            (p0, p1),
+            fill=(205, 100, 255, round(65 + 150 * strength)),
+            width=max(3, height // 32),
+        )
+
+    outer = outer.filter(ImageFilter.GaussianBlur(max(14, height // 8)))
     image = Image.alpha_composite(image, outer)
-    inner = inner.filter(ImageFilter.GaussianBlur(max(7, height // 15)))
+    middle = middle.filter(ImageFilter.GaussianBlur(max(7, height // 18)))
+    image = Image.alpha_composite(image, middle)
+    inner = inner.filter(ImageFilter.GaussianBlur(max(3, height // 34)))
     image = Image.alpha_composite(image, inner)
-    hot = hot.filter(ImageFilter.GaussianBlur(max(3, height // 28)))
-    image = Image.alpha_composite(image, hot)
 
-    # Core neon and a soft highlight/shadow pair for dimensionality.
     draw = ImageDraw.Draw(image)
     for index in range(segment_count):
         p = index / segment_count
-        p_hot = p ** 1.55
+        visible = max(0.0, min(1.0, (p - 0.05) / 0.95))
+        right_ramp = visible ** 1.15
         p0 = points[index]
         p1 = points[index + 1]
         core = (
-            round(222 + 14 * p_hot),
-            round(143 + 22 * p_hot),
+            round(125 + 110 * right_ramp),
+            round(55 + 115 * right_ramp),
             255,
-            255,
+            round(105 + 150 * right_ramp),
         )
-        draw.line((p0, p1), fill=core, width=max(2, height // 64))
+        draw.line((p0, p1), fill=core, width=max(1, height // 90))
 
-    highlight = [(x, y - 1) for x, y in points]
-    draw.line(highlight, fill=(255, 224, 255, 105), width=1)
+    hot = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    hot_draw = ImageDraw.Draw(hot)
+    for index in range(segment_count):
+        p = index / segment_count
+        if p < 0.65:
+            continue
+        q = (p - 0.65) / 0.35
+        hot_draw.line(
+            (points[index], points[index + 1]),
+            fill=(235, 150, 255, round(25 + 170 * (q ** 1.4))),
+            width=max(2, height // 48),
+        )
+    hot = hot.filter(ImageFilter.GaussianBlur(max(3, height // 38)))
+    image = Image.alpha_composite(image, hot)
 
-    reflection = [(x, y + max(5, height // 24)) for x, y in points]
-    draw.line(reflection, fill=(96, 24, 170, 34), width=1)
-
-    # A faint blurred shadow immediately below the arc keeps the glow soft rather than flat.
+    shadow_points = [(x, y + max(4, height // 30)) for x, y in points]
     shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     shadow_draw = ImageDraw.Draw(shadow)
-    shadow_draw.line(reflection, fill=(70, 12, 120, 70), width=max(5, height // 22))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(max(8, height // 14)))
+    shadow_draw.line(
+        shadow_points,
+        fill=(82, 20, 155, 42),
+        width=max(5, height // 22),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(max(8, height // 15)))
     image = Image.alpha_composite(image, shadow)
+
     return image
 
 
