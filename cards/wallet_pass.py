@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import math
 import zipfile
 from io import BytesIO
 
@@ -15,12 +16,13 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from .branding import load_brand_icon
 
 
-DARK = (6, 3, 11, 255)
-DARK_PURPLE = (28, 7, 40, 255)
-PURPLE = (133, 38, 244, 255)
-PINK = (235, 47, 171, 255)
-GOLD = (220, 167, 80, 255)
-GOLD_LIGHT = (255, 218, 148, 255)
+DARK = (4, 3, 8, 255)
+MIDNIGHT = (11, 7, 19, 255)
+PURPLE = (111, 36, 220, 255)
+VIOLET = (164, 74, 255, 255)
+PINK = (226, 59, 174, 255)
+GOLD = (205, 156, 75, 255)
+GOLD_LIGHT = (246, 211, 143, 255)
 WHITE = (255, 255, 255, 255)
 
 
@@ -82,7 +84,7 @@ def _icon_image(size):
     if exact_icon is not None:
         return exact_icon
 
-    image = _vertical_gradient(size, size, (13, 8, 22, 255), (4, 3, 8, 255))
+    image = _vertical_gradient(size, size, (13, 8, 22, 255), DARK)
     draw = ImageDraw.Draw(image)
     radius = max(4, round(size * 0.22))
     mask = Image.new("L", (size, size), 0)
@@ -103,47 +105,88 @@ def _icon_image(size):
 
 
 def _logo_image(width, height):
+    """Render exactly one brand mark in the Wallet header, without duplicate logo text."""
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    icon_size = min(height, 42 if height >= 42 else height)
+    icon_size = min(height, 46 if height >= 46 else height)
     emblem = _icon_image(icon_size)
     image.alpha_composite(emblem, (0, round((height - icon_size) / 2)))
     return image
 
 
 def _strip_image(width, height):
-    """Premium, quiet Wallet background with subtle SAMS light signatures."""
-    image = _vertical_gradient(width, height, DARK_PURPLE, DARK)
+    """Luxury SAMS artwork: dark glass, violet light and restrained champagne-gold curves."""
+    image = _vertical_gradient(width, height, MIDNIGHT, DARK)
 
+    # Broad ambient light. The artwork deliberately contains no logo or text so
+    # the single brand mark in the Wallet header remains the only logo on-card.
     glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     glow_draw = ImageDraw.Draw(glow)
     glow_draw.ellipse(
-        (-round(width * .20), -round(height * .85), round(width * .58), round(height * 1.55)),
-        fill=(139, 34, 244, 105),
+        (-round(width * 0.34), round(height * 0.03), round(width * 0.64), round(height * 1.70)),
+        fill=(118, 36, 235, 118),
     )
     glow_draw.ellipse(
-        (round(width * .48), -round(height * .75), round(width * 1.10), round(height * 1.20)),
-        fill=(235, 47, 171, 55),
+        (round(width * 0.25), -round(height * 1.05), round(width * 0.96), round(height * 0.96)),
+        fill=(177, 61, 255, 54),
     )
-    glow = glow.filter(ImageFilter.GaussianBlur(max(12, height // 7)))
+    glow_draw.ellipse(
+        (round(width * 0.72), -round(height * 0.40), round(width * 1.20), round(height * 0.72)),
+        fill=(235, 73, 177, 24),
+    )
+    glow = glow.filter(ImageFilter.GaussianBlur(max(16, height // 5)))
     image = Image.alpha_composite(image, glow)
 
+    # A soft violet light ribbon gives the card a premium focal point without
+    # competing with member data below the strip.
+    ribbon_glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ribbon_draw = ImageDraw.Draw(ribbon_glow)
+    points = []
+    for x in range(-12, width + 13, 2):
+        ratio = x / max(width, 1)
+        y = (
+            height * 0.62
+            + math.sin(ratio * math.pi * 1.28 - 0.62) * height * 0.18
+            - ratio * height * 0.18
+        )
+        points.append((x, round(y)))
+    ribbon_draw.line(points, fill=(147, 58, 255, 180), width=max(8, height // 11))
+    ribbon_glow = ribbon_glow.filter(ImageFilter.GaussianBlur(max(8, height // 12)))
+    image = Image.alpha_composite(image, ribbon_glow)
+
     draw = ImageDraw.Draw(image)
-    line_width = max(2, height // 55)
-    for x_offset, alpha in ((0, 170), (10, 90), (21, 40)):
+
+    # Crisp violet and champagne-gold signatures on the light ribbon.
+    draw.line(points, fill=(160, 80, 255, 178), width=max(2, height // 61))
+    gold_points = [(x, y - max(4, height // 28)) for x, y in points]
+    draw.line(gold_points, fill=(229, 184, 101, 210), width=max(1, height // 82))
+
+    # Fine parallel contours add depth while staying quiet at Wallet scale.
+    for offset, alpha in ((10, 54), (18, 34), (27, 20)):
+        contour = [(x, y + offset) for x, y in points]
+        draw.line(contour, fill=(156, 87, 255, alpha), width=1)
+
+    # Architectural gold arcs on the right edge create a recognizable luxury
+    # signature and visually balance the single logo in the header.
+    line_width = max(1, height // 80)
+    base_left = round(width * 0.66)
+    for index, alpha in enumerate((205, 138, 88, 50, 24)):
+        expansion = index * max(8, height // 11)
         draw.arc(
             (
-                round(width * .62) - x_offset,
-                -round(height * .95) - x_offset,
-                width + round(height * .70) + x_offset,
-                round(height * 1.70) + x_offset,
+                base_left - expansion,
+                -round(height * 1.10) - expansion,
+                width + round(height * 0.82) + expansion,
+                round(height * 1.86) + expansion,
             ),
-            start=112,
-            end=244,
-            fill=(220, 167, 80, alpha),
+            start=108,
+            end=246,
+            fill=(222, 171, 88, alpha),
             width=line_width,
         )
 
-    draw.line((round(width * .07), height - 2, round(width * .93), height - 2), fill=(255, 255, 255, 20), width=1)
+    # Subtle top sheen and bottom separator keep the artwork crisp on OLED.
+    draw.line((round(width * 0.06), 1, round(width * 0.94), 1), fill=(255, 255, 255, 18), width=1)
+    draw.line((round(width * 0.04), height - 2, round(width * 0.96), height - 2), fill=(235, 194, 118, 34), width=1)
     return image
 
 
@@ -169,10 +212,9 @@ def _pass_files(wallet, request):
         "teamIdentifier": settings.APPLE_WALLET_TEAM_ID,
         "organizationName": settings.APP_PUBLISHER,
         "description": "Digitale Sams Club Lounge Mitgliedskarte",
-        "logoText": "SCL",
-        "foregroundColor": "rgb(255, 255, 255)",
-        "backgroundColor": "rgb(6, 3, 11)",
-        "labelColor": "rgb(255, 211, 128)",
+        "foregroundColor": "rgb(250, 248, 252)",
+        "backgroundColor": "rgb(4, 3, 8)",
+        "labelColor": "rgb(232, 190, 111)",
         "sharingProhibited": True,
         "suppressStripShine": True,
         "barcodes": [barcode],
@@ -209,8 +251,6 @@ def _pass_files(wallet, request):
         "logo@2x.png": _png_bytes(_logo_image(320, 100)),
         "strip.png": _png_bytes(_strip_image(375, 123)),
         "strip@2x.png": _png_bytes(_strip_image(750, 246)),
-        "thumbnail.png": _png_bytes(_icon_image(90)),
-        "thumbnail@2x.png": _png_bytes(_icon_image(180)),
     }
 
 
