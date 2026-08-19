@@ -16,11 +16,11 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from .branding import load_brand_icon
 
 
-DARK = (3, 3, 8, 255)
-MIDNIGHT = (8, 7, 16, 255)
-PURPLE = (126, 48, 255, 255)
+DARK = (2, 2, 7, 255)
+MIDNIGHT = (5, 4, 11, 255)
+PURPLE = (160, 64, 255, 255)
+PURPLE_CORE = (222, 150, 255, 255)
 VIOLET = (196, 104, 255, 255)
-PINK = (226, 59, 174, 255)
 WHITE = (255, 255, 255, 255)
 SOFT_WHITE = (245, 243, 250, 255)
 
@@ -91,7 +91,7 @@ def _icon_image(size):
     image.putalpha(mask)
 
     inset = round(size * 0.11)
-    draw.ellipse((inset, inset, size - inset, size - inset), fill=PURPLE)
+    draw.ellipse((inset, inset, size - inset, size - inset), fill=(126, 48, 255, 255))
     draw.arc(
         (inset, inset, size - inset, size - inset),
         start=205,
@@ -104,59 +104,57 @@ def _icon_image(size):
 
 
 def _logo_image(width, height):
-    """Render exactly one brand mark in the Wallet header, without duplicate logo text."""
+    """Neon SCL wordmark used once in the Wallet header."""
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    icon_size = min(height, 46 if height >= 46 else height)
-    emblem = _icon_image(icon_size)
-    image.alpha_composite(emblem, (0, round((height - icon_size) / 2)))
+    big_font = _font(max(20, round(height * 0.50)), bold=False)
+    small_font = _font(max(6, round(height * 0.13)), bold=False)
+
+    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    glow_draw = ImageDraw.Draw(glow)
+    glow_draw.text((3, -2), "SCL", font=big_font, fill=(173, 55, 255, 190))
+    glow_draw.text((4, round(height * 0.62)), "SAMS CLUB LOUNGE", font=small_font, fill=(153, 58, 255, 140))
+    glow = glow.filter(ImageFilter.GaussianBlur(max(2, height // 14)))
+    image = Image.alpha_composite(image, glow)
+
+    draw = ImageDraw.Draw(image)
+    draw.text((3, -2), "SCL", font=big_font, fill=(210, 126, 255, 255))
+    draw.text((4, round(height * 0.62)), "SAMS CLUB LOUNGE", font=small_font, fill=(171, 86, 255, 255))
     return image
 
 
 def _strip_image(width, height):
-    """Neon Lounge: black luxury base with one soft purple neon light ribbon."""
+    """Reference-style Neon Lounge artwork: almost black with one thin violet wave."""
     image = _vertical_gradient(width, height, MIDNIGHT, DARK)
 
-    # Deep ambient violet light without extra graphics or duplicate branding.
-    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow)
-    glow_draw.ellipse(
-        (-round(width * 0.22), round(height * 0.05), round(width * 0.58), round(height * 1.45)),
-        fill=(92, 28, 220, 95),
-    )
-    glow_draw.ellipse(
-        (round(width * 0.48), -round(height * 0.55), round(width * 1.05), round(height * 0.72)),
-        fill=(170, 72, 255, 38),
-    )
-    glow = glow.filter(ImageFilter.GaussianBlur(max(18, height // 4)))
-    image = Image.alpha_composite(image, glow)
-
-    # One recognizable neon ribbon, deliberately free of gold accents.
-    ribbon_glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    ribbon_draw = ImageDraw.Draw(ribbon_glow)
     points = []
     for x in range(-12, width + 13, 2):
         ratio = x / max(width, 1)
-        y = (
-            height * 0.60
-            + math.sin(ratio * math.pi * 1.15 - 0.35) * height * 0.12
-            - ratio * height * 0.04
+        y = height * (
+            0.52
+            + 0.18 * math.sin(max(0.0, min(1.0, ratio)) * math.pi)
+            - 0.08 * max(0.0, min(1.0, ratio))
         )
         points.append((x, round(y)))
 
-    ribbon_draw.line(points, fill=(150, 56, 255, 220), width=max(10, height // 10))
-    ribbon_glow = ribbon_glow.filter(ImageFilter.GaussianBlur(max(10, height // 10)))
-    image = Image.alpha_composite(image, ribbon_glow)
+    # Broad but restrained halo around the line; the rest stays nearly black.
+    outer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    outer_draw = ImageDraw.Draw(outer)
+    outer_draw.line(points, fill=(116, 30, 255, 145), width=max(9, height // 12))
+    outer = outer.filter(ImageFilter.GaussianBlur(max(9, height // 9)))
+    image = Image.alpha_composite(image, outer)
+
+    inner = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    inner_draw = ImageDraw.Draw(inner)
+    inner_draw.line(points, fill=(175, 72, 255, 195), width=max(4, height // 25))
+    inner = inner.filter(ImageFilter.GaussianBlur(max(4, height // 25)))
+    image = Image.alpha_composite(image, inner)
 
     draw = ImageDraw.Draw(image)
-    draw.line(points, fill=(206, 128, 255, 245), width=max(2, height // 60))
+    draw.line(points, fill=PURPLE_CORE, width=max(2, height // 60))
 
-    # Very subtle reflection under the neon line for depth on OLED screens.
-    reflection = [(x, y + max(10, height // 10)) for x, y in points]
-    draw.line(reflection, fill=(120, 55, 220, 42), width=1)
-
-    # Quiet finishing lines preserve the dark premium look at Wallet scale.
-    draw.line((round(width * 0.05), 1, round(width * 0.95), 1), fill=(255, 255, 255, 12), width=1)
-    draw.line((round(width * 0.05), height - 2, round(width * 0.95), height - 2), fill=(170, 90, 255, 26), width=1)
+    # A faint second trace makes the neon feel dimensional without filling the strip purple.
+    reflection = [(x, y + max(5, height // 22)) for x, y in points]
+    draw.line(reflection, fill=(112, 45, 210, 30), width=1)
     return image
 
 
@@ -183,7 +181,7 @@ def _pass_files(wallet, request):
         "organizationName": settings.APP_PUBLISHER,
         "description": "Digitale Sams Club Lounge Mitgliedskarte",
         "foregroundColor": "rgb(245, 243, 250)",
-        "backgroundColor": "rgb(3, 3, 8)",
+        "backgroundColor": "rgb(2, 2, 7)",
         "labelColor": "rgb(186, 116, 255)",
         "sharingProhibited": True,
         "suppressStripShine": True,
