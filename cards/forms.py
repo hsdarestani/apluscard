@@ -21,7 +21,7 @@ class CustomerRegistrationForm(UserCreationForm):
     first_name = forms.CharField(label="Vorname", max_length=150)
     last_name = forms.CharField(label="Nachname", max_length=150)
     email = forms.EmailField(label="E-Mail-Adresse", max_length=150)
-    phone = forms.CharField(label="Mobilnummer", max_length=40)
+    phone = forms.CharField(label="Mobilnummer", max_length=40, required=False)
     birth_date = forms.DateField(label="Geburtsdatum", widget=forms.DateInput(attrs={"type": "date"}))
     age_confirmed = forms.BooleanField(label="Ich bestätige, dass ich mindestens 18 Jahre alt bin.", required=True)
 
@@ -38,6 +38,8 @@ class CustomerRegistrationForm(UserCreationForm):
 
     def clean_phone(self):
         phone = self.cleaned_data["phone"].strip()
+        if not phone:
+            return ""
         if len(phone) < 6:
             raise forms.ValidationError("Bitte eine gültige Mobilnummer eingeben.")
         return phone
@@ -62,7 +64,7 @@ class CustomerRegistrationForm(UserCreationForm):
 class AppleProfileCompletionForm(forms.Form):
     first_name = forms.CharField(label="Vorname", max_length=150)
     last_name = forms.CharField(label="Nachname", max_length=150)
-    phone = forms.CharField(label="Mobilnummer", max_length=40)
+    phone = forms.CharField(label="Mobilnummer", max_length=40, required=False)
     birth_date = forms.DateField(label="Geburtsdatum", widget=forms.DateInput(attrs={"type": "date"}))
     age_confirmed = forms.BooleanField(label="Ich bestätige, dass ich mindestens 18 Jahre alt bin.", required=True)
 
@@ -79,6 +81,8 @@ class AppleProfileCompletionForm(forms.Form):
 
     def clean_phone(self):
         phone = self.cleaned_data["phone"].strip()
+        if not phone:
+            return ""
         if len(phone) < 6:
             raise forms.ValidationError("Bitte eine gültige Mobilnummer eingeben.")
         return phone
