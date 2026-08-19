@@ -16,14 +16,13 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from .branding import load_brand_icon
 
 
-DARK = (4, 3, 8, 255)
-MIDNIGHT = (11, 7, 19, 255)
-PURPLE = (111, 36, 220, 255)
-VIOLET = (164, 74, 255, 255)
+DARK = (3, 3, 8, 255)
+MIDNIGHT = (8, 7, 16, 255)
+PURPLE = (126, 48, 255, 255)
+VIOLET = (196, 104, 255, 255)
 PINK = (226, 59, 174, 255)
-GOLD = (205, 156, 75, 255)
-GOLD_LIGHT = (246, 211, 143, 255)
 WHITE = (255, 255, 255, 255)
+SOFT_WHITE = (245, 243, 250, 255)
 
 
 def _decode_secret(value):
@@ -97,7 +96,7 @@ def _icon_image(size):
         (inset, inset, size - inset, size - inset),
         start=205,
         end=35,
-        fill=GOLD_LIGHT,
+        fill=VIOLET,
         width=max(2, round(size * 0.045)),
     )
     draw.text((size / 2, size / 2), "SCL", font=_font(max(9, round(size * 0.29))), fill=WHITE, anchor="mm")
@@ -114,79 +113,50 @@ def _logo_image(width, height):
 
 
 def _strip_image(width, height):
-    """Luxury SAMS artwork: dark glass, violet light and restrained champagne-gold curves."""
+    """Neon Lounge: black luxury base with one soft purple neon light ribbon."""
     image = _vertical_gradient(width, height, MIDNIGHT, DARK)
 
-    # Broad ambient light. The artwork deliberately contains no logo or text so
-    # the single brand mark in the Wallet header remains the only logo on-card.
+    # Deep ambient violet light without extra graphics or duplicate branding.
     glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     glow_draw = ImageDraw.Draw(glow)
     glow_draw.ellipse(
-        (-round(width * 0.34), round(height * 0.03), round(width * 0.64), round(height * 1.70)),
-        fill=(118, 36, 235, 118),
+        (-round(width * 0.22), round(height * 0.05), round(width * 0.58), round(height * 1.45)),
+        fill=(92, 28, 220, 95),
     )
     glow_draw.ellipse(
-        (round(width * 0.25), -round(height * 1.05), round(width * 0.96), round(height * 0.96)),
-        fill=(177, 61, 255, 54),
+        (round(width * 0.48), -round(height * 0.55), round(width * 1.05), round(height * 0.72)),
+        fill=(170, 72, 255, 38),
     )
-    glow_draw.ellipse(
-        (round(width * 0.72), -round(height * 0.40), round(width * 1.20), round(height * 0.72)),
-        fill=(235, 73, 177, 24),
-    )
-    glow = glow.filter(ImageFilter.GaussianBlur(max(16, height // 5)))
+    glow = glow.filter(ImageFilter.GaussianBlur(max(18, height // 4)))
     image = Image.alpha_composite(image, glow)
 
-    # A soft violet light ribbon gives the card a premium focal point without
-    # competing with member data below the strip.
+    # One recognizable neon ribbon, deliberately free of gold accents.
     ribbon_glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     ribbon_draw = ImageDraw.Draw(ribbon_glow)
     points = []
     for x in range(-12, width + 13, 2):
         ratio = x / max(width, 1)
         y = (
-            height * 0.62
-            + math.sin(ratio * math.pi * 1.28 - 0.62) * height * 0.18
-            - ratio * height * 0.18
+            height * 0.60
+            + math.sin(ratio * math.pi * 1.15 - 0.35) * height * 0.12
+            - ratio * height * 0.04
         )
         points.append((x, round(y)))
-    ribbon_draw.line(points, fill=(147, 58, 255, 180), width=max(8, height // 11))
-    ribbon_glow = ribbon_glow.filter(ImageFilter.GaussianBlur(max(8, height // 12)))
+
+    ribbon_draw.line(points, fill=(150, 56, 255, 220), width=max(10, height // 10))
+    ribbon_glow = ribbon_glow.filter(ImageFilter.GaussianBlur(max(10, height // 10)))
     image = Image.alpha_composite(image, ribbon_glow)
 
     draw = ImageDraw.Draw(image)
+    draw.line(points, fill=(206, 128, 255, 245), width=max(2, height // 60))
 
-    # Crisp violet and champagne-gold signatures on the light ribbon.
-    draw.line(points, fill=(160, 80, 255, 178), width=max(2, height // 61))
-    gold_points = [(x, y - max(4, height // 28)) for x, y in points]
-    draw.line(gold_points, fill=(229, 184, 101, 210), width=max(1, height // 82))
+    # Very subtle reflection under the neon line for depth on OLED screens.
+    reflection = [(x, y + max(10, height // 10)) for x, y in points]
+    draw.line(reflection, fill=(120, 55, 220, 42), width=1)
 
-    # Fine parallel contours add depth while staying quiet at Wallet scale.
-    for offset, alpha in ((10, 54), (18, 34), (27, 20)):
-        contour = [(x, y + offset) for x, y in points]
-        draw.line(contour, fill=(156, 87, 255, alpha), width=1)
-
-    # Architectural gold arcs on the right edge create a recognizable luxury
-    # signature and visually balance the single logo in the header.
-    line_width = max(1, height // 80)
-    base_left = round(width * 0.66)
-    for index, alpha in enumerate((205, 138, 88, 50, 24)):
-        expansion = index * max(8, height // 11)
-        draw.arc(
-            (
-                base_left - expansion,
-                -round(height * 1.10) - expansion,
-                width + round(height * 0.82) + expansion,
-                round(height * 1.86) + expansion,
-            ),
-            start=108,
-            end=246,
-            fill=(222, 171, 88, alpha),
-            width=line_width,
-        )
-
-    # Subtle top sheen and bottom separator keep the artwork crisp on OLED.
-    draw.line((round(width * 0.06), 1, round(width * 0.94), 1), fill=(255, 255, 255, 18), width=1)
-    draw.line((round(width * 0.04), height - 2, round(width * 0.96), height - 2), fill=(235, 194, 118, 34), width=1)
+    # Quiet finishing lines preserve the dark premium look at Wallet scale.
+    draw.line((round(width * 0.05), 1, round(width * 0.95), 1), fill=(255, 255, 255, 12), width=1)
+    draw.line((round(width * 0.05), height - 2, round(width * 0.95), height - 2), fill=(170, 90, 255, 26), width=1)
     return image
 
 
@@ -212,9 +182,9 @@ def _pass_files(wallet, request):
         "teamIdentifier": settings.APPLE_WALLET_TEAM_ID,
         "organizationName": settings.APP_PUBLISHER,
         "description": "Digitale Sams Club Lounge Mitgliedskarte",
-        "foregroundColor": "rgb(250, 248, 252)",
-        "backgroundColor": "rgb(4, 3, 8)",
-        "labelColor": "rgb(232, 190, 111)",
+        "foregroundColor": "rgb(245, 243, 250)",
+        "backgroundColor": "rgb(3, 3, 8)",
+        "labelColor": "rgb(186, 116, 255)",
         "sharingProhibited": True,
         "suppressStripShine": True,
         "barcodes": [barcode],
