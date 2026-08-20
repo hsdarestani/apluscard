@@ -29,7 +29,10 @@ class SecurityHeadersMiddleware:
             "worker-src 'self' blob:; "
             "form-action 'self' https://appleid.apple.com"
         )
-        if getattr(request, "user", None) and request.user.is_authenticated:
-            response["Cache-Control"] = "private, no-store, max-age=0"
+        content_type = response.get("Content-Type", "").lower()
+        is_html = content_type.startswith("text/html")
+        if is_html or (getattr(request, "user", None) and request.user.is_authenticated):
+            response["Cache-Control"] = "private, no-store, no-cache, must-revalidate, max-age=0"
             response["Pragma"] = "no-cache"
+            response["Expires"] = "0"
         return response

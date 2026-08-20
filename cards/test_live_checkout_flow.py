@@ -70,12 +70,13 @@ class LiveCheckoutFlowTests(PlatformMixin, TestCase):
         self.assertContains(response, "checkPendingPayments")
         self.assertNotContains(response, "data-refresh-url")
 
-    def test_staff_dashboard_submits_without_redirect_and_shows_explicit_success_state(self):
+    def test_staff_dashboard_submits_without_redirect_and_shows_pending_state(self):
         self.client.force_login(self.staff)
         response = self.client.get(reverse("staff_dashboard"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'data-api-url="{reverse("api_staff_charge")}"', html=False)
-        self.assertContains(response, "Zahlungsanfrage gesendet ✓")
+        self.assertContains(response, "Zahlungsanfrage gesendet")
         self.assertContains(response, "Neue Zahlung starten")
         self.assertContains(response, "Wird an Kunden gesendet")
+        self.assertContains(response, "Warte auf Bestätigung")

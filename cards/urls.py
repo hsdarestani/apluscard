@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, apple_views, compliance_api, compliance_views, data_export_views, email_verification_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_views, verification_views, views
+from . import api, apple_views, compliance_api, compliance_views, data_export_views, email_verification_views, experience_views, legal_views, manager_views, notification_views, operations_views, release_refresh, release_views, verification_views, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
@@ -23,6 +23,7 @@ urlpatterns = [
     path("apps/<slug:business_slug>/impressum/", legal_views.imprint, name="app_imprint"),
     path("apps/<slug:business_slug>/konto-loeschen/", legal_views.account_deletion, name="app_account_deletion"),
     path("health/", views.health, name="health"),
+    path("release/version/", release_refresh.deployment_version, name="deployment_version"),
     path("manifest.webmanifest", release_views.manifest, name="manifest"),
     path("app-icon-<int:size>.png", release_views.app_icon, name="app_icon"),
     path(".well-known/assetlinks.json", release_views.android_asset_links, name="android_asset_links"),
