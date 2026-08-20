@@ -19,7 +19,7 @@
   <div>
     <span class="eyebrow">SAMS Kasse</span>
     <h1>Zahlung<br><span class="gradient-text">anfordern</span></h1>
-    <p class="muted">QR-Code scannen und nur den Rechnungsbetrag eingeben. Kundendaten und Trinkgeld bleiben beim Kunden.</p>
+    <p class="muted">QR-Code scannen, Rechnungsbetrag und Trinkgeld eingeben. Der Kunde bestätigt anschließend nur noch die vorbereitete Zahlung.</p>
   </div>
   <div class="dashboard-context"><span class="vip-chip">{{ active_location.name|default:"Standort wählen" }}</span><span class="role-pill">Staff</span></div>
 </section>
@@ -50,10 +50,11 @@
       </div>
 
       <label class="staff-amount-field"><span>Rechnungsbetrag (€)</span><input id="charge-amount" type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required></label>
+      <label class="staff-amount-field"><span>Trinkgeld (€)</span><input id="charge-tip" type="number" name="tip_amount" min="0" max="100" step="0.01" inputmode="decimal" placeholder="0,00" value="0.00" required></label>
 
       <div class="platform-alert">
-        <strong>Trinkgeld gibt der Kunde selbst ein</strong>
-        <span>Nach dem Senden trägt der Kunde seinen gewünschten Trinkgeldbetrag frei ein und bestätigt anschließend die Zahlung.</span>
+        <strong>Trinkgeld wird vom Staff eingetragen</strong>
+        <span>Der eingetragene Betrag wird zusammen mit dem Rechnungsbetrag an den Kunden gesendet. Der Kunde kann die vorbereitete Zahlung nur bestätigen.</span>
       </div>
 
       <button class="button primary full" id="send-charge" type="submit">Zahlung an Kunden senden</button>
@@ -90,6 +91,7 @@
   const input=document.getElementById('wallet-token');
   const manual=document.getElementById('wallet-token-manual');
   const amount=document.getElementById('charge-amount');
+  const tip=document.getElementById('charge-tip');
   const status=document.getElementById('scanner-status');
   const confirmation=document.getElementById('scan-confirmation');
   const form=document.getElementById('charge-form');
@@ -171,6 +173,7 @@
     sending=false;
     setToken('');
     if(amount){amount.disabled=false;amount.value='';}
+    if(tip){tip.disabled=false;tip.value='0.00';}
     if(manual){manual.disabled=false;manual.value='';}
     submitButton.disabled=false;
     submitButton.textContent='Zahlung an Kunden senden';
@@ -183,14 +186,14 @@
     clearActivePayment();
     completed=true;
     const base=formatMoney(payload?.base_amount);
-    const tip=formatMoney(payload?.tip_amount);
+    const tipAmount=formatMoney(payload?.tip_amount);
     const total=formatMoney(payload?.total_amount);
     const member=payload?.member_number?` für Mitglied ${payload.member_number}`:'';
     showResult('success','Zahlung abgeschlossen ✓',`${total} wurden erfolgreich gebucht.`);
     status.textContent='Transaktion erfolgreich abgeschlossen.';
     successText.textContent=`Die Zahlung${member} wurde erfolgreich bestätigt und gebucht.`;
     successBase.textContent=base;
-    successTip.textContent=tip;
+    successTip.textContent=tipAmount;
     successTotal.textContent=total;
     successPopover.hidden=false;
     if(navigator.vibrate)navigator.vibrate([80,45,120]);
@@ -210,6 +213,7 @@
         clearActivePayment();
         completed=false;
         if(amount)amount.disabled=false;
+        if(tip)tip.disabled=false;
         if(manual)manual.disabled=false;
         submitButton.disabled=false;
         submitButton.textContent='Zahlung an Kunden senden';
@@ -237,8 +241,9 @@
       submitButton.disabled=true;
       submitButton.textContent='Warte auf Bestätigung …';
       if(amount)amount.disabled=true;
+      if(tip)tip.disabled=true;
       if(manual)manual.disabled=true;
-      showResult('pending','Zahlungsanfrage gesendet',`${formatMoney(payload.base_amount)} wurden an den Kunden gesendet. Warte auf seine Bestätigung.`);
+      showResult('pending','Zahlungsanfrage gesendet',`${formatMoney(payload.base_amount)} + ${formatMoney(payload.tip_selected_amount)} Trinkgeld wurden an den Kunden gesendet. Warte auf seine Bestätigung.`);
       status.textContent='Warte auf Bestätigung des Kunden …';
     }catch(error){
       console.error('SAMS payment status error',error);
@@ -263,6 +268,7 @@
     sending=false;
     setToken('');
     if(amount){amount.disabled=false;amount.value='';}
+    if(tip){tip.disabled=false;tip.value='0.00';}
     if(manual){manual.disabled=false;manual.value='';}
     submitButton.disabled=false;
     submitButton.textContent='Zahlung an Kunden senden';
@@ -287,6 +293,12 @@
     if(!amount?.value||Number(amount.value)<=0){
       status.textContent='Bitte einen gültigen Rechnungsbetrag eingeben.';
       amount?.focus();
+      return;
+    }
+    const tipValue=Number(String(tip?.value||'0').replace(',','.'));
+    if(!Number.isFinite(tipValue)||tipValue<0||tipValue>100){
+      status.textContent='Bitte ein gültiges Trinkgeld zwischen 0 und 100 € eingeben.';
+      tip?.focus();
       return;
     }
 
@@ -325,7 +337,8 @@
       confirmation.hidden=true;
       manual.disabled=true;
       amount.disabled=true;
-      showResult('pending','Zahlungsanfrage gesendet',`${formatMoney(payload.base_amount||amount.value)} wurden an den Kunden gesendet. Warte auf seine Bestätigung.`);
+      tip.disabled=true;
+      showResult('pending','Zahlungsanfrage gesendet',`${formatMoney(payload.base_amount||amount.value)} + ${formatMoney(payload.tip_selected_amount||tip.value)} Trinkgeld wurden an den Kunden gesendet. Warte auf seine Bestätigung.`);
       status.textContent='Zahlungsanfrage gesendet. Warte auf Bestätigung des Kunden …';
       submitButton.textContent='Warte auf Bestätigung …';
       if(navigator.vibrate)navigator.vibrate(45);
@@ -370,7 +383,7 @@
         const token=String(text||'').trim();
         if(!token){handled=false;status.textContent='Kein gültiger QR-Code erkannt.';return;}
         setToken(token);
-        status.textContent='QR-Code erkannt. Rechnungsbetrag eingeben und an den Kunden senden.';
+        status.textContent='QR-Code erkannt. Rechnungsbetrag und Trinkgeld eingeben und an den Kunden senden.';
         if(navigator.vibrate)navigator.vibrate(45);
         await stop();
         amount?.focus();
@@ -392,6 +405,7 @@
       submitButton.disabled=true;
       submitButton.textContent='Warte auf Bestätigung …';
       if(amount)amount.disabled=true;
+      if(tip)tip.disabled=true;
       if(manual)manual.disabled=true;
       showResult('pending','Zahlungsanfrage wird geprüft','Der aktuelle Zahlungsstatus wird geladen …');
       status.textContent='Aktuelle Zahlung wird geprüft …';

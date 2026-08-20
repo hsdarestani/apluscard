@@ -86,7 +86,7 @@ def notify_payment_created(payment):
         location=payment.location,
         kind=AppNotification.Kind.PAYMENT,
         title="Zahlung wartet auf Bestätigung",
-        body=f"{payment.base_amount:.2f} € bei {payment.location.name}. Bitte Trinkgeld wählen und Zahlung bestätigen.",
+        body=f"{payment.base_amount:.2f} € + {payment.tip_selected_amount:.2f} € Trinkgeld bei {payment.location.name}. Bitte Zahlung bestätigen.",
         data={
             "url": reverse("customer_dashboard"),
             "payment_request_id": str(payment.pk),

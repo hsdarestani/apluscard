@@ -29,13 +29,15 @@
 {% for payment in pending_payments %}
 <section class="payment-confirm-card" id="payment-{{ payment.id }}" data-payment-id="{{ payment.id }}">
   <div class="payment-confirm-head">
-    <div><span class="eyebrow">Zahlungsfreigabe</span><h2>{{ payment.base_amount|floatformat:2 }} € bestätigen</h2></div>
+    <div><span class="eyebrow">Zahlungsfreigabe</span><h2>Zahlung bestätigen</h2></div>
     <span class="status-pill pending">{{ payment.location.name }}</span>
   </div>
   <p>{{ payment.description|default:"SAMS Zahlung" }}{% if payment.order_reference %} · {{ payment.order_reference }}{% endif %}</p>
-  <p class="muted">Gib deinen gewünschten Trinkgeldbetrag selbst ein. Für kein Trinkgeld einfach 0,00 € eingeben.</p>
+  <p><strong>Rechnungsbetrag:</strong> {{ payment.base_amount|floatformat:2 }} €</p>
+  <p><strong>Trinkgeld:</strong> {{ payment.tip_selected_amount|floatformat:2 }} €</p>
+  <p class="muted">Das Trinkgeld wurde vom Mitarbeiter eingetragen. Bitte prüfe die Beträge und bestätige anschließend die vorbereitete Zahlung.</p>
   <form method="post" action="{% url 'customer_confirm_payment' payment.id %}" class="tip-custom-form">{% csrf_token %}
-    <label class="custom-tip-input"><span>Trinkgeldbetrag (€)</span><input type="number" name="tip_amount" min="0" max="100" step="0.01" inputmode="decimal" placeholder="0,00" required></label>
+    <input type="hidden" name="tip_amount" value="{{ payment.tip_selected_amount|floatformat:2 }}">
     <button class="button primary full" type="submit">Zahlung bestätigen</button>
   </form>
 </section>

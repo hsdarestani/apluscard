@@ -151,8 +151,8 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
 
 
 @transaction.atomic
-def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_amount=Decimal("0.00"), tip_employee=None, ip_address=None, force_immediate=False, tip_percentage=None, customer_tip_required=False):
-    """Create a charge; staff flows can require the customer to choose the final tip."""
+def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_amount=Decimal("0.00"), tip_employee=None, ip_address=None, force_immediate=False, tip_percentage=None, customer_tip_required=False, customer_confirmation_required=False):
+    """Create a charge and optionally keep it pending for customer confirmation."""
     require_role(actor, wallet.business, STAFF_ROLES)
     if location.business_id != wallet.business_id or not location.is_active:
         raise ValidationError("Ungültiger Standort.")
@@ -179,7 +179,7 @@ def create_payment_request(*, wallet, location, actor, amount, description="", o
     else:
         tip_employee = None
 
-    confirmation_required = bool(customer_tip_required or (settings_obj.require_customer_confirmation and not force_immediate))
+    confirmation_required = bool(customer_tip_required or customer_confirmation_required or (settings_obj.require_customer_confirmation and not force_immediate))
     payment = PaymentRequest.objects.create(
         business=wallet.business,
         location=location,
@@ -210,9 +210,13 @@ def finalize_payment_request(*, payment, confirmed_by, tip_amount=None, ip_addre
         payment.status = PaymentRequest.Status.EXPIRED
         payment.save(update_fields=["status"])
         raise ValidationError("Diese Zahlungsanfrage ist abgelaufen.")
-    if payment.customer_confirmation_required and payment.wallet.owner_id != confirmed_by.id:
-        raise PermissionDenied("Nur der betroffene Member kann diese Zahlung bestätigen.")
-    if tip_amount is None:
+    if payment.customer_confirmation_required:
+        if payment.wallet.owner_id != confirmed_by.id:
+            raise PermissionDenied("Nur der betroffene Member kann diese Zahlung bestätigen.")
+        # The amount and tip are fixed by staff before the request is sent.
+        # Customer confirmation authorizes the prepared total but cannot change it.
+        tip_amount = payment.tip_selected_amount
+    elif tip_amount is None:
         tip_amount = tip_percentage if tip_percentage is not None else payment.tip_selected_amount
     selected_tip = normalize_tip_amount(tip_amount)
     if payment.wallet.balance < payment.base_amount + selected_tip:

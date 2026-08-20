@@ -22,24 +22,24 @@ class CustomTipUiTests(PlatformMixin, TestCase):
         session["active_location_id"] = str(self.location_1.pk)
         session.save()
 
-    def test_pending_payment_only_shows_free_tip_input(self):
+    def test_pending_payment_shows_staff_selected_tip_without_customer_tip_input(self):
         create_payment_request(
             wallet=self.wallet,
             location=self.location_1,
             actor=self.staff,
             amount="10.00",
-            customer_tip_required=True,
+            tip_amount="2.50",
+            customer_confirmation_required=True,
         )
 
         response = self.client.get(reverse("customer_dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'name="tip_amount"', html=False)
-        self.assertContains(response, "Gib deinen gewünschten Trinkgeldbetrag selbst ein.")
-        self.assertNotContains(response, "data-tip-value")
-        self.assertNotContains(response, ">0,10 €</button>", html=False)
-        self.assertNotContains(response, ">1,00 €</button>", html=False)
-        self.assertNotContains(response, ">Kein Trinkgeld</button>", html=False)
+        self.assertContains(response, "Trinkgeld:</strong> 2,50 €", html=False)
+        self.assertContains(response, "Das Trinkgeld wurde vom Mitarbeiter eingetragen.")
+        self.assertContains(response, 'type="hidden" name="tip_amount"', html=False)
+        self.assertNotContains(response, "Trinkgeldbetrag (€)")
+        self.assertNotContains(response, "Gib deinen gewünschten Trinkgeldbetrag selbst ein.")
 
 
 class EmailVerificationStatusTests(PlatformMixin, TestCase):

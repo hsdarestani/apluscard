@@ -120,13 +120,13 @@ class ComplianceHardeningTests(TestCase):
         self.assertTrue(wallet_payload["qr_token"].startswith("samsqr1."))
         self.assertNotEqual(wallet_payload["qr_token"], str(self.wallet.qr_token))
 
-    def test_staff_payment_accepts_both_qr_types_but_customer_chooses_tip(self):
+    def test_staff_payment_accepts_both_qr_types_and_staff_tip_is_authoritative(self):
         self.client.force_login(self.staff)
         payload = {
             "wallet_token": str(self.wallet.qr_token),
             "location_id": str(self.location.pk),
             "amount": "5.00",
-            "tip_amount": "99.00",
+            "tip_amount": "2.00",
         }
         response = self.client.post(reverse("staff_charge"), payload)
         self.assertEqual(response.status_code, 302)
@@ -139,7 +139,7 @@ class ComplianceHardeningTests(TestCase):
         self.assertEqual(payments.count(), 2)
         self.assertTrue(all(payment.status == PaymentRequest.Status.PENDING for payment in payments))
         self.assertTrue(all(payment.customer_confirmation_required for payment in payments))
-        self.assertTrue(all(payment.tip_selected_amount == Decimal("0.00") for payment in payments))
+        self.assertTrue(all(payment.tip_selected_amount == Decimal("2.00") for payment in payments))
         self.assertEqual(
             LedgerEntry.objects.filter(wallet=self.wallet, entry_type=LedgerEntry.Type.PURCHASE).count(),
             0,
@@ -148,12 +148,12 @@ class ComplianceHardeningTests(TestCase):
         self.client.force_login(self.customer)
         response = self.client.post(
             reverse("customer_confirm_payment", args=[payments.first().pk]),
-            {"tip_amount": "1.00"},
+            {"tip_amount": "9.00"},
         )
         self.assertEqual(response.status_code, 302)
         payments.first().refresh_from_db()
         self.assertEqual(payments.first().status, PaymentRequest.Status.CONFIRMED)
-        self.assertEqual(payments.first().tip_amount, Decimal("1.00"))
+        self.assertEqual(payments.first().tip_amount, Decimal("2.00"))
         self.assertEqual(
             LedgerEntry.objects.filter(wallet=self.wallet, entry_type=LedgerEntry.Type.PURCHASE).count(),
             1,

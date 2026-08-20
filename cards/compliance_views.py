@@ -37,6 +37,7 @@ class SecureMoneyActionForm(forms.Form):
     wallet_token = forms.CharField(label="Sicherer Kartencode", max_length=1200)
     location_id = forms.UUIDField(label="Standort")
     amount = forms.DecimalField(label="Betrag", min_value=Decimal("0.01"), max_digits=12, decimal_places=2)
+    tip_amount = forms.DecimalField(label="Trinkgeld", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=8, decimal_places=2, required=False)
     description = forms.CharField(label="Beschreibung", max_length=255, required=False)
     order_reference = forms.CharField(label="Bestellnummer", max_length=100, required=False)
 
@@ -118,8 +119,8 @@ def staff_charge_secure(request):
             location=location,
             actor=request.user,
             amount=form.cleaned_data["amount"],
-            tip_amount=Decimal("0.00"),
-            customer_tip_required=True,
+            tip_amount=form.cleaned_data.get("tip_amount") or Decimal("0.00"),
+            customer_confirmation_required=True,
             description=form.cleaned_data.get("description", ""),
             order_reference=form.cleaned_data.get("order_reference", ""),
             ip_address=_client_ip(request),
@@ -129,7 +130,7 @@ def staff_charge_secure(request):
     else:
         messages.success(
             request,
-            f"{payment.base_amount:.2f} € wurden an das Kundengerät gesendet. Der Kunde wählt das Trinkgeld und bestätigt die Zahlung.",
+            f"{payment.base_amount:.2f} € + {payment.tip_selected_amount:.2f} € Trinkgeld wurden an das Kundengerät gesendet. Der Kunde bestätigt nur noch die vorbereitete Zahlung.",
         )
     return redirect("staff_dashboard")
 
