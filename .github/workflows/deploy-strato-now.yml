@@ -109,4 +109,4 @@ jobs:
           body="$icon STRATO direct deployment **$JOB_STATUS**\n\n- Commit: \`$SOURCE_SHA\`\n- Run: https://github.com/$REPOSITORY/actions/runs/$RUN_ID\n- Site: https://$SITE_DOMAIN"
           gh api "repos/$REPOSITORY/issues/2/comments" -f body="$body" >/dev/null
 
-# Deploy trigger: exact approved reference artwork 2026-08-19 21:39
+# Deploy trigger: restore customer tip confirmation flow 2026-08-20
