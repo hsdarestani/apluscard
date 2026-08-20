@@ -24,6 +24,7 @@ class LiveCheckoutFlowTests(PlatformMixin, TestCase):
                 "wallet_token": str(self.wallet.qr_token),
                 "location_id": str(self.location_1.pk),
                 "amount": "10.00",
+                "tip_amount": "2.00",
             },
             content_type="application/json",
         )
@@ -34,6 +35,8 @@ class LiveCheckoutFlowTests(PlatformMixin, TestCase):
         self.assertEqual(payment.location, self.location_1)
         self.assertTrue(payment.customer_confirmation_required)
         self.assertEqual(str(payment.base_amount), "10.00")
+        self.assertEqual(str(payment.tip_selected_amount), "2.00")
+        self.assertEqual(str(payment.tip_amount), "0.00")
 
     def test_customer_pending_api_immediately_exposes_staff_request(self):
         self.client.force_login(self.staff)
@@ -43,6 +46,7 @@ class LiveCheckoutFlowTests(PlatformMixin, TestCase):
                 "wallet_token": str(self.wallet.qr_token),
                 "location_id": str(self.location_1.pk),
                 "amount": "10.00",
+                "tip_amount": "1.50",
             },
             content_type="application/json",
         )
@@ -54,6 +58,7 @@ class LiveCheckoutFlowTests(PlatformMixin, TestCase):
         payload = response.json()
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["base_amount"], "10.00")
+        self.assertEqual(payload[0]["tip_selected_amount"], "1.50")
         self.assertEqual(payload[0]["status"], PaymentRequest.Status.PENDING)
 
     def test_customer_dashboard_uses_static_wallet_parity_qr_and_live_payment_polling(self):
@@ -76,6 +81,8 @@ class LiveCheckoutFlowTests(PlatformMixin, TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'data-api-url="{reverse("api_staff_charge")}"', html=False)
+        self.assertContains(response, 'id="charge-tip"', html=False)
+        self.assertContains(response, "Trinkgeld wird vom Staff eingetragen")
         self.assertContains(response, "Zahlungsanfrage gesendet")
         self.assertContains(response, "Neue Zahlung starten")
         self.assertContains(response, "Wird an Kunden gesendet")
