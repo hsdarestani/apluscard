@@ -62,6 +62,8 @@ class StaffTransactionSuccessPopupTests(PlatformMixin, TestCase):
         self.assertContains(response, "api/v1/staff/payments/", html=False)
         self.assertContains(response, "payload.status==='CONFIRMED'", html=False)
         self.assertContains(response, "Transaktion abgeschlossen")
+        self.assertContains(response, 'name="tip_amount"', html=False)
+        self.assertContains(response, "Trinkgeld wird vom Staff eingetragen")
 
     def test_payment_status_is_only_visible_to_staff_member_who_created_it(self):
         payment = create_payment_request(
@@ -69,7 +71,8 @@ class StaffTransactionSuccessPopupTests(PlatformMixin, TestCase):
             location=self.location_1,
             actor=self.staff,
             amount="12.50",
-            customer_tip_required=True,
+            tip_amount="2.50",
+            customer_confirmation_required=True,
         )
         status_url = reverse("api_staff_payment_status", args=[payment.pk])
 
@@ -77,11 +80,13 @@ class StaffTransactionSuccessPopupTests(PlatformMixin, TestCase):
         response = self.client.get(status_url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], PaymentRequest.Status.PENDING)
+        self.assertEqual(Decimal(response.json()["tip_selected_amount"]), Decimal("2.50"))
 
         self.client.force_login(self.owner)
         self.assertEqual(self.client.get(status_url).status_code, 404)
 
-        finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_amount="2.50")
+        # A customer cannot overwrite the tip prepared by staff.
+        finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_amount="9.99")
         self.client.force_login(self.staff)
         response = self.client.get(status_url)
         self.assertEqual(response.status_code, 200)
