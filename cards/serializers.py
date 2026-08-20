@@ -106,14 +106,14 @@ class MoneyActionSerializer(serializers.Serializer):
 
 
 class PaymentConfirmSerializer(serializers.Serializer):
-    tip_amount = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"), required=False)
+    # Staff already selected the tip. Customer confirmation is authorization only.
+    # Keep a default for older clients while the service ignores customer tip changes.
+    tip_amount = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"), required=False, default=Decimal("0.00"))
     tip_percentage = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal("0.00"), max_value=Decimal("100.00"), required=False, write_only=True)
 
     def validate(self, attrs):
         if "tip_amount" not in attrs and "tip_percentage" in attrs:
             attrs["tip_amount"] = attrs["tip_percentage"]
-        if "tip_amount" not in attrs:
-            raise serializers.ValidationError({"tip_amount": "Bitte einen Trinkgeldbetrag angeben."})
         attrs.pop("tip_percentage", None)
         return attrs
 
