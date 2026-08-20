@@ -18,8 +18,8 @@
 <section class="dashboard-head staff-private-head">
   <div>
     <span class="eyebrow">SAMS Kasse</span>
-    <h1>Zahlung<br><span class="gradient-text">direkt abbuchen</span></h1>
-    <p class="muted">QR-Code scannen, Rechnungsbetrag eingeben und direkt buchen. Auf dem Kundengerät ist keine Bestätigung erforderlich.</p>
+    <h1>Zahlung<br><span class="gradient-text">anfordern</span></h1>
+    <p class="muted">QR-Code scannen und nur den Rechnungsbetrag eingeben. Kundendaten und Trinkgeld bleiben beim Kunden.</p>
   </div>
   <div class="dashboard-context"><span class="vip-chip">{{ active_location.name|default:"Standort wählen" }}</span><span class="role-pill">Staff</span></div>
 </section>
@@ -52,15 +52,15 @@
       <label class="staff-amount-field"><span>Rechnungsbetrag (€)</span><input id="charge-amount" type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required></label>
 
       <div class="platform-alert">
-        <strong>Direkte Buchung</strong>
-        <span>Der Rechnungsbetrag wird nach dem Absenden sofort vom Mitgliedsguthaben abgebucht. In diesem Kassen-Flow wird kein Trinkgeld erfasst.</span>
+        <strong>Trinkgeld gibt der Kunde selbst ein</strong>
+        <span>Nach dem Senden trägt der Kunde seinen gewünschten Trinkgeldbetrag frei ein und bestätigt anschließend die Zahlung.</span>
       </div>
 
-      <button class="button primary full" id="send-charge" type="submit">Zahlung jetzt abbuchen</button>
+      <button class="button primary full" id="send-charge" type="submit">Zahlung an Kunden senden</button>
 
       <details class="manual-code-fallback">
         <summary>QR-Code konnte nicht gescannt werden</summary>
-        <label><span>Mitgliedsnummer oder Kartencode eingeben</span><input id="wallet-token-manual" type="text" autocomplete="off" placeholder="z. B. 101"></label>
+        <label><span>Mitgliedsnummer oder Kartencode eingeben</span><input id="wallet-token-manual" type="text" inputmode="numeric" autocomplete="off" placeholder="z. B. 101"></label>
       </details>
     </form>
   </article>
@@ -71,11 +71,11 @@
     <div class="transaction-success-icon" aria-hidden="true">✓</div>
     <span class="eyebrow">Zahlung erfolgreich</span>
     <h2 id="transaction-success-title">Transaktion abgeschlossen</h2>
-    <p class="muted" id="transaction-success-text">Die Zahlung wurde erfolgreich gebucht.</p>
+    <p class="muted" id="transaction-success-text">Die Zahlung wurde erfolgreich bestätigt und gebucht.</p>
     <div class="transaction-success-summary" aria-label="Zahlungsübersicht">
       <span>Rechnungsbetrag <strong id="transaction-success-base">0,00 €</strong></span>
-      <span>Mitglied <strong id="transaction-success-member">–</strong></span>
-      <span>Status <strong>Gebucht ✓</strong></span>
+      <span>Trinkgeld <strong id="transaction-success-tip">0,00 €</strong></span>
+      <span>Gesamt <strong id="transaction-success-total">0,00 €</strong></span>
     </div>
     <button class="button primary full" type="button" id="success-next-charge">Neue Zahlung starten</button>
   </article>
@@ -101,9 +101,13 @@
   const successPopover=document.getElementById('transaction-success-popover');
   const successText=document.getElementById('transaction-success-text');
   const successBase=document.getElementById('transaction-success-base');
-  const successMember=document.getElementById('transaction-success-member');
+  const successTip=document.getElementById('transaction-success-tip');
+  const successTotal=document.getElementById('transaction-success-total');
   const successNextCharge=document.getElementById('success-next-charge');
-  let scanner=null,handled=false,sending=false,completed=false;
+  const paymentStatusSentinel='00000000-0000-0000-0000-000000000000';
+  const paymentStatusUrlTemplate="{% url 'api_staff_payment_status' payment_id='00000000-0000-0000-0000-000000000000' %}";
+  const activePaymentStorageKey='apluscard:staff-active-payment:{{ user.pk }}';
+  let scanner=null,handled=false,sending=false,completed=false,paymentPollTimer=null,activePaymentId=null;
 
   const formatMoney=value=>{
     const numeric=Number(String(value??'0').replace(',','.'));
@@ -114,7 +118,7 @@
   const setToken=value=>{
     const token=String(value||'').trim();
     input.value=token;
-    if(manual&&manual.value!==token)manual.value=token;
+    if(manual && manual.value!==token) manual.value=token;
     confirmation.hidden=!token;
   };
   manual?.addEventListener('input',()=>setToken(manual.value));
@@ -130,7 +134,7 @@
   };
 
   const errorText=payload=>{
-    if(!payload)return 'Die Zahlung konnte nicht gebucht werden. Bitte erneut versuchen.';
+    if(!payload)return 'Die Zahlungsanfrage konnte nicht gesendet werden. Bitte erneut versuchen.';
     const detail=payload.detail;
     if(typeof detail==='string')return detail;
     if(Array.isArray(detail))return detail.join(' ');
@@ -139,7 +143,7 @@
       const values=Object.values(payload).flat().filter(value=>typeof value==='string');
       if(values.length)return values.join(' ');
     }
-    return 'Die Zahlung konnte nicht gebucht werden. Bitte erneut versuchen.';
+    return 'Die Zahlungsanfrage konnte nicht gesendet werden. Bitte erneut versuchen.';
   };
 
   const stop=async()=>{
@@ -148,33 +152,120 @@
     button.disabled=sending||completed;
   };
 
-  const showConfirmedPayment=payload=>{
-    completed=true;
-    confirmation.hidden=true;
-    if(manual)manual.disabled=true;
-    if(amount)amount.disabled=true;
-    submitButton.disabled=true;
-    submitButton.textContent='Erfolgreich gebucht ✓';
-    const base=formatMoney(payload?.base_amount);
-    const member=payload?.member_number||'–';
-    showResult('success','Zahlung abgeschlossen ✓',`${base} wurden erfolgreich vom Mitgliedsguthaben abgebucht.`);
-    status.textContent='Transaktion erfolgreich abgeschlossen.';
-    successText.textContent=`Die Zahlung für Mitglied ${member} wurde erfolgreich gebucht.`;
-    successBase.textContent=base;
-    successMember.textContent=member;
-    successPopover.hidden=false;
-    if(navigator.vibrate)navigator.vibrate([80,45,120]);
-    window.setTimeout(()=>successNextCharge?.focus(),60);
+  const stopPaymentTimer=()=>{
+    if(paymentPollTimer)window.clearInterval(paymentPollTimer);
+    paymentPollTimer=null;
   };
 
-  const resetCharge=()=>{
+  const clearActivePayment=()=>{
+    stopPaymentTimer();
+    activePaymentId=null;
+    try{window.localStorage.removeItem(activePaymentStorageKey);}catch(error){}
+  };
+
+  const paymentStatusUrl=paymentId=>paymentStatusUrlTemplate.replace(paymentStatusSentinel,encodeURIComponent(paymentId));
+
+  const unlockCheckout=(message,title='Zahlung nicht abgeschlossen')=>{
+    clearActivePayment();
     completed=false;
     sending=false;
     setToken('');
     if(amount){amount.disabled=false;amount.value='';}
     if(manual){manual.disabled=false;manual.value='';}
     submitButton.disabled=false;
-    submitButton.textContent='Zahlung jetzt abbuchen';
+    submitButton.textContent='Zahlung an Kunden senden';
+    button.disabled=false;
+    showResult('error',title,message);
+    status.textContent=message;
+  };
+
+  const showConfirmedPayment=payload=>{
+    clearActivePayment();
+    completed=true;
+    const base=formatMoney(payload?.base_amount);
+    const tip=formatMoney(payload?.tip_amount);
+    const total=formatMoney(payload?.total_amount);
+    const member=payload?.member_number?` für Mitglied ${payload.member_number}`:'';
+    showResult('success','Zahlung abgeschlossen ✓',`${total} wurden erfolgreich gebucht.`);
+    status.textContent='Transaktion erfolgreich abgeschlossen.';
+    successText.textContent=`Die Zahlung${member} wurde erfolgreich bestätigt und gebucht.`;
+    successBase.textContent=base;
+    successTip.textContent=tip;
+    successTotal.textContent=total;
+    successPopover.hidden=false;
+    if(navigator.vibrate)navigator.vibrate([80,45,120]);
+    window.setTimeout(()=>successNextCharge?.focus(),60);
+  };
+
+  const pollPaymentStatus=async()=>{
+    if(!activePaymentId)return;
+    try{
+      const response=await fetch(paymentStatusUrl(activePaymentId),{
+        method:'GET',
+        credentials:'same-origin',
+        cache:'no-store',
+        headers:{'Accept':'application/json'}
+      });
+      if(response.status===403||response.status===404){
+        clearActivePayment();
+        completed=false;
+        if(amount)amount.disabled=false;
+        if(manual)manual.disabled=false;
+        submitButton.disabled=false;
+        submitButton.textContent='Zahlung an Kunden senden';
+        button.disabled=false;
+        result.hidden=true;
+        status.textContent='Bereit für eine neue Zahlung.';
+        return;
+      }
+      if(!response.ok)throw new Error(`Payment status HTTP ${response.status}`);
+      const payload=await response.json();
+      if(payload.status==='CONFIRMED'){
+        showConfirmedPayment(payload);
+        return;
+      }
+      if(payload.status==='CANCELLED'){
+        unlockCheckout('Der Kunde hat die Zahlungsanfrage nicht abgeschlossen. Bitte bei Bedarf eine neue Zahlung starten.','Zahlung abgebrochen');
+        return;
+      }
+      if(payload.status==='EXPIRED'||(payload.expires_at&&Date.parse(payload.expires_at)<=Date.now())){
+        unlockCheckout('Die Zahlungsanfrage ist abgelaufen. Bitte den QR-Code erneut scannen und eine neue Zahlung starten.','Zahlungsanfrage abgelaufen');
+        return;
+      }
+      completed=true;
+      button.disabled=true;
+      submitButton.disabled=true;
+      submitButton.textContent='Warte auf Bestätigung …';
+      if(amount)amount.disabled=true;
+      if(manual)manual.disabled=true;
+      showResult('pending','Zahlungsanfrage gesendet',`${formatMoney(payload.base_amount)} wurden an den Kunden gesendet. Warte auf seine Bestätigung.`);
+      status.textContent='Warte auf Bestätigung des Kunden …';
+    }catch(error){
+      console.error('SAMS payment status error',error);
+      status.textContent='Warte auf Kundenbestätigung … Verbindung wird erneut geprüft.';
+    }
+  };
+
+  const startPaymentWatch=paymentId=>{
+    const id=String(paymentId||'').trim();
+    if(!id)return;
+    stopPaymentTimer();
+    activePaymentId=id;
+    completed=true;
+    try{window.localStorage.setItem(activePaymentStorageKey,id);}catch(error){}
+    pollPaymentStatus();
+    paymentPollTimer=window.setInterval(pollPaymentStatus,1500);
+  };
+
+  const resetCharge=()=>{
+    clearActivePayment();
+    completed=false;
+    sending=false;
+    setToken('');
+    if(amount){amount.disabled=false;amount.value='';}
+    if(manual){manual.disabled=false;manual.value='';}
+    submitButton.disabled=false;
+    submitButton.textContent='Zahlung an Kunden senden';
     result.hidden=true;
     successPopover.hidden=true;
     status.textContent='Bereit für die nächste Zahlung.';
@@ -185,7 +276,7 @@
   form?.addEventListener('submit',async event=>{
     if(!input.value.trim()){
       event.preventDefault();
-      status.textContent='Bitte zuerst den QR-Code scannen oder die Mitgliedsnummer / den Kartencode eingeben.';
+      status.textContent='Bitte zuerst den QR-Code scannen oder die Mitgliedsnummer eingeben.';
       button?.focus();
       return;
     }
@@ -202,8 +293,8 @@
     sending=true;
     button.disabled=true;
     submitButton.disabled=true;
-    submitButton.textContent='Zahlung wird gebucht …';
-    status.textContent='Zahlung wird direkt gebucht …';
+    submitButton.textContent='Wird an Kunden gesendet …';
+    status.textContent='Zahlungsanfrage wird gesendet …';
     result.hidden=true;
 
     try{
@@ -220,17 +311,7 @@
 
       if(!response.ok){
         const message=errorText(payload);
-        const ambiguous=response.status===409;
-        if(ambiguous){
-          completed=true;
-          showResult('error','Zahlungsstatus unklar',message);
-          status.textContent=message;
-          submitButton.textContent='Bitte Verwaltung prüfen';
-          if(manual)manual.disabled=true;
-          if(amount)amount.disabled=true;
-          return;
-        }
-        showResult('error','Zahlung fehlgeschlagen',message);
+        showResult('error','Zahlung nicht gesendet',message);
         status.textContent=message;
         if(/QR-Code|Kartencode|ungültig|abgelaufen/i.test(message)){
           setToken('');
@@ -239,32 +320,25 @@
         return;
       }
 
-      if(!payload?.id||payload.status!=='CONFIRMED'){
-        completed=true;
-        const message='Der Server hat keinen eindeutig bestätigten Zahlungsstatus geliefert. Bitte nicht erneut buchen und die Verwaltung informieren.';
-        showResult('error','Zahlungsstatus unklar',message);
-        status.textContent=message;
-        submitButton.textContent='Bitte Verwaltung prüfen';
-        if(manual)manual.disabled=true;
-        if(amount)amount.disabled=true;
-        return;
-      }
-
-      showConfirmedPayment(payload);
+      if(!payload?.id)throw new Error('Payment request response did not contain an id');
+      completed=true;
+      confirmation.hidden=true;
+      manual.disabled=true;
+      amount.disabled=true;
+      showResult('pending','Zahlungsanfrage gesendet',`${formatMoney(payload.base_amount||amount.value)} wurden an den Kunden gesendet. Warte auf seine Bestätigung.`);
+      status.textContent='Zahlungsanfrage gesendet. Warte auf Bestätigung des Kunden …';
+      submitButton.textContent='Warte auf Bestätigung …';
+      if(navigator.vibrate)navigator.vibrate(45);
+      startPaymentWatch(payload.id);
     }catch(error){
       console.error('SAMS charge submit error',error);
-      completed=true;
-      const message='Die Verbindung wurde während der Buchung unterbrochen. Die Zahlung könnte bereits erfolgt sein. Bitte nicht erneut abbuchen, bevor der Status geprüft wurde.';
-      showResult('error','Verbindung während der Zahlung unterbrochen',message);
-      status.textContent=message;
-      submitButton.textContent='Bitte Status prüfen';
-      if(manual)manual.disabled=true;
-      if(amount)amount.disabled=true;
+      showResult('error','Verbindungsfehler','Die Verbindung zum Server ist fehlgeschlagen. Die Zahlung wurde nicht erneut ausgelöst. Bitte Verbindung prüfen und erneut senden.');
+      status.textContent='Verbindungsfehler. Bitte erneut versuchen.';
     }finally{
       sending=false;
       if(!completed){
         submitButton.disabled=false;
-        submitButton.textContent='Zahlung jetzt abbuchen';
+        submitButton.textContent='Zahlung an Kunden senden';
         button.disabled=false;
       }
     }
@@ -277,7 +351,7 @@
     if(sending||completed)return;
     button.disabled=true;status.textContent='Kameraberechtigung wird geprüft …';
     const permission=await window.SamsCameraPermissions?.prepareForScanner?.();
-    if(permission&&!permission.allowed){
+    if(permission && !permission.allowed){
       status.textContent=permission.state==='denied'
         ? 'Der Kamerazugriff ist deaktiviert. Bitte in den Geräteeinstellungen erlauben.'
         : 'Die Kameraberechtigung wurde nicht erteilt.';
@@ -285,7 +359,7 @@
       return;
     }
     status.textContent='Kamera wird geöffnet …';
-    if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Mitgliedsnummer oder Kartencode bitte manuell eingeben.';button.disabled=false;return;}
+    if(!window.Html5Qrcode){status.textContent='Scanner konnte nicht geladen werden. Mitgliedsnummer bitte manuell eingeben.';button.disabled=false;return;}
     try{
       const options=window.Html5QrcodeSupportedFormats
         ? {formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE],verbose:false}
@@ -296,7 +370,7 @@
         const token=String(text||'').trim();
         if(!token){handled=false;status.textContent='Kein gültiger QR-Code erkannt.';return;}
         setToken(token);
-        status.textContent='QR-Code erkannt. Rechnungsbetrag eingeben und Zahlung abbuchen.';
+        status.textContent='QR-Code erkannt. Rechnungsbetrag eingeben und an den Kunden senden.';
         if(navigator.vibrate)navigator.vibrate(45);
         await stop();
         amount?.focus();
@@ -305,12 +379,30 @@
     }catch(e){
       console.error('SAMS scanner error',e);
       const denied=String(e?.name||e).toLowerCase().includes('notallowed')||String(e).toLowerCase().includes('permission');
-      status.textContent=denied?'Kameraberechtigung wurde nicht erteilt.':'Kamera konnte nicht gestartet werden. Mitgliedsnummer oder Kartencode bitte manuell eingeben.';
+      status.textContent=denied?'Kameraberechtigung wurde nicht erteilt.':'Kamera konnte nicht gestartet werden. Mitgliedsnummer bitte manuell eingeben.';
       await stop();
     }
   });
 
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
+  try{
+    const savedPaymentId=window.localStorage.getItem(activePaymentStorageKey);
+    if(savedPaymentId){
+      completed=true;
+      button.disabled=true;
+      submitButton.disabled=true;
+      submitButton.textContent='Warte auf Bestätigung …';
+      if(amount)amount.disabled=true;
+      if(manual)manual.disabled=true;
+      showResult('pending','Zahlungsanfrage wird geprüft','Der aktuelle Zahlungsstatus wird geladen …');
+      status.textContent='Aktuelle Zahlung wird geprüft …';
+      startPaymentWatch(savedPaymentId);
+    }
+  }catch(error){}
+
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){stop();return;}
+    if(activePaymentId)pollPaymentStatus();
+  });
   window.addEventListener('pagehide',stop);
 })();
 </script>

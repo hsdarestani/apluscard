@@ -119,8 +119,7 @@ def staff_charge_secure(request):
             actor=request.user,
             amount=form.cleaned_data["amount"],
             tip_amount=Decimal("0.00"),
-            customer_tip_required=False,
-            force_immediate=True,
+            customer_tip_required=True,
             description=form.cleaned_data.get("description", ""),
             order_reference=form.cleaned_data.get("order_reference", ""),
             ip_address=_client_ip(request),
@@ -128,16 +127,10 @@ def staff_charge_secure(request):
     except ValidationError as exc:
         messages.error(request, " ".join(exc.messages))
     else:
-        if payment.status == PaymentRequest.Status.CONFIRMED:
-            messages.success(
-                request,
-                f"Zahlung erfolgreich: {payment.base_amount:.2f} € wurden direkt vom Mitgliedsguthaben abgebucht.",
-            )
-        else:
-            messages.error(
-                request,
-                "Die Zahlung konnte nicht direkt abgeschlossen werden. Bitte nicht erneut buchen und die Verwaltung informieren.",
-            )
+        messages.success(
+            request,
+            f"{payment.base_amount:.2f} € wurden an das Kundengerät gesendet. Der Kunde wählt das Trinkgeld und bestätigt die Zahlung.",
+        )
     return redirect("staff_dashboard")
 
 

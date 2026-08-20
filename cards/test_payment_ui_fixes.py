@@ -9,7 +9,7 @@ from django.urls import reverse
 from .emailing import send_verification_email
 from .forms import OfferForm
 from .models import BusinessSettings, LedgerEntry, PaymentRequest
-from .services import create_payment_request, post_wallet_entry
+from .services import create_payment_request, finalize_payment_request, post_wallet_entry
 from .tests import PlatformMixin
 
 
@@ -55,67 +55,13 @@ class StaffTransactionSuccessPopupTests(PlatformMixin, TestCase):
         self.create_platform()
         post_wallet_entry(wallet=self.wallet, entry_type=LedgerEntry.Type.TOPUP, amount="100", actor=self.owner)
 
-    def test_staff_dashboard_contains_direct_success_popup_without_customer_confirmation_wait(self):
+    def test_staff_dashboard_contains_confirmed_transaction_popup_and_status_watch(self):
         self.client.force_login(self.staff)
         response = self.client.get(reverse("staff_dashboard"))
         self.assertContains(response, 'id="transaction-success-popover"', html=False)
-        self.assertContains(response, "Zahlung jetzt abbuchen")
-        self.assertContains(response, "keine Bestätigung erforderlich")
-        self.assertContains(response, "payload.status!=='CONFIRMED'", html=False)
+        self.assertContains(response, "api/v1/staff/payments/", html=False)
+        self.assertContains(response, "payload.status==='CONFIRMED'", html=False)
         self.assertContains(response, "Transaktion abgeschlossen")
-        self.assertNotContains(response, "Warte auf Bestätigung")
-        self.assertNotContains(response, "startPaymentWatch", html=False)
-
-    def test_staff_api_charge_is_immediate_even_if_business_confirmation_is_enabled(self):
-        self.settings.require_customer_confirmation = True
-        self.settings.save(update_fields=["require_customer_confirmation"])
-
-        self.client.force_login(self.staff)
-        response = self.client.post(
-            reverse("api_staff_charge"),
-            {
-                "wallet_token": str(self.wallet.qr_token),
-                "location_id": str(self.location_1.pk),
-                "amount": "12.50",
-            },
-        )
-
-        self.assertEqual(response.status_code, 201)
-        payload = response.json()
-        self.assertEqual(payload["status"], PaymentRequest.Status.CONFIRMED)
-        self.assertEqual(Decimal(payload["base_amount"]), Decimal("12.50"))
-        self.assertEqual(Decimal(payload["tip_amount"]), Decimal("0.00"))
-
-        payment = PaymentRequest.objects.get(pk=payload["id"])
-        self.assertFalse(payment.customer_confirmation_required)
-        self.assertIsNotNone(payment.confirmed_at)
-        self.assertIsNotNone(payment.purchase_entry_id)
-
-        self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.balance, Decimal("87.50"))
-        self.assertFalse(PaymentRequest.objects.filter(wallet=self.wallet, status=PaymentRequest.Status.PENDING).exists())
-
-    def test_staff_form_fallback_also_books_immediately(self):
-        self.settings.require_customer_confirmation = True
-        self.settings.save(update_fields=["require_customer_confirmation"])
-
-        self.client.force_login(self.staff)
-        response = self.client.post(
-            reverse("staff_charge"),
-            {
-                "wallet_token": self.wallet.member_number,
-                "location_id": str(self.location_1.pk),
-                "amount": "8.00",
-            },
-        )
-
-        self.assertRedirects(response, reverse("staff_dashboard"))
-        payment = PaymentRequest.objects.get(wallet=self.wallet)
-        self.assertEqual(payment.status, PaymentRequest.Status.CONFIRMED)
-        self.assertFalse(payment.customer_confirmation_required)
-        self.assertEqual(payment.tip_amount, Decimal("0.00"))
-        self.wallet.refresh_from_db()
-        self.assertEqual(self.wallet.balance, Decimal("92.00"))
 
     def test_payment_status_is_only_visible_to_staff_member_who_created_it(self):
         payment = create_payment_request(
@@ -123,19 +69,25 @@ class StaffTransactionSuccessPopupTests(PlatformMixin, TestCase):
             location=self.location_1,
             actor=self.staff,
             amount="12.50",
-            tip_amount="0.00",
-            customer_tip_required=False,
-            force_immediate=True,
+            customer_tip_required=True,
         )
         status_url = reverse("api_staff_payment_status", args=[payment.pk])
 
         self.client.force_login(self.staff)
         response = self.client.get(status_url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], PaymentRequest.Status.CONFIRMED)
+        self.assertEqual(response.json()["status"], PaymentRequest.Status.PENDING)
 
         self.client.force_login(self.owner)
         self.assertEqual(self.client.get(status_url).status_code, 404)
+
+        finalize_payment_request(payment=payment, confirmed_by=self.customer, tip_amount="2.50")
+        self.client.force_login(self.staff)
+        response = self.client.get(status_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], PaymentRequest.Status.CONFIRMED)
+        self.assertEqual(Decimal(response.json()["tip_amount"]), Decimal("2.50"))
+        self.assertEqual(Decimal(response.json()["total_amount"]), Decimal("15.00"))
 
 
 class OfferAndMobileUiTests(PlatformMixin, TestCase):
