@@ -119,7 +119,10 @@ class MoneyActionForm(forms.Form):
 
 
 class PaymentConfirmForm(forms.Form):
-    tip_amount = forms.DecimalField(label="Trinkgeld in Euro", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=8, decimal_places=2)
+    # Staff already selected and locked the tip. The customer only confirms the
+    # prepared payment. Keep this optional/localized for backwards-compatible
+    # web clients that may still submit a hidden German-formatted value (2,00).
+    tip_amount = forms.DecimalField(label="Trinkgeld in Euro", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=8, decimal_places=2, required=False, localize=True)
 
 
 class ManagerMoneyActionForm(forms.Form):
