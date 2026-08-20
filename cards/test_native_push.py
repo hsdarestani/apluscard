@@ -124,12 +124,12 @@ class SamsWalletDesignTests(TestCase):
         barcode = payload["barcodes"][0]
         store_card = payload["storeCard"]
 
-        self.assertEqual(payload["logoText"], "SCL")
+        self.assertNotIn("logoText", payload)
         self.assertNotIn("primaryFields", store_card)
         self.assertEqual(store_card["headerFields"][0]["value"], self.wallet.member_number)
         self.assertEqual(store_card["secondaryFields"][0]["value"], "Ashkan Dian")
         self.assertNotIn("altText", barcode)
         self.assertIn("strip.png", files)
         self.assertIn("strip@2x.png", files)
-        self.assertIn("thumbnail.png", files)
+        self.assertNotIn("thumbnail.png", files)
         self.assertGreater(len(files["strip@2x.png"]), 1000)
