@@ -189,9 +189,19 @@ class StaffChargeView(APIView):
         wallet = get_object_or_404(Wallet.objects.select_related("business", "owner", "owner__member_profile"), business=membership.business, qr_token=data["wallet_token"])
         location = get_object_or_404(Location, pk=data.get("location_id"), business=membership.business, is_active=True)
         try:
-            # Legacy entry point kept safe by the same canonical service rule:
-            # normal staff charges always wait for customer confirmation.
-            payment = create_payment_request(wallet=wallet, location=location, actor=request.user, amount=data["amount"], tip_amount=data.get("tip_amount", 0), description=data.get("description", ""), order_reference=data.get("order_reference", ""), ip_address=client_ip(request))
+            # Legacy entry point is kept on the same product rule as the secure
+            # checkout: Staff prepares amount + tip and the member confirms it.
+            payment = create_payment_request(
+                wallet=wallet,
+                location=location,
+                actor=request.user,
+                amount=data["amount"],
+                tip_amount=data.get("tip_amount", 0),
+                customer_confirmation_required=True,
+                description=data.get("description", ""),
+                order_reference=data.get("order_reference", ""),
+                ip_address=client_ip(request),
+            )
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         code = status.HTTP_202_ACCEPTED if payment.status == PaymentRequest.Status.PENDING else status.HTTP_201_CREATED
