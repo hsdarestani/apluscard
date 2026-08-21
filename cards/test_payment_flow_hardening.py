@@ -21,14 +21,18 @@ class PaymentFlowHardeningTests(PlatformMixin, TestCase):
             actor=self.owner,
         )
 
-    def test_normal_payment_request_is_pending_even_without_legacy_confirmation_flags(self):
-        payment = create_payment_request(
+    def _pending_checkout(self, *, amount="12.00", tip="2.00"):
+        return create_payment_request(
             wallet=self.wallet,
             location=self.location_1,
             actor=self.staff,
-            amount="12.00",
-            tip_amount="2.00",
+            amount=amount,
+            tip_amount=tip,
+            customer_confirmation_required=True,
         )
+
+    def test_staff_checkout_keeps_tip_locked_until_customer_confirmation(self):
+        payment = self._pending_checkout()
 
         self.assertEqual(payment.status, PaymentRequest.Status.PENDING)
         self.assertTrue(payment.customer_confirmation_required)
@@ -58,13 +62,7 @@ class PaymentFlowHardeningTests(PlatformMixin, TestCase):
         self.assertEqual(self.wallet.balance, Decimal("94.00"))
 
     def test_customer_pending_api_persists_expired_status(self):
-        payment = create_payment_request(
-            wallet=self.wallet,
-            location=self.location_1,
-            actor=self.staff,
-            amount="10.00",
-            tip_amount="2.00",
-        )
+        payment = self._pending_checkout(amount="10.00", tip="2.00")
         PaymentRequest.objects.filter(pk=payment.pk).update(
             expires_at=timezone.now() - timedelta(seconds=1)
         )
@@ -80,13 +78,7 @@ class PaymentFlowHardeningTests(PlatformMixin, TestCase):
         self.assertEqual(self.wallet.balance, Decimal("100.00"))
 
     def test_staff_status_poll_persists_expired_status(self):
-        payment = create_payment_request(
-            wallet=self.wallet,
-            location=self.location_1,
-            actor=self.staff,
-            amount="8.00",
-            tip_amount="1.00",
-        )
+        payment = self._pending_checkout(amount="8.00", tip="1.00")
         PaymentRequest.objects.filter(pk=payment.pk).update(
             expires_at=timezone.now() - timedelta(seconds=1)
         )
