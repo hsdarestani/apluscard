@@ -119,9 +119,9 @@ class MoneyActionForm(forms.Form):
 
 
 class PaymentConfirmForm(forms.Form):
-    # Staff already selected and locked the tip. The customer only confirms the
-    # prepared payment. Keep this optional/localized for backwards-compatible
-    # web clients that may still submit a hidden German-formatted value (2,00).
+    # The customer only authorizes the already prepared payment. Keep the
+    # optional legacy field temporarily so older open WebViews can still post it;
+    # finalize_payment_request always ignores customer-side tip changes.
     tip_amount = forms.DecimalField(label="Trinkgeld in Euro", min_value=Decimal("0.00"), max_value=Decimal("100.00"), max_digits=8, decimal_places=2, required=False, localize=True)
 
 
@@ -146,9 +146,10 @@ class WalletCreateForm(forms.ModelForm):
 class BusinessSettingsForm(forms.ModelForm):
     class Meta:
         model = BusinessSettings
-        fields = ["require_customer_confirmation", "tip_allocation", "gold_threshold", "platinum_threshold", "birthday_bonus", "daily_summary_enabled", "weekly_summary_enabled", "offer_scheduling_enabled", "official_invoice_enabled", "legal_name", "legal_address", "tax_number", "vat_id"]
+        # Customer confirmation is now a fixed part of the normal staff checkout
+        # and is intentionally no longer presented as an optional business toggle.
+        fields = ["tip_allocation", "gold_threshold", "platinum_threshold", "birthday_bonus", "daily_summary_enabled", "weekly_summary_enabled", "offer_scheduling_enabled", "official_invoice_enabled", "legal_name", "legal_address", "tax_number", "vat_id"]
         labels = {
-            "require_customer_confirmation": "Ausnahmsweise Bestätigung durch den Kunden verlangen",
             "tip_allocation": "Zuordnung des Trinkgelds",
             "gold_threshold": "Grenze für Gold",
             "platinum_threshold": "Grenze für Platin",
