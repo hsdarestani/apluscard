@@ -54,6 +54,16 @@ def normalize_tip_amount(value):
     return amount
 
 
+def expire_stale_payment_requests(queryset=None, moment=None):
+    """Persist EXPIRED for pending requests whose confirmation window has elapsed."""
+    payments = queryset if queryset is not None else PaymentRequest.objects.all()
+    return payments.filter(
+        status=PaymentRequest.Status.PENDING,
+        expires_at__isnull=False,
+        expires_at__lt=moment or timezone.now(),
+    ).update(status=PaymentRequest.Status.EXPIRED)
+
+
 def _month_start(moment=None):
     local = timezone.localtime(moment or timezone.now())
     return local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -152,8 +162,9 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
 
 @transaction.atomic
 def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_amount=Decimal("0.00"), tip_employee=None, ip_address=None, force_immediate=False, tip_percentage=None, customer_tip_required=False, customer_confirmation_required=False):
-    """Create a charge and optionally keep it pending for customer confirmation."""
+    """Create a charge. Normal checkout waits for customer confirmation by default."""
     require_role(actor, wallet.business, STAFF_ROLES)
+    expire_stale_payment_requests(PaymentRequest.objects.filter(wallet=wallet))
     if location.business_id != wallet.business_id or not location.is_active:
         raise ValidationError("Ungültiger Standort.")
     settings_obj = get_business_settings(wallet.business)
@@ -179,7 +190,10 @@ def create_payment_request(*, wallet, location, actor, amount, description="", o
     else:
         tip_employee = None
 
-    confirmation_required = bool(customer_tip_required or customer_confirmation_required or (settings_obj.require_customer_confirmation and not force_immediate))
+    # Keep one canonical rule across secure and legacy callers: a normal charge
+    # is pending until the member confirms it. Immediate charging is only allowed
+    # when a trusted management path explicitly opts into force_immediate.
+    confirmation_required = bool(customer_tip_required or customer_confirmation_required or not force_immediate)
     payment = PaymentRequest.objects.create(
         business=wallet.business,
         location=location,
