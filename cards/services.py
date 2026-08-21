@@ -162,7 +162,7 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, description="", orde
 
 @transaction.atomic
 def create_payment_request(*, wallet, location, actor, amount, description="", order_reference="", tip_amount=Decimal("0.00"), tip_employee=None, ip_address=None, force_immediate=False, tip_percentage=None, customer_tip_required=False, customer_confirmation_required=False):
-    """Create a charge. Normal checkout waits for customer confirmation by default."""
+    """Create a charge; checkout callers explicitly require customer confirmation."""
     require_role(actor, wallet.business, STAFF_ROLES)
     expire_stale_payment_requests(PaymentRequest.objects.filter(wallet=wallet))
     if location.business_id != wallet.business_id or not location.is_active:
@@ -190,10 +190,11 @@ def create_payment_request(*, wallet, location, actor, amount, description="", o
     else:
         tip_employee = None
 
-    # Keep one canonical rule across secure and legacy callers: a normal charge
-    # is pending until the member confirms it. Immediate charging is only allowed
-    # when a trusted management path explicitly opts into force_immediate.
-    confirmation_required = bool(customer_tip_required or customer_confirmation_required or not force_immediate)
+    confirmation_required = bool(
+        customer_tip_required
+        or customer_confirmation_required
+        or (settings_obj.require_customer_confirmation and not force_immediate)
+    )
     payment = PaymentRequest.objects.create(
         business=wallet.business,
         location=location,
