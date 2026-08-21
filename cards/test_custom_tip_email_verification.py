@@ -37,7 +37,7 @@ class CustomTipUiTests(PlatformMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Trinkgeld:</strong> 2,50 €", html=False)
         self.assertContains(response, "Das Trinkgeld wurde vom Mitarbeiter eingetragen.")
-        self.assertContains(response, 'type="hidden" name="tip_amount"', html=False)
+        self.assertNotContains(response, 'name="tip_amount"', html=False)
         self.assertNotContains(response, "Trinkgeldbetrag (€)")
         self.assertNotContains(response, "Gib deinen gewünschten Trinkgeldbetrag selbst ein.")
 
