@@ -37,7 +37,6 @@
   <p><strong>Trinkgeld:</strong> {{ payment.tip_selected_amount|floatformat:2 }} €</p>
   <p class="muted">Das Trinkgeld wurde vom Mitarbeiter eingetragen. Bitte prüfe die Beträge und bestätige anschließend die vorbereitete Zahlung.</p>
   <form method="post" action="{% url 'customer_confirm_payment' payment.id %}" class="tip-custom-form">{% csrf_token %}
-    <input type="hidden" name="tip_amount" value="{{ payment.tip_selected_amount|floatformat:2 }}">
     <button class="button primary full" type="submit">Zahlung bestätigen</button>
   </form>
 </section>

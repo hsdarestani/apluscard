@@ -12,7 +12,7 @@ from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
 from .models import AppNotification, LedgerEntry, Location, Membership, PaymentRequest, PushDevice, Wallet
 from .serializers import AppNotificationSerializer, LedgerEntrySerializer, LocationSerializer, MeSerializer, MoneyActionSerializer, OfferSerializer, PaymentConfirmSerializer, PaymentRequestSerializer, PushDeviceSerializer, TransactionCaseCreateSerializer, TransactionCaseReviewSerializer, TransactionCaseSerializer, WalletSerializer
-from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, active_offers_for, create_payment_request, finalize_payment_request, get_active_membership, post_wallet_entry, require_role
+from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, active_offers_for, create_payment_request, expire_stale_payment_requests, finalize_payment_request, get_active_membership, post_wallet_entry, require_role
 
 
 def client_ip(request):
@@ -79,6 +79,7 @@ class PendingPaymentsView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request):
         wallet = get_object_or_404(Wallet, owner=request.user)
+        expire_stale_payment_requests(wallet.payment_requests.all())
         payments = wallet.payment_requests.filter(status=PaymentRequest.Status.PENDING, expires_at__gte=timezone.now()).select_related("location", "wallet")
         return Response(PaymentRequestSerializer(payments, many=True).data)
 
@@ -87,10 +88,12 @@ class ConfirmPaymentView(APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request, payment_id):
         payment = get_object_or_404(PaymentRequest.objects.select_related("wallet", "location"), pk=payment_id, wallet__owner=request.user)
+        # Validate legacy payloads for backwards compatibility, but the customer
+        # does not submit or control the tip anymore.
         serializer = PaymentConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            payment = finalize_payment_request(payment=payment, confirmed_by=request.user, tip_amount=serializer.validated_data["tip_amount"], ip_address=client_ip(request))
+            payment = finalize_payment_request(payment=payment, confirmed_by=request.user, ip_address=client_ip(request))
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         return Response(PaymentRequestSerializer(payment).data)
@@ -186,7 +189,19 @@ class StaffChargeView(APIView):
         wallet = get_object_or_404(Wallet.objects.select_related("business", "owner", "owner__member_profile"), business=membership.business, qr_token=data["wallet_token"])
         location = get_object_or_404(Location, pk=data.get("location_id"), business=membership.business, is_active=True)
         try:
-            payment = create_payment_request(wallet=wallet, location=location, actor=request.user, amount=data["amount"], tip_amount=data.get("tip_amount", 0), description=data.get("description", ""), order_reference=data.get("order_reference", ""), ip_address=client_ip(request))
+            # Legacy entry point is kept on the same product rule as the secure
+            # checkout: Staff prepares amount + tip and the member confirms it.
+            payment = create_payment_request(
+                wallet=wallet,
+                location=location,
+                actor=request.user,
+                amount=data["amount"],
+                tip_amount=data.get("tip_amount", 0),
+                customer_confirmation_required=True,
+                description=data.get("description", ""),
+                order_reference=data.get("order_reference", ""),
+                ip_address=client_ip(request),
+            )
         except DjangoValidationError as exc:
             return Response({"detail": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         code = status.HTTP_202_ACCEPTED if payment.status == PaymentRequest.Status.PENDING else status.HTTP_201_CREATED

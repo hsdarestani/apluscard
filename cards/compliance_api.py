@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from .compliance_qr import issue_wallet_qr, resolve_payment_qr
 from .models import LedgerEntry, Location, Membership, PaymentRequest, Wallet
 from .serializers import LedgerEntrySerializer, MoneyActionSerializer, PaymentRequestSerializer, WalletSerializer
-from .services import OWNER_ROLES, STAFF_ROLES, create_payment_request, get_active_membership, post_wallet_entry, require_role
+from .services import OWNER_ROLES, STAFF_ROLES, create_payment_request, expire_stale_payment_requests, get_active_membership, post_wallet_entry, require_role
 
 
 def _client_ip(request):
@@ -136,6 +136,12 @@ class SecureStaffPaymentStatusView(APIView):
         if not membership or membership.role not in STAFF_ROLES:
             raise PermissionDenied
 
+        scoped = PaymentRequest.objects.filter(
+            pk=payment_id,
+            business=membership.business,
+            created_by=request.user,
+        )
+        expire_stale_payment_requests(scoped)
         payment = get_object_or_404(
             PaymentRequest.objects.select_related("wallet", "location"),
             pk=payment_id,
