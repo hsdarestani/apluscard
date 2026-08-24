@@ -52,3 +52,46 @@ jobs:
         run: python manage.py migrate --noinput
       - name: Gesamte Testsuite auf PostgreSQL ausführen
         run: python manage.py test
+
+  production-wallet-audit:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'audit-wallet-total-20260824'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${SSH_HOST:?NEWHOST is missing}"
+          : "${SSH_PRIVATE_KEY:?HETZNER_SSH_PRIVATE_KEY is missing}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/sams_prod
+          chmod 600 ~/.ssh/sams_prod
+          ssh-keygen -y -f ~/.ssh/sams_prod >/dev/null
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Query production wallet aggregates
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -i ~/.ssh/sams_prod root@"$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
+          SELECT 'TOTAL_WALLETS|' || COUNT(*) FROM cards_wallet;
+          SELECT 'TOTAL_BALANCE|' || COALESCE(SUM(balance), 0) FROM cards_wallet;
+          SELECT 'ACTIVE|' || COUNT(*) || '|' || COALESCE(SUM(balance), 0) FROM cards_wallet WHERE status = 'ACTIVE';
+          SELECT 'BLOCKED|' || COUNT(*) || '|' || COALESCE(SUM(balance), 0) FROM cards_wallet WHERE status = 'BLOCKED';
+          SELECT 'CLOSED|' || COUNT(*) || '|' || COALESCE(SUM(balance), 0) FROM cards_wallet WHERE status = 'CLOSED';
+          SELECT 'NEGATIVE|' || COUNT(*) || '|' || COALESCE(SUM(balance), 0) FROM cards_wallet WHERE balance < 0;
+          SELECT 'BUSINESS|' || b.id || '|' || replace(b.name, '|', '/') || '|' || b.slug || '|' || b.currency || '|' || COUNT(w.id) || '|' || COALESCE(SUM(w.balance), 0)
+          FROM cards_business b
+          LEFT JOIN cards_wallet w ON w.business_id = b.id
+          GROUP BY b.id, b.name, b.slug, b.currency
+          ORDER BY b.id;
+          SQL
+          REMOTE
