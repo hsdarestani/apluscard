@@ -5,6 +5,10 @@ on:
     branches: [audit-wallet-total-20260824]
     paths:
       - ".github/workflows/audit-wallet-total.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-wallet-total.yml"
 
 permissions:
   contents: read
