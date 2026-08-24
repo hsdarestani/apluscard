@@ -75,17 +75,12 @@ jobs:
           chmod 600 ~/.ssh/config
           timeout 30s ssh sams-strato-via-legacy 'echo STRATO_JUMP_SSH_OK'
 
-      - name: Query aggregate wallet balances
+      - name: Verify wallet balances by business
         shell: bash
         run: |
           set -Eeuo pipefail
           timeout 45s ssh sams-strato-via-legacy "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           cd "$APP_DIR"
-          echo WALLET_TOTAL
-          timeout 15s docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -AtF "|" -c "SELECT COUNT(*), COALESCE(SUM(balance),0) FROM cards_wallet;"'
-          echo BUSINESS_TOTALS
-          timeout 15s docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -AtF "|" -c "SELECT b.name,b.currency,COUNT(w.id),COALESCE(SUM(w.balance),0) FROM cards_business b LEFT JOIN cards_wallet w ON w.business_id=b.id GROUP BY b.id,b.name,b.currency ORDER BY b.id;"'
-          echo STATUS_TOTALS
-          timeout 15s docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -AtF "|" -c "SELECT status,COUNT(*),COALESCE(SUM(balance),0) FROM cards_wallet GROUP BY status ORDER BY status;"'
+          timeout 15s docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -AtF "|" -c "SELECT b.name,b.slug,b.currency,COUNT(w.id),COALESCE(SUM(w.balance),0) FROM cards_business b LEFT JOIN cards_wallet w ON w.business_id=b.id GROUP BY b.id,b.name,b.slug,b.currency ORDER BY b.id;"'
           REMOTE
