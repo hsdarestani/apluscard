@@ -43,20 +43,14 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          timeout 35s ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -i ~/.ssh/strato_sams -p "$NEW_PORT" "$NEW_USER@$NEW_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
           set -Eeuo pipefail
+          echo SSH_CONNECTED
           cd "$APP_DIR"
-          docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
-          SELECT 'TOTAL_WALLETS|' || COUNT(*) FROM cards_wallet;
-          SELECT 'TOTAL_BALANCE|' || COALESCE(SUM(balance), 0) FROM cards_wallet;
-          SELECT 'ACTIVE|' || COUNT(*) || '|' || COALESCE(SUM(balance), 0) FROM cards_wallet WHERE status = 'ACTIVE';
-          SELECT 'BLOCKED|' || COUNT(*) || '|' || COALESCE(SUM(balance), 0) FROM cards_wallet WHERE status = 'BLOCKED';
-          SELECT 'CLOSED|' || COUNT(*) || '|' || COALESCE(SUM(balance), 0) FROM cards_wallet WHERE status = 'CLOSED';
-          SELECT 'NEGATIVE|' || COUNT(*) || '|' || COALESCE(SUM(balance), 0) FROM cards_wallet WHERE balance < 0;
-          SELECT 'BUSINESS|' || b.id || '|' || replace(b.name, '|', '/') || '|' || b.slug || '|' || b.currency || '|' || COUNT(w.id) || '|' || COALESCE(SUM(w.balance), 0)
-          FROM cards_business b
-          LEFT JOIN cards_wallet w ON w.business_id = b.id
-          GROUP BY b.id, b.name, b.slug, b.currency
-          ORDER BY b.id;
-          SQL
+          echo DB_CONTAINER_STATE
+          docker compose ps db
+          echo WALLET_TOTAL
+          timeout 15s docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -AtF "|" -c "SELECT COUNT(*), COALESCE(SUM(balance),0) FROM cards_wallet;"'
+          echo BUSINESS_TOTALS
+          timeout 15s docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -AtF "|" -c "SELECT b.name,b.currency,COUNT(w.id),COALESCE(SUM(w.balance),0) FROM cards_business b LEFT JOIN cards_wallet w ON w.business_id=b.id GROUP BY b.id,b.name,b.currency ORDER BY b.id;"'
           REMOTE
