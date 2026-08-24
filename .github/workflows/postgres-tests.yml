@@ -78,7 +78,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          ssh -i ~/.ssh/sams_prod root@"$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          timeout 45s ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -i ~/.ssh/sams_prod root@"$SSH_HOST" "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           cd "$APP_DIR"
           docker compose exec -T db sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
