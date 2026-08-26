@@ -1,0 +1,20 @@
+name: Retry Sams Club Lounge iOS 1.0.4 (2026082701)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/retry-ios-rich-1.0.4-2026082701.yml
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: ./.github/workflows/build-ios-testflight.yml
+    with:
+      version_name: "1.0.4"
+      build_number: "2026082701"
+      upload_to_testflight: true
+      submit_for_review: false
+    secrets: inherit
