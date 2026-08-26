@@ -42,6 +42,12 @@ def _absolute_url(path):
     return urljoin(f"{settings.APP_PUBLIC_BASE_URL}/", str(path).lstrip("/"))
 
 
+def _notification_image_url(notification):
+    source = notification.data if isinstance(notification.data, dict) else {}
+    image_url = str(source.get("image_url") or "").strip()
+    return _absolute_url(image_url) if image_url else ""
+
+
 def _string_data(notification):
     source = notification.data if isinstance(notification.data, dict) else {}
     payload = {
@@ -52,7 +58,9 @@ def _string_data(notification):
     for key, value in source.items():
         if key == "url" or value is None:
             continue
-        if isinstance(value, (dict, list)):
+        if key == "image_url":
+            payload[str(key)] = _absolute_url(value)
+        elif isinstance(value, (dict, list)):
             payload[str(key)] = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
         else:
             payload[str(key)] = str(value)
@@ -91,11 +99,13 @@ def _send_android(notification, devices):
         return 0, []
     from firebase_admin import messaging
 
+    image_url = _notification_image_url(notification) or None
     message = messaging.MulticastMessage(
         tokens=[device.token for device in devices],
         notification=messaging.Notification(
             title=notification.title,
             body=notification.body,
+            image=image_url,
         ),
         data=_string_data(notification),
         android=messaging.AndroidConfig(
@@ -106,6 +116,7 @@ def _send_android(notification, devices):
                 sound="default",
                 color="#B88746",
                 tag=f"sams-{notification.kind.lower()}",
+                image=image_url,
             ),
         ),
     )
@@ -156,15 +167,21 @@ def _send_ios(notification, devices):
         return 0, []
     endpoint = "https://api.sandbox.push.apple.com" if settings.APNS_USE_SANDBOX else "https://api.push.apple.com"
     unread_count = AppNotification.objects.filter(recipient=notification.recipient, is_read=False).count()
+    image_url = _notification_image_url(notification)
+    aps = {
+        "alert": {"title": notification.title, "body": notification.body},
+        "sound": "default",
+        "badge": unread_count,
+        "thread-id": "sams-card",
+    }
+    if image_url:
+        aps["mutable-content"] = 1
     payload = {
-        "aps": {
-            "alert": {"title": notification.title, "body": notification.body},
-            "sound": "default",
-            "badge": unread_count,
-            "thread-id": "sams-card",
-        },
+        "aps": aps,
         **_string_data(notification),
     }
+    if image_url:
+        payload["media-url"] = image_url
     headers = {
         "authorization": f"bearer {_apns_auth_token()}",
         "apns-topic": settings.IOS_BUNDLE_ID,
