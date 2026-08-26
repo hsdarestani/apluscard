@@ -213,6 +213,20 @@ swift_reference = extension_group.files.find { |file| file.path == 'Notification
 swift_reference ||= extension_group.new_file('NotificationService.swift')
 extension_target.add_file_references([swift_reference])
 
+# Info.plist is consumed by Xcode via INFOPLIST_FILE. It must never be copied as a
+# bundle resource as that creates a second producer for the appex Info.plist.
+extension_target.build_phases.each do |phase|
+  next unless phase.respond_to?(:files)
+
+  phase.files.to_a.each do |build_file|
+    file_reference = build_file.file_ref
+    next unless file_reference
+    next unless File.basename(file_reference.path.to_s) == 'Info.plist'
+
+    build_file.remove_from_project
+  end
+end
+
 app_target.add_dependency(extension_target) unless app_target.dependency_for_target(extension_target)
 embed_phase = app_target.copy_files_build_phases.find { |phase| phase.name == 'Embed App Extensions' }
 embed_phase ||= app_target.new_copy_files_build_phase('Embed App Extensions')
