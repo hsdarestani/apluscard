@@ -1,5 +1,10 @@
 {% extends 'cards/base.html' %}
 {% block title %}Mitteilungen · {{ app_name }}{% endblock %}
+{% block head %}
+<style>
+  .notification-media{display:block;width:min(100%,560px);max-height:320px;margin:10px 0 4px;border-radius:16px;object-fit:cover;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.035)}
+</style>
+{% endblock %}
 {% block content %}
 <section class="dashboard-head">
   <div><span class="eyebrow">Persönlicher Posteingang</span><h1>Deine<br><span class="gradient-text">Mitteilungen</span></h1><p class="muted">Zahlungen, Aufladungen, Angebote und Transaktionsfälle an einem Ort.</p></div>
@@ -24,6 +29,7 @@
       <div class="notification-copy">
         <strong>{{ notification.title }}</strong>
         <p>{{ notification.body }}</p>
+        {% if notification.data.image_url %}<img class="notification-media" src="{{ notification.data.image_url }}" alt="Bild zur Mitteilung {{ notification.title }}" loading="lazy">{% endif %}
         <small>{% if notification.location %}{{ notification.location.name }} · {% endif %}{{ notification.created_at|date:"d.m.Y H:i" }}</small>
       </div>
       {% if not notification.is_read or notification.data.url %}
