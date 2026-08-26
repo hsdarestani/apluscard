@@ -53,12 +53,14 @@ jobs:
     environment: production
     env:
       IOS_BUNDLE_ID: de.aplussolution.samscard
+      IOS_NOTIFICATION_SERVICE_BUNDLE_ID: de.aplussolution.samscard.notificationservice
       IOS_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       IOS_VERSION_NAME: ${{ inputs.version_name }}
       IOS_BUILD_NUMBER: ${{ inputs.build_number }}
       IOS_DISTRIBUTION_CERT_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_P12_BASE64 }}
       IOS_DISTRIBUTION_CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
       IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64 }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
@@ -98,6 +100,7 @@ jobs:
           test -n "$IOS_DISTRIBUTION_CERT_P12_BASE64" || (echo "IOS_DISTRIBUTION_CERT_P12_BASE64 fehlt." && exit 1)
           test -n "$IOS_DISTRIBUTION_CERT_PASSWORD" || (echo "IOS_DISTRIBUTION_CERT_PASSWORD fehlt." && exit 1)
           test -n "$IOS_PROVISIONING_PROFILE_BASE64" || (echo "IOS_PROVISIONING_PROFILE_BASE64 fehlt." && exit 1)
+          test -n "$IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64" || (echo "IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64 fehlt." && exit 1)
           printf '%s' "$IOS_BUILD_NUMBER" | grep -Eq '^[1-9][0-9]*$' || (echo "build_number muss eine positive Ganzzahl sein." && exit 1)
           printf '%s' "$IOS_VERSION_NAME" | grep -Eq '^[0-9]+([.][0-9]+){1,2}$' || (echo "version_name ist ungültig." && exit 1)
           if [ "$SUBMIT_FOR_REVIEW" = "true" ] && [ "$UPLOAD_TO_TESTFLIGHT" != "true" ]; then
@@ -125,7 +128,7 @@ jobs:
         shell: bash
         run: sudo gem install xcodeproj --no-document
 
-      - name: Zertifikat und Provisioning Profile installieren
+      - name: Zertifikat und Provisioning Profiles installieren
         id: ios-signing
         shell: bash
         run: |
@@ -137,13 +140,17 @@ jobs:
           KEY_PEM_PATH="$RUNNER_TEMP/sams-ios-distribution-key.pem"
           PROFILE_PATH="$RUNNER_TEMP/sams-appstore.mobileprovision"
           PROFILE_PLIST="$RUNNER_TEMP/sams-profile.plist"
+          EXT_PROFILE_PATH="$RUNNER_TEMP/sams-notification-service-appstore.mobileprovision"
+          EXT_PROFILE_PLIST="$RUNNER_TEMP/sams-notification-service-profile.plist"
           KEYCHAIN_PATH="$RUNNER_TEMP/sams-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
 
           printf '%s' "$IOS_DISTRIBUTION_CERT_P12_BASE64" | base64 -D > "$P12_PATH"
           printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -D > "$PROFILE_PATH"
+          printf '%s' "$IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$EXT_PROFILE_PATH"
           test -s "$P12_PATH"
           test -s "$PROFILE_PATH"
+          test -s "$EXT_PROFILE_PATH"
 
           openssl pkcs12 -in "$P12_PATH" -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" -clcerts -nokeys -out "$CERT_PEM_PATH"
           openssl pkcs12 -in "$P12_PATH" -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" -nocerts -nodes -out "$KEY_PEM_PATH"
@@ -178,20 +185,30 @@ jobs:
           PROFILE_APP_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")"
           PROFILE_APNS_ENV="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$PROFILE_PLIST")"
 
+          security cms -D -i "$EXT_PROFILE_PATH" > "$EXT_PROFILE_PLIST"
+          EXT_PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$EXT_PROFILE_PLIST")"
+          EXT_PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$EXT_PROFILE_PLIST")"
+          EXT_PROFILE_APP_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$EXT_PROFILE_PLIST")"
+
           test "$PROFILE_APP_IDENTIFIER" = "$IOS_TEAM_ID.$IOS_BUNDLE_ID" || (echo "Provisioning Profile gehört nicht zu Team $IOS_TEAM_ID und Bundle $IOS_BUNDLE_ID: $PROFILE_APP_IDENTIFIER" && exit 1)
           test "$PROFILE_APNS_ENV" = "production" || (echo "Provisioning Profile enthält kein Production-APNs-Entitlement." && exit 1)
+          test "$EXT_PROFILE_APP_IDENTIFIER" = "$IOS_TEAM_ID.$IOS_NOTIFICATION_SERVICE_BUNDLE_ID" || (echo "Notification-Service-Profil gehört nicht zu $IOS_NOTIFICATION_SERVICE_BUNDLE_ID: $EXT_PROFILE_APP_IDENTIFIER" && exit 1)
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          cp "$EXT_PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$EXT_PROFILE_UUID.mobileprovision"
           echo "profile_name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "notification_service_profile_name=$EXT_PROFILE_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Push, Safe Area, Associated Domains und Release-Signing konfigurieren
+      - name: Push, Safe Area, Associated Domains und Rich Notifications konfigurieren
         shell: bash
         env:
           IOS_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.profile_name }}
+          IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.notification_service_profile_name }}
         run: |
           set -Eeuo pipefail
           ruby mobile/ci/prepare-ios-release.rb
+          ruby mobile/ci/add-ios-notification-service.rb
 
       - name: Xcode-Abhängigkeiten mit Retry auflösen
         shell: bash
@@ -234,6 +251,7 @@ jobs:
         shell: bash
         env:
           IOS_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.profile_name }}
+          IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.notification_service_profile_name }}
         run: |
           set -Eeuo pipefail
           ARCHIVE_PATH="$RUNNER_TEMP/SAMSCard.xcarchive"
@@ -259,6 +277,7 @@ jobs:
         shell: bash
         env:
           IOS_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.profile_name }}
+          IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_NAME: ${{ steps.ios-signing.outputs.notification_service_profile_name }}
         run: |
           set -Eeuo pipefail
           ARCHIVE_PATH="$RUNNER_TEMP/SAMSCard.xcarchive"
@@ -283,6 +302,8 @@ jobs:
             <dict>
               <key>$IOS_BUNDLE_ID</key>
               <string>$IOS_PROVISIONING_PROFILE_NAME</string>
+              <key>$IOS_NOTIFICATION_SERVICE_BUNDLE_ID</key>
+              <string>$IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_NAME</string>
             </dict>
             <key>manageAppVersionAndBuildNumber</key>
             <false/>
