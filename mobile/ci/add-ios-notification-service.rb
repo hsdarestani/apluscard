@@ -30,7 +30,7 @@ File.write(swift_path, <<~'SWIFT')
   import Foundation
   import UserNotifications
 
-  final class NotificationService: UNNotificationServiceExtension {
+  final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
       private var contentHandler: ((UNNotificationContent) -> Void)?
       private var bestAttemptContent: UNMutableNotificationContent?
       private var downloadTask: URLSessionDownloadTask?
