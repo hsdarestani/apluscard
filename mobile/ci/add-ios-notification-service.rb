@@ -216,7 +216,7 @@ extension_target.add_file_references([swift_reference])
 app_target.add_dependency(extension_target) unless app_target.dependency_for_target(extension_target)
 embed_phase = app_target.copy_files_build_phases.find { |phase| phase.name == 'Embed App Extensions' }
 embed_phase ||= app_target.new_copy_files_build_phase('Embed App Extensions')
-embed_phase.symbol_dst_subfolder_spec = :plugins
+embed_phase.symbol_dst_subfolder_spec = :plug_ins
 embed_phase.add_file_reference(extension_target.product_reference, true)
 
 extension_target.build_configurations.each do |configuration|
