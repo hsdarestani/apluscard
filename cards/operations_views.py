@@ -1,9 +1,12 @@
 import re
 from decimal import Decimal
+from uuid import uuid4
 
+from PIL import Image, UnidentifiedImageError
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
@@ -27,6 +30,8 @@ UUID_PATTERN = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
     re.IGNORECASE,
 )
+NOTIFICATION_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+NOTIFICATION_IMAGE_FORMATS = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
 
 
 def _client_ip(request):
@@ -48,11 +53,37 @@ def _form_error_text(form):
     return " ".join(parts)
 
 
-def _notification_data(request):
+def _store_notification_image(request):
+    uploaded = request.FILES.get("image")
+    if uploaded is None:
+        return ""
+    if uploaded.size > NOTIFICATION_IMAGE_MAX_BYTES:
+        raise ValidationError("Das Bild darf maximal 5 MB groß sein.")
+
+    try:
+        with Image.open(uploaded) as image:
+            image_format = (image.format or "").upper()
+            image.verify()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValidationError("Das Bild konnte nicht gelesen werden. Bitte JPG, PNG oder WebP verwenden.") from exc
+    finally:
+        uploaded.seek(0)
+
+    extension = NOTIFICATION_IMAGE_FORMATS.get(image_format)
+    if not extension:
+        raise ValidationError("Für Mitteilungen sind nur JPG-, PNG- oder WebP-Bilder erlaubt.")
+
+    storage_name = default_storage.save(f"notification-images/{uuid4().hex}.{extension}", uploaded)
+    return default_storage.url(storage_name)
+
+
+def _notification_data(request, *, image_url=""):
     target_url = request.POST.get("target_url", "").strip()
     if target_url and not target_url.startswith("/"):
         target_url = ""
     data = {"url": target_url or "/mitteilungen/"}
+    if image_url:
+        data["image_url"] = image_url
     return data
 
 
@@ -145,6 +176,12 @@ def manager_broadcast_notification(request):
         messages.error(request, "Titel und Nachricht dürfen nicht leer sein.")
         return redirect("manager_settings")
 
+    try:
+        image_url = _store_notification_image(request)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect("manager_settings")
+
     wallets = Wallet.objects.filter(
         business=membership.business,
         owner__isnull=False,
@@ -159,7 +196,7 @@ def manager_broadcast_notification(request):
         title=title,
         body=body,
         kind=kind,
-        data=_notification_data(request),
+        data=_notification_data(request, image_url=image_url),
     )
     messages.success(request, f"Die Mitteilung wurde für {len(created)} Mitglieder angelegt und für Push eingeplant.")
     return redirect("manager_settings")
@@ -186,13 +223,19 @@ def manager_direct_notification(request, wallet_id):
         messages.error(request, "Titel und Nachricht dürfen nicht leer sein.")
         return redirect("manager_wallet_detail", wallet_id=wallet.pk)
 
+    try:
+        image_url = _store_notification_image(request)
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect("manager_wallet_detail", wallet_id=wallet.pk)
+
     experience_services.create_notifications(
         users=[wallet.owner],
         business=membership.business,
         title=title,
         body=body,
         kind=kind,
-        data=_notification_data(request),
+        data=_notification_data(request, image_url=image_url),
     )
     messages.success(request, f"Mitteilung an {wallet.display_name} wurde angelegt und für Push eingeplant.")
     return redirect("manager_wallet_detail", wallet_id=wallet.pk)
@@ -240,7 +283,7 @@ def manager_clear_wallet_history(request, wallet_id):
     with transaction.atomic():
         _delete_wallet_transactions(wallet)
     messages.success(request, f"Die Test-Transaktionshistorie von {wallet.display_name} wurde gelöscht und der Saldo auf 0,00 € gesetzt.")
-    return redirect("manager_wallet_detail", wallet_id=wallet.pk)
+    return redirect("manager_dashboard")
 
 
 @login_required
