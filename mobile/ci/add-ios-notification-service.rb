@@ -31,7 +31,19 @@ File.write(swift_path, <<~'SWIFT')
   import UserNotifications
 
   final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
-      private var contentHandler: ((UNNotificationContent) -> Void)?
+      private final class ContentHandlerBox: @unchecked Sendable {
+          private let handler: (UNNotificationContent) -> Void
+
+          init(_ handler: @escaping (UNNotificationContent) -> Void) {
+              self.handler = handler
+          }
+
+          func callAsFunction(_ content: UNNotificationContent) {
+              handler(content)
+          }
+      }
+
+      private var contentHandlerBox: ContentHandlerBox?
       private var bestAttemptContent: UNMutableNotificationContent?
       private var downloadTask: URLSessionDownloadTask?
       private let deliveryLock = NSLock()
@@ -41,7 +53,7 @@ File.write(swift_path, <<~'SWIFT')
           _ request: UNNotificationRequest,
           withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
       ) {
-          self.contentHandler = contentHandler
+          self.contentHandlerBox = ContentHandlerBox(contentHandler)
           self.bestAttemptContent = request.content.mutableCopy() as? UNMutableNotificationContent
 
           guard let imageURL = mediaURL(from: request.content.userInfo),
@@ -153,16 +165,16 @@ File.write(swift_path, <<~'SWIFT')
       private func deliverBestAttempt() {
           deliveryLock.lock()
           guard !didDeliver,
-                let contentHandler,
+                let contentHandlerBox,
                 let bestAttemptContent else {
               deliveryLock.unlock()
               return
           }
           didDeliver = true
-          self.contentHandler = nil
+          self.contentHandlerBox = nil
           deliveryLock.unlock()
 
-          contentHandler(bestAttemptContent)
+          contentHandlerBox(bestAttemptContent)
       }
   }
 SWIFT
