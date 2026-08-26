@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# Retry after validating the V2 Notification Service provisioning profile.
+# Retry after fixing duplicate NotificationService Info.plist build output.
 jobs:
   release:
     uses: ./.github/workflows/build-ios-testflight.yml
