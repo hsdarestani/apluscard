@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# Retry after making NotificationService Swift 6 sendability explicit.
+# Retry after wrapping the NotificationService completion handler for Swift 6.
 jobs:
   release:
     uses: ./.github/workflows/build-ios-testflight.yml
