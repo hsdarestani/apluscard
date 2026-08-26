@@ -28,12 +28,28 @@ jobs:
           PROFILE="$RUNNER_TEMP/ext.mobileprovision"
           PROFILE_PLIST="$RUNNER_TEMP/ext.plist"
           EXT_CERT_DER="$RUNNER_TEMP/ext-cert.der"
+
           printf '%s' "$IOS_DISTRIBUTION_CERT_P12_BASE64" | base64 -D > "$P12"
           openssl pkcs12 -in "$P12" -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" -clcerts -nokeys -out "$CERT"
           echo '=== ACTIVE P12 CERTIFICATE ==='
           openssl x509 -in "$CERT" -noout -subject -serial -dates -fingerprint -sha1
+
           printf '%s' "$IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$PROFILE"
           security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
-          /usr/libexec/PlistBuddy -c 'Print :DeveloperCertificates:0' "$PROFILE_PLIST" | base64 -D > "$EXT_CERT_DER"
+          python3 - "$PROFILE_PLIST" "$EXT_CERT_DER" <<'PY'
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], 'rb') as handle:
+              profile = plistlib.load(handle)
+          certs = profile.get('DeveloperCertificates') or []
+          if not certs:
+              raise SystemExit('No DeveloperCertificates in extension profile')
+          with open(sys.argv[2], 'wb') as handle:
+              handle.write(bytes(certs[0]))
+          print('Profile name:', profile.get('Name'))
+          print('Profile UUID:', profile.get('UUID'))
+          print('Profile App ID:', (profile.get('Entitlements') or {}).get('application-identifier'))
+          PY
           echo '=== EXTENSION PROFILE CERTIFICATE ==='
           openssl x509 -inform DER -in "$EXT_CERT_DER" -noout -subject -serial -dates -fingerprint -sha1
