@@ -3,6 +3,7 @@
   let loadedReleaseVersion = null;
   let releaseCheckPromise = null;
   let releaseCheckTimer = null;
+  let broadcastPreviewUrl = null;
 
   async function checkReleaseVersion() {
     if (releaseCheckPromise) return releaseCheckPromise;
@@ -50,6 +51,37 @@
     }, 60000);
   }
 
+  function setupBroadcastImageUpload() {
+    const form = document.querySelector('form.broadcast-form');
+    if (!form || form.querySelector('input[name="image"]')) return;
+
+    form.enctype = 'multipart/form-data';
+    const label = document.createElement('label');
+    label.className = 'setting-field broadcast-image';
+    label.innerHTML = '<span>Bild (optional)</span><input type="file" name="image" accept="image/jpeg,image/png,image/webp"><small class="muted">JPG, PNG oder WebP · maximal 5 MB. Das Bild erscheint in der App und – wenn unterstützt – direkt in der Push-Mitteilung.</small><img alt="Vorschau des Mitteilungsbildes" hidden style="width:min(100%,420px);max-height:240px;margin-top:10px;border-radius:14px;object-fit:cover;border:1px solid rgba(255,255,255,.1)">';
+
+    const bodyField = form.querySelector('.broadcast-body');
+    form.insertBefore(label, bodyField || form.querySelector('button[type="submit"]'));
+
+    const input = label.querySelector('input[name="image"]');
+    const preview = label.querySelector('img');
+    input.addEventListener('change', () => {
+      if (broadcastPreviewUrl) {
+        URL.revokeObjectURL(broadcastPreviewUrl);
+        broadcastPreviewUrl = null;
+      }
+      const file = input.files && input.files[0];
+      if (!file) {
+        preview.hidden = true;
+        preview.removeAttribute('src');
+        return;
+      }
+      broadcastPreviewUrl = URL.createObjectURL(file);
+      preview.src = broadcastPreviewUrl;
+      preview.hidden = false;
+    });
+  }
+
   function isNativeAuthenticatedPage() {
     return Boolean(
       document.querySelector('meta[name="push-device-url"]') &&
@@ -72,6 +104,7 @@
   window.addEventListener('load', () => {
     registerGrantedPush();
     startReleaseChecks();
+    setupBroadcastImageUpload();
   }, { once: true });
 
   document.addEventListener('visibilitychange', () => {
@@ -83,10 +116,12 @@
 
   window.addEventListener('pageshow', () => {
     checkReleaseVersion();
+    setupBroadcastImageUpload();
   });
 
   window.addEventListener('pagehide', () => {
     if (releaseCheckTimer) window.clearInterval(releaseCheckTimer);
+    if (broadcastPreviewUrl) URL.revokeObjectURL(broadcastPreviewUrl);
   }, { once: true });
 
   // Ask once, after a real user interaction, so users do not have to discover
