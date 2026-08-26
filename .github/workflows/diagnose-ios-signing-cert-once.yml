@@ -1,0 +1,39 @@
+name: Diagnose active iOS signing certificate once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-ios-signing-cert-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: macos-26
+    environment: production
+    env:
+      IOS_DISTRIBUTION_CERT_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_P12_BASE64 }}
+      IOS_DISTRIBUTION_CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+      IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64 }}
+    steps:
+      - name: Print non-secret signing certificate metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          P12="$RUNNER_TEMP/current.p12"
+          CERT="$RUNNER_TEMP/current.pem"
+          PROFILE="$RUNNER_TEMP/ext.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/ext.plist"
+          EXT_CERT_DER="$RUNNER_TEMP/ext-cert.der"
+          printf '%s' "$IOS_DISTRIBUTION_CERT_P12_BASE64" | base64 -D > "$P12"
+          openssl pkcs12 -in "$P12" -passin "pass:$IOS_DISTRIBUTION_CERT_PASSWORD" -clcerts -nokeys -out "$CERT"
+          echo '=== ACTIVE P12 CERTIFICATE ==='
+          openssl x509 -in "$CERT" -noout -subject -serial -dates -fingerprint -sha1
+          printf '%s' "$IOS_NOTIFICATION_SERVICE_PROVISIONING_PROFILE_BASE64" | base64 -D > "$PROFILE"
+          security cms -D -i "$PROFILE" > "$PROFILE_PLIST"
+          /usr/libexec/PlistBuddy -c 'Print :DeveloperCertificates:0' "$PROFILE_PLIST" | base64 -D > "$EXT_CERT_DER"
+          echo '=== EXTENSION PROFILE CERTIFICATE ==='
+          openssl x509 -inform DER -in "$EXT_CERT_DER" -noout -subject -serial -dates -fingerprint -sha1
