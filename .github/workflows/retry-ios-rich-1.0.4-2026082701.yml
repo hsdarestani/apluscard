@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# Retry after refreshing the NotificationService V2 provisioning profile secret from desktop.
+# Retry after fixing the App Review compliance gate timing; signing/profile V2 is already verified.
 jobs:
   release:
     uses: ./.github/workflows/build-ios-testflight.yml
