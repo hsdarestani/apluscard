@@ -162,29 +162,33 @@ unless target.resources_build_phase.files_references.include?(privacy_reference)
   target.resources_build_phase.add_file_reference(privacy_reference, true)
 end
 
+# Run App Review checks against the generated source files. During an archive,
+# Xcode may execute shell build phases before ProcessInfoPlistFile has created the
+# final bundle Info.plist, so checking TARGET_BUILD_DIR here is race-prone and can
+# fail a valid archive. These exact source files are what Xcode processes/copies
+# into the signed app bundle.
 review_phase = target.shell_script_build_phases.find { |phase| phase.name == 'App Review compliance gate' }
 review_phase ||= target.new_shell_script_build_phase('App Review compliance gate')
 review_phase.shell_path = '/bin/bash'
 review_phase.shell_script = <<~'SH'
   set -Eeuo pipefail
-  APP_BUNDLE="${TARGET_BUILD_DIR}/${WRAPPER_NAME}"
-  APP_INFO="${APP_BUNDLE}/Info.plist"
-  PRIVACY_MANIFEST="${APP_BUNDLE}/PrivacyInfo.xcprivacy"
+  APP_INFO="${SRCROOT}/App/Info.plist"
+  PRIVACY_MANIFEST="${SRCROOT}/App/PrivacyInfo.xcprivacy"
 
-  test -f "$APP_INFO" || { echo "Finales Info.plist fehlt: $APP_INFO"; exit 1; }
+  test -f "$APP_INFO" || { echo "Info.plist fehlt: $APP_INFO"; exit 1; }
   CAMERA_REASON="$(/usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$APP_INFO" 2>/dev/null || true)"
   PHOTO_REASON="$(/usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryUsageDescription' "$APP_INFO" 2>/dev/null || true)"
   FACE_ID_REASON="$(/usr/libexec/PlistBuddy -c 'Print :NSFaceIDUsageDescription' "$APP_INFO" 2>/dev/null || true)"
-  test -n "$CAMERA_REASON" || { echo "NSCameraUsageDescription fehlt im finalen App-Bundle."; exit 1; }
-  test -n "$PHOTO_REASON" || { echo "NSPhotoLibraryUsageDescription fehlt im finalen App-Bundle."; exit 1; }
-  test -n "$FACE_ID_REASON" || { echo "NSFaceIDUsageDescription fehlt im finalen App-Bundle."; exit 1; }
+  test -n "$CAMERA_REASON" || { echo "NSCameraUsageDescription fehlt."; exit 1; }
+  test -n "$PHOTO_REASON" || { echo "NSPhotoLibraryUsageDescription fehlt."; exit 1; }
+  test -n "$FACE_ID_REASON" || { echo "NSFaceIDUsageDescription fehlt."; exit 1; }
 
-  test -f "$PRIVACY_MANIFEST" || { echo "PrivacyInfo.xcprivacy fehlt im finalen App-Bundle."; exit 1; }
+  test -f "$PRIVACY_MANIFEST" || { echo "PrivacyInfo.xcprivacy fehlt: $PRIVACY_MANIFEST"; exit 1; }
   /usr/bin/plutil -lint "$PRIVACY_MANIFEST"
   TRACKING="$(/usr/libexec/PlistBuddy -c 'Print :NSPrivacyTracking' "$PRIVACY_MANIFEST" 2>/dev/null || true)"
   test "$TRACKING" = "false" || { echo "NSPrivacyTracking muss false sein."; exit 1; }
 
-  echo "App Review gate bestanden: Kamera-, Foto- und Face-ID-Hinweise sowie Privacy Manifest sind im Bundle."
+  echo "App Review gate bestanden: Kamera-, Foto- und Face-ID-Hinweise sowie Privacy Manifest sind vorhanden."
 SH
 
 target.build_configurations.each do |configuration|
