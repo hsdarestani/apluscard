@@ -121,6 +121,18 @@ def wait_for_build(app_id: str, timeout: int = 2100, interval: int = 20):
 
 
 def set_export_compliance(build_id: str):
+    # App Store Connect treats usesNonExemptEncryption as write-once. A retry
+    # must therefore accept the already-set value instead of failing with 409.
+    current = request("GET", f"/builds/{build_id}")
+    current_value = (
+        current.get("data", {})
+        .get("attributes", {})
+        .get("usesNonExemptEncryption")
+    )
+    if current_value is False:
+        print("Export compliance already set to usesNonExemptEncryption=false")
+        return
+
     body = {
         "data": {
             "type": "builds",
@@ -128,7 +140,18 @@ def set_export_compliance(build_id: str):
             "attributes": {"usesNonExemptEncryption": False},
         }
     }
-    request("PATCH", f"/builds/{build_id}", body=body)
+    try:
+        request("PATCH", f"/builds/{build_id}", body=body)
+        print("Export compliance set to usesNonExemptEncryption=false")
+    except AppStoreError as exc:
+        message = str(exc)
+        if (
+            "usesNonExemptEncryption" in message
+            and "You cannot update when the value is already set" in message
+        ):
+            print("Export compliance was already set by Apple; continuing")
+            return
+        raise
 
 
 def attach_build(version_id: str, build_id: str):
