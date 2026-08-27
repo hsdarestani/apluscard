@@ -1,0 +1,32 @@
+name: Submit Sams Club Lounge iOS 1.0.5 (2026082702) for Review
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/submit-ios-review-1.0.5-2026082702.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  submit-review:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY_BASE64: ${{ secrets.ASC_PRIVATE_KEY_BASE64 }}
+      IOS_BUNDLE_ID: de.aplussolution.samscard
+      IOS_VERSION_NAME: "1.0.5"
+      IOS_BUILD_NUMBER: "2026082702"
+    steps:
+      - name: Checkout exact rich-push release source
+        uses: actions/checkout@v4
+
+      - name: Install App Store Connect client dependencies
+        run: python3 -m pip install --disable-pip-version-check --quiet PyJWT cryptography requests
+
+      - name: Attach accepted build and submit 1.0.5 for App Review
+        run: python3 mobile/ci/submit-ios-review.py
