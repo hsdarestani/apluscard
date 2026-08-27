@@ -10,6 +10,8 @@ on:
 permissions:
   contents: read
 
+# Re-triggered after making export-compliance handling idempotent. This reuses
+# the already accepted App Store Connect build; it does not create a new IPA.
 jobs:
   submit-review:
     runs-on: ubuntu-latest
