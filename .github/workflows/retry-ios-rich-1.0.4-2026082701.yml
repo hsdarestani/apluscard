@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# Retry after wrapping the NotificationService completion handler for Swift 6.
+# Retry after refreshing the NotificationService V2 provisioning profile secret from desktop.
 jobs:
   release:
     uses: ./.github/workflows/build-ios-testflight.yml
