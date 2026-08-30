@@ -4,11 +4,16 @@ import logging
 import time
 from collections import defaultdict
 from datetime import timedelta
-from urllib.parse import urljoin
+from io import BytesIO
+from pathlib import PurePosixPath
+from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
 import jwt
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 
 from .models import AppNotification, PushDevice
 
@@ -16,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 _APNS_TOKEN_CACHE = {"value": "", "expires_at": 0}
 _FIREBASE_APP = None
+_PUSH_IMAGE_CANVAS = (1200, 600)
+_PUSH_IMAGE_SAFE_AREA = (1080, 520)
 
 
 class PushConfigurationError(RuntimeError):
@@ -42,10 +49,74 @@ def _absolute_url(path):
     return urljoin(f"{settings.APP_PUBLIC_BASE_URL}/", str(path).lstrip("/"))
 
 
+def _local_media_storage_name(image_url):
+    value = str(image_url or "").strip()
+    if not value:
+        return ""
+
+    parsed = urlparse(value)
+    if parsed.scheme in {"http", "https"}:
+        public_host = urlparse(str(settings.APP_PUBLIC_BASE_URL or "")).netloc.lower()
+        if public_host and parsed.netloc.lower() != public_host:
+            return ""
+        value = parsed.path
+
+    media_path = urlparse(str(settings.MEDIA_URL or "/media/")).path or "/media/"
+    if not media_path.startswith("/"):
+        media_path = f"/{media_path}"
+    if not media_path.endswith("/"):
+        media_path = f"{media_path}/"
+    if not value.startswith(media_path):
+        return ""
+    return unquote(value[len(media_path):].lstrip("/"))
+
+
+def _push_safe_local_image_url(image_url):
+    storage_name = _local_media_storage_name(image_url)
+    if not storage_name or not default_storage.exists(storage_name):
+        return ""
+
+    source_path = PurePosixPath(storage_name)
+    derived_name = str(source_path.parent / "push" / f"{source_path.stem}-push.jpg")
+    if default_storage.exists(derived_name):
+        return default_storage.url(derived_name)
+
+    with default_storage.open(storage_name, "rb") as source_file:
+        with Image.open(source_file) as image:
+            image.load()
+            source = ImageOps.exif_transpose(image).convert("RGB")
+
+    resampling = getattr(Image, "Resampling", Image).LANCZOS
+    canvas_width, canvas_height = _PUSH_IMAGE_CANVAS
+    safe_width, safe_height = _PUSH_IMAGE_SAFE_AREA
+
+    background = ImageOps.fit(source, _PUSH_IMAGE_CANVAS, method=resampling)
+    background = background.filter(ImageFilter.GaussianBlur(radius=28))
+    background = ImageEnhance.Brightness(background).enhance(0.42)
+
+    foreground = source.copy()
+    foreground.thumbnail(_PUSH_IMAGE_SAFE_AREA, resampling)
+    x = (canvas_width - foreground.width) // 2
+    y = (canvas_height - foreground.height) // 2
+    background.paste(foreground, (x, y))
+
+    output = BytesIO()
+    background.save(output, format="JPEG", quality=90, optimize=True, progressive=True)
+    saved_name = default_storage.save(derived_name, ContentFile(output.getvalue()))
+    return default_storage.url(saved_name)
+
+
 def _notification_image_url(notification):
     source = notification.data if isinstance(notification.data, dict) else {}
     image_url = str(source.get("image_url") or "").strip()
-    return _absolute_url(image_url) if image_url else ""
+    if not image_url:
+        return ""
+    try:
+        push_safe_url = _push_safe_local_image_url(image_url)
+    except Exception:
+        logger.exception("Could not prepare push-safe image for notification %s.", getattr(notification, "pk", "?"))
+        push_safe_url = ""
+    return _absolute_url(push_safe_url or image_url)
 
 
 def _string_data(notification):
@@ -58,7 +129,7 @@ def _string_data(notification):
     for key, value in source.items():
         if key == "url" or value is None:
             continue
-        if key == "image_url":
+        if key in {"image_url", "push_image_url"}:
             payload[str(key)] = _absolute_url(value)
         elif isinstance(value, (dict, list)):
             payload[str(key)] = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
