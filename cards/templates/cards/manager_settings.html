@@ -28,6 +28,11 @@
   .location-links-form label{display:grid;gap:5px;font-size:11px;opacity:.9}
   .location-links-form input{width:100%;min-width:0}
   .location-link-status{display:inline-flex;margin-top:7px;font-size:11px;opacity:.72}
+  .broadcast-image-field{grid-column:1/-1}
+  .broadcast-image-help{display:block;margin-top:7px;font-size:12px;line-height:1.45;opacity:.68}
+  .notification-image-preview{display:grid;place-items:center;width:100%;margin-top:12px;padding:8px;border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(0,0,0,.24);overflow:hidden}
+  .notification-image-preview[hidden]{display:none}
+  .notification-image-preview img{display:block;width:auto;max-width:100%;height:auto;max-height:min(70vh,680px);object-fit:contain;border-radius:12px}
   @media(max-width:900px){.manage-jumps{grid-template-columns:repeat(3,minmax(0,1fr))}}
   @media(max-width:640px){
     .manage-hub-head.dashboard-head{display:block}
@@ -39,6 +44,7 @@
     .manage-summary-copy strong{font-size:15px}
     .manage-accordion-body{padding:14px}
     .manage-legal-row{align-items:flex-start;flex-direction:column}
+    .notification-image-preview{padding:6px;border-radius:14px}
   }
 </style>
 {% endblock %}
@@ -72,11 +78,12 @@
   </summary>
   <div class="manage-accordion-body">
     <p class="muted">Die Nachricht erscheint sofort im persönlichen Posteingang. Transaktions- und Systemhinweise werden auf registrierten Geräten gepusht. Angebots- und Geburtstags-Pushs gehen nur an Mitglieder mit aktivierter Marketing-Push-Einwilligung.</p>
-    <form method="post" action="{% url 'manager_broadcast_notification' %}" class="settings-grid broadcast-form">{% csrf_token %}
+    <form method="post" enctype="multipart/form-data" action="{% url 'manager_broadcast_notification' %}" class="settings-grid broadcast-form">{% csrf_token %}
       <label class="setting-field"><span>Titel</span><input type="text" name="title" maxlength="160" placeholder="Zum Beispiel: Heute Live-Musik" required></label>
       <label class="setting-field"><span>Zielgruppe</span><select name="target"><option value="ALL">Alle aktiven Mitglieder</option><option value="SILVER">Nur Silber</option><option value="GOLD">Nur Gold</option><option value="PLATINUM">Nur Platin</option></select></label>
       <label class="setting-field"><span>Art</span><select name="kind"><option value="SYSTEM">Allgemeine Mitteilung</option><option value="OFFER">Angebot</option><option value="PAYMENT">Zahlungshinweis</option><option value="BIRTHDAY">Geburtstag</option></select></label>
       <label class="setting-field"><span>Interner Link (optional)</span><input type="text" name="target_url" placeholder="/customer/#offers"></label>
+      <label class="setting-field broadcast-image-field"><span>Bild (optional)</span><input type="file" name="image" accept="image/jpeg,image/png,image/webp" data-notification-image-input><small class="broadcast-image-help">JPG, PNG oder WebP · maximal 5 MB. Die Vorschau zeigt das vollständige Bild ohne Beschnitt.</small><span class="notification-image-preview" data-notification-image-preview hidden><img alt="Vorschau des ausgewählten Mitteilungsbildes"></span></label>
       <label class="setting-field broadcast-body"><span>Inhalt</span><textarea name="body" rows="5" maxlength="2000" placeholder="Beliebiger Text oder wichtige Information für die Mitglieder" required></textarea></label>
       <button class="button primary" type="submit">An ausgewählte Mitglieder senden</button>
     </form>
@@ -185,6 +192,25 @@
       target.open = true;
     }
   }
+
+  document.querySelectorAll('[data-notification-image-input]').forEach((input) => {
+    const field = input.closest('.broadcast-image-field');
+    const preview = field && field.querySelector('[data-notification-image-preview]');
+    const image = preview && preview.querySelector('img');
+    let objectUrl = '';
+    input.addEventListener('change', () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = '';
+      const file = input.files && input.files[0];
+      if (!file || !preview || !image) {
+        if (preview) preview.hidden = true;
+        return;
+      }
+      objectUrl = URL.createObjectURL(file);
+      image.src = objectUrl;
+      preview.hidden = false;
+    });
+  });
 })();
 </script>
 {% endblock %}
