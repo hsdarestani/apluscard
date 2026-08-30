@@ -1,0 +1,94 @@
+name: Resend Unverified Verification Emails Once
+
+on:
+  workflow_run:
+    workflows: ["Test and Deploy"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  resend:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_commit.message == 'Resend unverified verification emails once'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PORT: "22"
+      SSH_USER: root
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      APP_DIR: /root/apluscard
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSH_HOST"
+          test -n "$SSH_PRIVATE_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/apluscard_prod
+          chmod 600 ~/.ssh/apluscard_prod
+          ssh-keygen -y -f ~/.ssh/apluscard_prod >/dev/null
+          ssh-keyscan -t ed25519 -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Resend verification emails to unverified active members
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -o BatchMode=yes -o ConnectTimeout=20 -i ~/.ssh/apluscard_prod -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+          docker compose exec -T web python manage.py shell <<'PY'
+          import time
+          from django.test import RequestFactory
+          from cards.email_verification_models import EmailVerificationAttempt
+          from cards.emailing import send_verification_email
+          from cards.models import MemberProfile, Wallet
+
+          request = RequestFactory().post(
+              "/accounts/resend-verification/",
+              HTTP_HOST="app.samsclublounge.de",
+              secure=True,
+          )
+
+          profiles = list(
+              MemberProfile.objects.select_related("user")
+              .filter(
+                  email_verified=False,
+                  user__is_active=True,
+                  user__wallets__status=Wallet.Status.ACTIVE,
+              )
+              .exclude(user__email__isnull=True)
+              .exclude(user__email="")
+              .distinct()
+              .order_by("created_at")
+          )
+
+          print(f"UNVERIFIED_ACTIVE_MEMBERS={len(profiles)}")
+          sent = 0
+          failed = 0
+          for profile in profiles:
+              try:
+                  send_verification_email(
+                      request,
+                      profile.user,
+                      trigger=EmailVerificationAttempt.Trigger.RESEND,
+                  )
+                  sent += 1
+                  print(f"SENT user_id={profile.user_id}")
+              except Exception as exc:
+                  failed += 1
+                  print(f"FAILED user_id={profile.user_id} error={exc.__class__.__name__}")
+              time.sleep(0.25)
+
+          print(f"RESEND_SUMMARY sent={sent} failed={failed} total={len(profiles)}")
+          if failed:
+              raise SystemExit(1)
+          PY
+          REMOTE
