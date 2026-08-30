@@ -51,7 +51,7 @@ class EmailVerificationObservabilityTests(TestCase):
         self.assertIsNotNone(match)
         return match.group(1)
 
-    def test_send_uses_ios_safe_public_host_and_records_backend_acceptance(self):
+    def test_send_uses_canonical_public_host_and_records_backend_acceptance(self):
         request = self.factory.post(
             "/accounts/register/",
             HTTP_HOST="legacy.example.test",
@@ -66,8 +66,8 @@ class EmailVerificationObservabilityTests(TestCase):
         self.assertEqual(attempt.request_host, "legacy.example.test")
         self.assertEqual(attempt.token_hash, verification_token_hash(token))
         self.assertIsNotNone(attempt.accepted_at)
-        self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)
-        self.assertNotIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
+        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[0].body)
+        self.assertNotIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[0].body)
         self.assertNotIn("legacy.example.test/accounts/verify/", mail.outbox[0].body)
         self.assertIn(f"attempt={attempt.pk}", mail.outbox[0].body)
         self.assertIn("30 Tage gültig", mail.outbox[0].body)
@@ -161,7 +161,7 @@ class EmailVerificationObservabilityTests(TestCase):
         fresh_attempt = EmailVerificationAttempt.objects.exclude(pk=attempt.pk).get(user=self.user)
         self.assertEqual(fresh_attempt.trigger, EmailVerificationAttempt.Trigger.RESEND)
         self.assertEqual(fresh_attempt.status, EmailVerificationAttempt.Status.ACCEPTED)
-        self.assertIn("https://cards.smarbiz.sbs/accounts/verify/", mail.outbox[-1].body)
+        self.assertIn("https://app.samsclublounge.de/accounts/verify/", mail.outbox[-1].body)
 
     def test_legacy_signed_link_without_attempt_still_confirms_member(self):
         legacy_token = _verification_token(self.user)
@@ -191,6 +191,26 @@ class EmailVerificationObservabilityTests(TestCase):
 
     def test_repeated_click_is_idempotent_and_still_opens_member_session(self):
         request = self.factory.post("/accounts/register/", HTTP_HOST="testserver")
+        send_verification_email(request, self.user)
+        attempt = EmailVerificationAttempt.objects.get(user=self.user)
+        token = self._latest_mailed_token()
+
+        first = self.client.get(reverse("verify_email", args=[token]), {"attempt": str(attempt.pk)})
+        self.client.logout()
+        second = self.client.get(reverse("verify_email", args=[token]), {"attempt": str(attempt.pk)})
+
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.profile.refresh_from_db()
+        attempt.refresh_from_db()
+        self.assertTrue(self.profile.email_verified)
+        self.assertIsNotNone(self.profile.email_verified_at)
+        self.assertEqual(attempt.status, EmailVerificationAttempt.Status.CONFIRMED)
+        self.assertEqual(attempt.click_count, 2)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.user.pk)
+
+    def test_send_failure_is_persisted_with_error_details(self):
+        request = self.factory.post("/accounts/resend-verification/", HTTP_HOST="testserver")
         send_verification_email(request, self.user)
         attempt = EmailVerificationAttempt.objects.get(user=self.user)
         token = self._latest_mailed_token()
