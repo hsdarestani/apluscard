@@ -1,6 +1,15 @@
 {% extends 'cards/base.html' %}
 {% load sams_de experience_tags compliance_tags email_verification_tags %}
 {% block title %}{{ wallet.display_name }} · SAMS Club Lounge{% endblock %}
+{% block head %}
+<style>
+  .broadcast-image-field{grid-column:1/-1}
+  .broadcast-image-help{display:block;margin-top:7px;font-size:12px;line-height:1.45;opacity:.68}
+  .notification-image-preview{display:grid;place-items:center;width:100%;margin-top:12px;padding:8px;border:1px solid rgba(255,255,255,.1);border-radius:18px;background:rgba(0,0,0,.24);overflow:hidden}
+  .notification-image-preview[hidden]{display:none}
+  .notification-image-preview img{display:block;width:auto;max-width:100%;height:auto;max-height:min(70vh,680px);object-fit:contain;border-radius:12px}
+</style>
+{% endblock %}
 {% block content %}
 <a class="back-link" href="{% url 'manager_dashboard' %}">← Zurück zur Verwaltungszentrale</a>
 <section class="dashboard-head">
@@ -64,10 +73,11 @@
 <section class="panel settings-section">
   <div class="section-heading"><div><span class="eyebrow">Direkte Mitteilung</span><h2>Push an dieses Mitglied senden</h2></div></div>
   {% if wallet.owner %}
-  <form method="post" action="{% url 'manager_direct_notification' wallet.id %}" class="settings-grid broadcast-form">{% csrf_token %}
+  <form method="post" enctype="multipart/form-data" action="{% url 'manager_direct_notification' wallet.id %}" class="settings-grid broadcast-form">{% csrf_token %}
     <label class="setting-field"><span>Titel</span><input type="text" name="title" maxlength="160" required placeholder="Kurzer Titel"></label>
     <label class="setting-field"><span>Art</span><select name="kind"><option value="SYSTEM">Allgemein</option><option value="OFFER">Angebot</option><option value="PAYMENT">Zahlung</option><option value="BIRTHDAY">Geburtstag</option></select></label>
     <label class="setting-field"><span>Interner Link (optional)</span><input type="text" name="target_url" placeholder="/customer/"></label>
+    <label class="setting-field broadcast-image-field"><span>Bild (optional)</span><input type="file" name="image" accept="image/jpeg,image/png,image/webp" data-notification-image-input><small class="broadcast-image-help">JPG, PNG oder WebP · maximal 5 MB. Die Vorschau zeigt das vollständige Bild ohne Beschnitt.</small><span class="notification-image-preview" data-notification-image-preview hidden><img alt="Vorschau des ausgewählten Mitteilungsbildes"></span></label>
     <label class="setting-field broadcast-body"><span>Nachricht</span><textarea name="body" rows="4" maxlength="2000" required></textarea></label>
     <button class="button primary" type="submit">Mitteilung senden</button>
   </form>
@@ -95,6 +105,25 @@ document.querySelectorAll('[data-tip-form]').forEach(form => {
       input.value = button.dataset.tipValue;
       input.focus();
     });
+  });
+});
+
+document.querySelectorAll('[data-notification-image-input]').forEach((input) => {
+  const field = input.closest('.broadcast-image-field');
+  const preview = field && field.querySelector('[data-notification-image-preview]');
+  const image = preview && preview.querySelector('img');
+  let objectUrl = '';
+  input.addEventListener('change', () => {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = '';
+    const file = input.files && input.files[0];
+    if (!file || !preview || !image) {
+      if (preview) preview.hidden = true;
+      return;
+    }
+    objectUrl = URL.createObjectURL(file);
+    image.src = objectUrl;
+    preview.hidden = false;
   });
 });
 </script>
