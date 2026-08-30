@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 
 from PIL import Image
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -26,9 +27,9 @@ class RichNotificationImageTests(SimpleTestCase):
         self.media_dir.cleanup()
 
     @staticmethod
-    def _image_upload(*, image_format="PNG"):
+    def _image_upload(*, image_format="PNG", size=(80, 40)):
         buffer = BytesIO()
-        Image.new("RGB", (80, 40), "white").save(buffer, format=image_format)
+        Image.new("RGB", size, "white").save(buffer, format=image_format)
         extension = "jpg" if image_format == "JPEG" else image_format.lower()
         content_type = "image/jpeg" if image_format == "JPEG" else f"image/{image_format.lower()}"
         return SimpleUploadedFile(f"notification.{extension}", buffer.getvalue(), content_type=content_type)
@@ -69,3 +70,22 @@ class RichNotificationImageTests(SimpleTestCase):
             payload["image_url"],
             "https://app.samsclublounge.de/media/notification-images/example.jpg",
         )
+
+    def test_local_push_image_is_padded_to_full_frame_without_cropping_source(self):
+        request = self.factory.post(
+            "/manager/notifications/broadcast/",
+            data={"image": self._image_upload(size=(400, 900))},
+        )
+        image_url = _store_notification_image(request)
+        notification = SimpleNamespace(pk="456", kind="OFFER", data={"image_url": image_url})
+
+        push_url = _notification_image_url(notification)
+
+        self.assertIn("/media/notification-images/push/", push_url)
+        self.assertTrue(push_url.endswith("-push.jpg"))
+        storage_name = push_url.split("/media/", 1)[1]
+        self.assertTrue(default_storage.exists(storage_name))
+        with default_storage.open(storage_name, "rb") as prepared:
+            with Image.open(prepared) as image:
+                self.assertEqual(image.size, (1200, 600))
+                self.assertEqual(image.format, "JPEG")
