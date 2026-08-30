@@ -211,26 +211,6 @@ class EmailVerificationObservabilityTests(TestCase):
 
     def test_send_failure_is_persisted_with_error_details(self):
         request = self.factory.post("/accounts/resend-verification/", HTTP_HOST="testserver")
-        send_verification_email(request, self.user)
-        attempt = EmailVerificationAttempt.objects.get(user=self.user)
-        token = self._latest_mailed_token()
-
-        first = self.client.get(reverse("verify_email", args=[token]), {"attempt": str(attempt.pk)})
-        self.client.logout()
-        second = self.client.get(reverse("verify_email", args=[token]), {"attempt": str(attempt.pk)})
-
-        self.assertEqual(first.status_code, 302)
-        self.assertEqual(second.status_code, 302)
-        self.profile.refresh_from_db()
-        attempt.refresh_from_db()
-        self.assertTrue(self.profile.email_verified)
-        self.assertIsNotNone(self.profile.email_verified_at)
-        self.assertEqual(attempt.status, EmailVerificationAttempt.Status.CONFIRMED)
-        self.assertEqual(attempt.click_count, 2)
-        self.assertEqual(int(self.client.session["_auth_user_id"]), self.user.pk)
-
-    def test_send_failure_is_persisted_with_error_details(self):
-        request = self.factory.post("/accounts/resend-verification/", HTTP_HOST="testserver")
 
         with patch("cards.emailing.EmailMultiAlternatives.send", side_effect=OSError("smtp down")):
             with self.assertRaises(OSError):
