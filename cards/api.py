@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
 from .models import AppNotification, LedgerEntry, Location, Membership, PaymentRequest, PushDevice, Wallet
+from .push_services import sync_user_badge
 from .serializers import AppNotificationSerializer, LedgerEntrySerializer, LocationSerializer, MeSerializer, MoneyActionSerializer, OfferSerializer, PaymentConfirmSerializer, PaymentRequestSerializer, PushDeviceSerializer, TransactionCaseCreateSerializer, TransactionCaseReviewSerializer, TransactionCaseSerializer, WalletSerializer
 from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, active_offers_for, create_payment_request, expire_stale_payment_requests, finalize_payment_request, get_active_membership, post_wallet_entry, require_role
 
@@ -108,6 +109,7 @@ class NotificationsView(APIView):
         notification = get_object_or_404(AppNotification, pk=request.data.get("id"), recipient=request.user)
         notification.is_read = True
         notification.save(update_fields=["is_read"])
+        sync_user_badge(request.user)
         return Response(AppNotificationSerializer(notification).data)
 
 
