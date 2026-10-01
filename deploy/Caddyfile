@@ -1,4 +1,4 @@
-samsclublounge.de, www.samsclublounge.de, app.samsclublounge.de, cards.smarbiz.sbs {
+samsclublounge.de, www.samsclublounge.de, app.samsclublounge.de, api.apluscard.de, cards.smarbiz.sbs {
     encode zstd gzip
     reverse_proxy web:8000
 }
