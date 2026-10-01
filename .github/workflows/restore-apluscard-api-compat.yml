@@ -111,7 +111,16 @@ jobs:
 
           # Recreate only app containers from the existing image so updated env is loaded.
           # Do not rebuild the image and do not touch the database container.
-          docker compose up -d --no-build --force-recreate --no-deps web push-worker
+          docker compose up -d --no-build --force-recreate --no-deps web
+
+          # The worker does not need the host alias env, but recover it if the
+          # previous compose recreate left it stopped.
+          if docker ps -a --format '{{.Names}}' | grep -qx 'apluscard-push-worker-1'; then
+            docker start apluscard-push-worker-1 >/dev/null || true
+          else
+            docker compose up -d --no-build --no-deps push-worker
+          fi
+          test "$(docker inspect -f '{{.State.Running}}' apluscard-push-worker-1 2>/dev/null || echo false)" = "true"
 
           for attempt in $(seq 1 45); do
             if curl --fail --silent --show-error -H "Host: api.apluscard.de" http://127.0.0.1:8010/health/ >/dev/null; then
