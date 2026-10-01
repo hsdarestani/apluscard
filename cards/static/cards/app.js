@@ -73,11 +73,13 @@ async function refreshNotificationCount() {
     }
     notificationButton.classList.toggle('has-new-notification', count > previousNotificationCount);
     previousNotificationCount = count;
+    await syncNativeDeliveredNotifications(count);
   } catch (_) {}
 }
 
 if (notificationButton) {
   const interval = lowPowerMode ? 90000 : 45000;
+  refreshNotificationCount();
   notificationTimer = window.setInterval(refreshNotificationCount, interval);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) refreshNotificationCount();
@@ -89,6 +91,36 @@ if (notificationButton) {
 
 function nativePushPlugin() {
   return window.Capacitor?.Plugins?.PushNotifications || null;
+}
+
+async function syncNativeDeliveredNotifications(count) {
+  if (Number(count) !== 0) return;
+  const plugin = nativePushPlugin();
+  if (!plugin || !nativePlatform() || typeof plugin.removeAllDeliveredNotifications !== 'function') return;
+  try {
+    await plugin.removeAllDeliveredNotifications();
+  } catch (error) {
+    console.warn('Could not clear delivered notifications', error);
+  }
+}
+
+async function markNativeNotificationRead(notificationId) {
+  if (!notificationId) return;
+  try {
+    const response = await fetch('/api/v1/notifications/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken()
+      },
+      body: JSON.stringify({ id: notificationId })
+    });
+    if (response.ok) await refreshNotificationCount();
+  } catch (error) {
+    console.warn('Could not mark push notification as read', error);
+  }
 }
 
 function nativeBrowserPlugin() {
@@ -238,8 +270,10 @@ async function prepareNativePushListeners(plugin) {
   await plugin.addListener('pushNotificationReceived', () => {
     refreshNotificationCount();
   });
-  await plugin.addListener('pushNotificationActionPerformed', event => {
+  await plugin.addListener('pushNotificationActionPerformed', async event => {
+    const notificationId = event?.notification?.data?.notification_id;
     const target = event?.notification?.data?.url;
+    await markNativeNotificationRead(notificationId);
     window.location.assign(safePushTarget(target));
   });
 }
