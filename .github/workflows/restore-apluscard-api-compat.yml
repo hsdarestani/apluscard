@@ -1,0 +1,134 @@
+name: Restore api.apluscard.de Compatibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/restore-apluscard-api-compat.yml"
+      - "deploy/nginx/api.apluscard.de.conf"
+      - ".env.example"
+      - "deploy/Caddyfile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apluscard-api-compat
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.NEWHOST }}
+      SSH_PRIVATE_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+      EXPECTED_HOST: 217.160.50.71
+      APP_DIR: /root/apluscard
+      LEGACY_DOMAIN: api.apluscard.de
+      CANONICAL_DOMAIN: app.samsclublounge.de
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$SSH_HOST" = "$EXPECTED_HOST" || { echo "Unexpected production host: $SSH_HOST"; exit 1; }
+          test -n "$SSH_PRIVATE_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/apluscard_prod
+          chmod 600 ~/.ssh/apluscard_prod
+          ssh-keygen -y -f ~/.ssh/apluscard_prod >/dev/null
+          ssh-keyscan -t ed25519 -H "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Install compatibility host on production
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh -o BatchMode=yes -o ConnectTimeout=20 -i ~/.ssh/apluscard_prod root@"$SSH_HOST" \
+            "APP_DIR='$APP_DIR' LEGACY_DOMAIN='$LEGACY_DOMAIN' CANONICAL_DOMAIN='$CANONICAL_DOMAIN' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "$APP_DIR"
+
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("/root/apluscard/.env")
+          lines = path.read_text(encoding="utf-8").splitlines()
+          values = {}
+          order = []
+          for raw in lines:
+              if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+                  continue
+              key, value = raw.split("=", 1)
+              key = key.strip()
+              if key not in values:
+                  order.append(key)
+              values[key] = value
+
+          def merge_csv(key, additions):
+              current = [x.strip() for x in values.get(key, "").split(",") if x.strip()]
+              for item in additions:
+                  if item not in current:
+                      current.append(item)
+              values[key] = ",".join(current)
+              if key not in order:
+                  order.append(key)
+
+          merge_csv("DJANGO_ALLOWED_HOSTS", ["api.apluscard.de"])
+          merge_csv("DJANGO_CSRF_TRUSTED_ORIGINS", ["https://api.apluscard.de"])
+          path.write_text("".join(f"{key}={values[key]}\n" for key in order), encoding="utf-8")
+          path.chmod(0o600)
+          PY
+
+          cp deploy/nginx/api.apluscard.de.conf /etc/nginx/sites-available/api.apluscard.de
+          ln -sfn /etc/nginx/sites-available/api.apluscard.de /etc/nginx/sites-enabled/api.apluscard.de
+          nginx -t
+          systemctl reload nginx
+
+          docker compose up -d --build --remove-orphans
+          docker compose restart web push-worker
+
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent --show-error -H "Host: api.apluscard.de" http://127.0.0.1:8010/health/ >/dev/null; then
+              break
+            fi
+            test "$attempt" -lt 45 || { docker compose logs --tail=200 web; exit 1; }
+            sleep 2
+          done
+
+          apt-get update >/dev/null
+          DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-nginx >/dev/null
+          certbot --nginx \
+            --domain "$LEGACY_DOMAIN" \
+            --non-interactive \
+            --agree-tos \
+            --email aplus.solutiongmbh@icloud.com \
+            --redirect \
+            --keep-until-expiring
+
+          nginx -t
+          systemctl reload nginx
+          REMOTE
+
+      - name: Verify legacy host publicly
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 30); do
+            code="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/health.json" --write-out '%{http_code}' "https://$LEGACY_DOMAIN/health/" || true)"
+            if [ "$code" = "200" ] && grep -q '"status"' "$RUNNER_TEMP/health.json"; then
+              echo "LEGACY_API_COMPAT_OK=YES"
+              exit 0
+            fi
+            echo "Attempt $attempt: HTTP=$code"
+            sleep 4
+          done
+          echo "Legacy API compatibility check failed."
+          exit 1
