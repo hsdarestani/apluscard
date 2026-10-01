@@ -15,6 +15,7 @@ from .experience_forms import LocationVisualForm, TransactionCaseForm, Transacti
 from .experience_models import TransactionCase
 from .experience_services import create_transaction_case, review_transaction_case
 from .models import AppNotification, LedgerEntry, Location, Membership, Wallet
+from .push_services import sync_user_badge
 from .services import MANAGER_ROLES, OWNER_ROLES, STAFF_ROLES, get_active_membership, require_role
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,7 @@ def notification_read(request, notification_id):
     if not notification.is_read:
         notification.is_read = True
         notification.save(update_fields=["is_read"])
+    sync_user_badge(request.user)
     target = notification.data.get("url") if isinstance(notification.data, dict) else None
     if target and target.startswith("/"):
         return redirect(target)
@@ -120,6 +122,7 @@ def notification_read(request, notification_id):
 @require_POST
 def notifications_read_all(request):
     request.user.app_notifications.filter(is_read=False).update(is_read=True)
+    sync_user_badge(request.user)
     messages.success(request, "Alle Mitteilungen wurden als gelesen markiert.")
     return redirect("notification_center")
 
