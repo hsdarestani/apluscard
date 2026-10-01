@@ -27,9 +27,16 @@ jobs:
       EXPECTED_HOST: 217.160.50.71
       APP_DIR: /root/apluscard
       LEGACY_DOMAIN: api.apluscard.de
-      CANONICAL_DOMAIN: app.samsclublounge.de
 
     steps:
+      - name: Checkout compatibility config
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          sparse-checkout: |
+            deploy/nginx/api.apluscard.de.conf
+          sparse-checkout-cone-mode: false
+
       - name: Configure SSH
         shell: bash
         run: |
@@ -43,63 +50,73 @@ jobs:
           ssh-keyscan -t ed25519 -H "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      - name: Upload compatibility nginx config
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scp -i ~/.ssh/apluscard_prod deploy/nginx/api.apluscard.de.conf root@"$SSH_HOST":/tmp/api.apluscard.de.conf
+
       - name: Install compatibility host on production
         shell: bash
         run: |
           set -Eeuo pipefail
           ssh -o BatchMode=yes -o ConnectTimeout=20 -i ~/.ssh/apluscard_prod root@"$SSH_HOST" \
-            "APP_DIR='$APP_DIR' LEGACY_DOMAIN='$LEGACY_DOMAIN' CANONICAL_DOMAIN='$CANONICAL_DOMAIN' bash -se" <<'REMOTE'
+            "APP_DIR='$APP_DIR' LEGACY_DOMAIN='$LEGACY_DOMAIN' bash -se" <<'REMOTE'
           set -Eeuo pipefail
           cd "$APP_DIR"
-
-          git fetch --prune origin main
-          git checkout -B main origin/main
-          git reset --hard origin/main
+          test -s .env
+          test -s /tmp/api.apluscard.de.conf
 
           python3 - <<'PY'
           from pathlib import Path
 
           path = Path("/root/apluscard/.env")
-          lines = path.read_text(encoding="utf-8").splitlines()
-          values = {}
-          order = []
-          for raw in lines:
-              if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+          raw_lines = path.read_text(encoding="utf-8").splitlines()
+          output = []
+          seen = set()
+
+          additions = {
+              "DJANGO_ALLOWED_HOSTS": "api.apluscard.de",
+              "DJANGO_CSRF_TRUSTED_ORIGINS": "https://api.apluscard.de",
+          }
+
+          for raw in raw_lines:
+              if "=" not in raw or raw.lstrip().startswith("#"):
+                  output.append(raw)
                   continue
               key, value = raw.split("=", 1)
               key = key.strip()
-              if key not in values:
-                  order.append(key)
-              values[key] = value
+              if key not in additions:
+                  output.append(raw)
+                  continue
+              items = [x.strip() for x in value.split(",") if x.strip()]
+              if additions[key] not in items:
+                  items.append(additions[key])
+              output.append(f"{key}={','.join(items)}")
+              seen.add(key)
 
-          def merge_csv(key, additions):
-              current = [x.strip() for x in values.get(key, "").split(",") if x.strip()]
-              for item in additions:
-                  if item not in current:
-                      current.append(item)
-              values[key] = ",".join(current)
-              if key not in order:
-                  order.append(key)
+          for key, value in additions.items():
+              if key not in seen:
+                  output.append(f"{key}={value}")
 
-          merge_csv("DJANGO_ALLOWED_HOSTS", ["api.apluscard.de"])
-          merge_csv("DJANGO_CSRF_TRUSTED_ORIGINS", ["https://api.apluscard.de"])
-          path.write_text("".join(f"{key}={values[key]}\n" for key in order), encoding="utf-8")
+          path.write_text("\n".join(output) + "\n", encoding="utf-8")
           path.chmod(0o600)
           PY
 
-          cp deploy/nginx/api.apluscard.de.conf /etc/nginx/sites-available/api.apluscard.de
+          install -m 644 /tmp/api.apluscard.de.conf /etc/nginx/sites-available/api.apluscard.de
+          rm -f /tmp/api.apluscard.de.conf
           ln -sfn /etc/nginx/sites-available/api.apluscard.de /etc/nginx/sites-enabled/api.apluscard.de
           nginx -t
           systemctl reload nginx
 
-          docker compose up -d --build --remove-orphans
+          # Only restart existing containers so server-local code changes stay untouched.
           docker compose restart web push-worker
 
           for attempt in $(seq 1 45); do
             if curl --fail --silent --show-error -H "Host: api.apluscard.de" http://127.0.0.1:8010/health/ >/dev/null; then
               break
             fi
-            test "$attempt" -lt 45 || { docker compose logs --tail=200 web; exit 1; }
+            test "$attempt" -lt 45 || { docker compose ps; docker compose logs --tail=120 web; exit 1; }
             sleep 2
           done
 
@@ -122,8 +139,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           for attempt in $(seq 1 30); do
-            code="$(curl --silent --show-error --max-time 20 -o "$RUNNER_TEMP/health.json" --write-out '%{http_code}' "https://$LEGACY_DOMAIN/health/" || true)"
-            if [ "$code" = "200" ] && grep -q '"status"' "$RUNNER_TEMP/health.json"; then
+            body="$RUNNER_TEMP/health.json"
+            code="$(curl --silent --show-error --max-time 20 -o "$body" --write-out '%{http_code}' "https://$LEGACY_DOMAIN/health/" || true)"
+            if [ "$code" = "200" ] && grep -q '"status"' "$body"; then
               echo "LEGACY_API_COMPAT_OK=YES"
               exit 0
             fi
