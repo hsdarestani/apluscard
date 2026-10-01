@@ -1,0 +1,51 @@
+name: Check cards.smarbiz.sbs Legacy Domain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-cards-legacy-domain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check DNS and HTTPS
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "=== DNS ==="
+          getent ahostsv4 cards.smarbiz.sbs || true
+          echo "=== Legacy headers ==="
+          curl --silent --show-error --max-time 25 \
+            -D "$RUNNER_TEMP/legacy.headers" \
+            -o "$RUNNER_TEMP/legacy.body" \
+            -w "HTTP=%{http_code} FINAL=%{url_effective}\n" \
+            https://cards.smarbiz.sbs/health/
+          cat "$RUNNER_TEMP/legacy.headers"
+          echo "BODY:"
+          cat "$RUNNER_TEMP/legacy.body"
+          echo
+          echo "=== Canonical ==="
+          canonical_code="$(curl --silent --show-error --max-time 25 -o "$RUNNER_TEMP/canonical.body" -w '%{http_code}' https://app.samsclublounge.de/health/)"
+          echo "HTTP=$canonical_code"
+          cat "$RUNNER_TEMP/canonical.body"
+          echo
+          test "$canonical_code" = "200"
+
+          legacy_code="$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END {print code}' "$RUNNER_TEMP/legacy.headers")"
+          case "$legacy_code" in
+            200|301|302|307|308) ;;
+            *) echo "Unexpected legacy HTTP status: $legacy_code"; exit 1 ;;
+          esac
+
+          if grep -qi '^location:.*cards\.smarbiz\.sbs' "$RUNNER_TEMP/legacy.headers"; then
+            echo "Legacy host redirects to itself; redirect loop risk."
+            exit 1
+          fi
+
+          echo "CARDS_LEGACY_DOMAIN_REACHABLE=YES"
