@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase, override_settings
@@ -7,7 +8,7 @@ from django.urls import reverse
 from .management.commands.run_push_worker import enqueue_recent_notifications
 from .models import AppNotification, Business, PushDevice, Wallet
 from .push_models import PushDelivery
-from .push_services import send_notification
+from .push_services import send_notification, sync_user_badge
 from .wallet_pass import _pass_files
 
 
@@ -133,3 +134,60 @@ class SamsWalletDesignTests(TestCase):
         self.assertIn("strip@2x.png", files)
         self.assertNotIn("thumbnail.png", files)
         self.assertGreater(len(files["strip@2x.png"]), 1000)
+
+
+class NotificationBadgeSyncTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(username="badge-member", password="secret")
+        self.business = Business.objects.create(name="Badge Business", slug="badge-business")
+        self.notification = AppNotification.objects.create(
+            recipient=self.user,
+            business=self.business,
+            kind=AppNotification.Kind.SYSTEM,
+            title="Badge Test",
+            body="Bitte lesen.",
+        )
+        self.client.force_login(self.user)
+
+    @patch("cards.experience_views.sync_user_badge")
+    def test_web_read_syncs_native_badge(self, sync_badge):
+        response = self.client.post(reverse("notification_read", args=[self.notification.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.notification.refresh_from_db()
+        self.assertTrue(self.notification.is_read)
+        sync_badge.assert_called_once()
+        self.assertEqual(sync_badge.call_args.args[0].pk, self.user.pk)
+
+    @patch("cards.experience_views.sync_user_badge")
+    def test_read_all_syncs_native_badge(self, sync_badge):
+        AppNotification.objects.create(
+            recipient=self.user,
+            business=self.business,
+            kind=AppNotification.Kind.SYSTEM,
+            title="Noch eine",
+            body="Auch lesen.",
+        )
+        response = self.client.post(reverse("notifications_read_all"))
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(self.user.app_notifications.filter(is_read=False).exists())
+        sync_badge.assert_called_once()
+
+    @patch("cards.api.sync_user_badge")
+    def test_api_read_syncs_native_badge(self, sync_badge):
+        response = self.client.post(
+            reverse("api_notifications"),
+            data=json.dumps({"id": self.notification.pk}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.notification.refresh_from_db()
+        self.assertTrue(self.notification.is_read)
+        sync_badge.assert_called_once()
+
+    @override_settings(PUSH_NOTIFICATIONS_ENABLED=False)
+    def test_badge_sync_is_safe_without_push_runtime(self):
+        result = sync_user_badge(self.user)
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["ios"], 0)
+        self.assertEqual(result["errors"], [])
