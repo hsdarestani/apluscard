@@ -109,8 +109,9 @@ jobs:
           nginx -t
           systemctl reload nginx
 
-          # Only restart existing containers so server-local code changes stay untouched.
-          docker compose restart web push-worker
+          # Recreate only app containers from the existing image so updated env is loaded.
+          # Do not rebuild the image and do not touch the database container.
+          docker compose up -d --no-build --force-recreate --no-deps web push-worker
 
           for attempt in $(seq 1 45); do
             if curl --fail --silent --show-error -H "Host: api.apluscard.de" http://127.0.0.1:8010/health/ >/dev/null; then
