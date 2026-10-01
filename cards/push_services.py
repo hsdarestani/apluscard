@@ -284,6 +284,67 @@ def _send_ios(notification, devices):
     return success_count, errors
 
 
+
+def sync_user_badge(user):
+    """Synchronize the native app icon badge with the server unread count.
+
+    iOS badges are set by APNs and otherwise remain stale even after the
+    corresponding AppNotification is marked read. Android launchers usually
+    derive their dot/count from delivered notifications; the web shell clears
+    those locally when the unread count reaches zero.
+    """
+    unread_count = AppNotification.objects.filter(recipient=user, is_read=False).count()
+    devices = list(
+        PushDevice.objects.filter(
+            user=user,
+            is_active=True,
+            platform=PushDevice.Platform.IOS,
+        ).order_by("-updated_at")
+    )
+    result = {"count": unread_count, "ios": 0, "errors": []}
+    if not devices or not settings.PUSH_NOTIFICATIONS_ENABLED:
+        return result
+
+    try:
+        auth_token = _apns_auth_token()
+    except Exception as exc:
+        logger.exception("Could not prepare APNs badge sync for user %s.", getattr(user, "pk", "?"))
+        result["errors"].append(str(exc))
+        return result
+
+    endpoint = "https://api.sandbox.push.apple.com" if settings.APNS_USE_SANDBOX else "https://api.push.apple.com"
+    payload = {"aps": {"badge": max(0, int(unread_count))}}
+    headers = {
+        "authorization": f"bearer {auth_token}",
+        "apns-topic": settings.IOS_BUNDLE_ID,
+        "apns-push-type": "alert",
+        "apns-priority": "10",
+    }
+    invalid_ids = []
+    with httpx.Client(http2=True, timeout=settings.PUSH_HTTP_TIMEOUT_SECONDS) as client:
+        for device in devices:
+            try:
+                response = client.post(f"{endpoint}/3/device/{device.token}", headers=headers, json=payload)
+            except Exception as exc:
+                logger.warning("iOS badge sync failed for device %s: %s", device.pk, exc)
+                result["errors"].append(f"iOS Gerät {device.pk}: {exc}")
+                continue
+            if response.status_code == 200:
+                result["ios"] += 1
+                continue
+            try:
+                reason = response.json().get("reason", "")
+            except (ValueError, AttributeError):
+                reason = response.text[:200]
+            reason = reason or "Unbekannter APNs-Fehler"
+            if response.status_code in {400, 410} and reason in {"BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"}:
+                invalid_ids.append(device.pk)
+            result["errors"].append(f"iOS Gerät {device.pk}: HTTP {response.status_code} {reason}")
+    if invalid_ids:
+        PushDevice.objects.filter(pk__in=invalid_ids).update(is_active=False)
+    return result
+
+
 def send_notification(notification):
     devices = list(
         PushDevice.objects.filter(
